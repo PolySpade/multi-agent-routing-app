@@ -6,7 +6,7 @@ from typing import List, Tuple
 from fastapi import BackgroundTasks # for handling background agents
 
 #Agent Functions
-# from app.agents.rainfall_agent import scrape_pagasa_rainfall_data
+from app.environment.graph_manager import DynamicGraphEnvironment
 
 # --- 1. Data Models (using Pydantic) ---
 # This defines the expected JSON structure for a request to the /api/route endpoint.
@@ -18,15 +18,15 @@ class RouteRequest(BaseModel):
 # --- 2. Core Simulation Components (Placeholders) ---
 # These are the classes from your methodology. For now, they are simple placeholders.
 
-class DynamicGraphEnvironment:
-    """
-    Manages the road network graph (using NetworkX and OSMnx).
-    This class will load the map data and handle dynamic updates to edge weights (risk scores).
-    """
-    def __init__(self):
-        # TODO: Implement graph loading from OSMnx as per Section 4.4.2.
-        print("DynamicGraphEnvironment initialized.")
-        self.graph = None # This will hold the NetworkX graph object.
+# class DynamicGraphEnvironment:
+#     """
+#     Manages the road network graph (using NetworkX and OSMnx).
+#     This class will load the map data and handle dynamic updates to edge weights (risk scores).
+#     """
+#     def __init__(self):
+#         # TODO: Implement graph loading from OSMnx as per Section 4.4.2.
+#         print("DynamicGraphEnvironment initialized.")
+#         self.graph = None # This will hold the NetworkX graph object.
 
 class RoutingAgent:
     """

@@ -4,6 +4,7 @@
 .venv/
 __pycache__/
 *.pyc
-
+cache/
+**/cache/
 # Environment variables
 .env
