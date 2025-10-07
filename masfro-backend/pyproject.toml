@@ -6,5 +6,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.118.0",
+    "networkx>=3.4.2",
+    "osmnx>=2.0.6",
+    "selenium>=4.36.0",
     "uvicorn>=0.37.0",
+    "webdriver-manager>=4.0.2",
 ]

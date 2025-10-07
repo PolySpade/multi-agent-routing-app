@@ -3,6 +3,10 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Tuple
+from fastapi import BackgroundTasks # for handling background agents
+
+#Agent Functions
+# from app.agents.rainfall_agent import scrape_pagasa_rainfall_data
 
 # --- 1. Data Models (using Pydantic) ---
 # This defines the expected JSON structure for a request to the /api/route endpoint.
@@ -61,9 +65,7 @@ app = FastAPI(
 environment = DynamicGraphEnvironment()
 routing_agent = RoutingAgent(environment)
 
-
 # --- 4. API Endpoints ---
-
 @app.post("/api/route", tags=["Routing"])
 async def get_route(request: RouteRequest) -> dict:
     """
@@ -81,3 +83,21 @@ async def get_route(request: RouteRequest) -> dict:
 async def read_root():
     """A simple endpoint to check if the server is running."""
     return {"message": "Welcome to the MAS-FRO Backend API"}
+
+
+
+
+# @app.post("/api/admin/update-hazards", tags=["Admin"])
+# async def trigger_hazard_updates(background_tasks: BackgroundTasks):
+#     """
+#     Triggers the background agents to scrape for the latest hazard data.
+#     This endpoint returns immediately.
+#     """
+#     print("API CALL: Received request to update hazard data.")
+
+#     # Add the scraping functions to the background tasks queue
+#     # Pass the shared 'environment' object so the agent can update it
+#     background_tasks.add_task(scrape_pagasa_rainfall_data, environment)
+#     # background_tasks.add_task(scrape_social_media_data, environment) # For your scout agent
+
+#     return {"message": "Hazard data update process started in the background."}
