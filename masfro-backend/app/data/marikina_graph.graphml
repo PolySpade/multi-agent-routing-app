@@ -1,0 +1,84 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="d10" for="edge" attr.name="length" attr.type="string" />
+  <key id="d9" for="edge" attr.name="reversed" attr.type="string" />
+  <key id="d8" for="edge" attr.name="oneway" attr.type="string" />
+  <key id="d7" for="edge" attr.name="highway" attr.type="string" />
+  <key id="d6" for="edge" attr.name="osmid" attr.type="string" />
+  <key id="d5" for="node" attr.name="street_count" attr.type="string" />
+  <key id="d4" for="node" attr.name="x" attr.type="string" />
+  <key id="d3" for="node" attr.name="y" attr.type="string" />
+  <key id="d2" for="graph" attr.name="crs" attr.type="string" />
+  <key id="d1" for="graph" attr.name="created_with" attr.type="string" />
+  <key id="d0" for="graph" attr.name="created_date" attr.type="string" />
+  <graph edgedefault="directed">
+    <node id="414273249">
+      <data key="d3">14.6255828</data>
+      <data key="d4">121.0833706</data>
+      <data key="d5">2</data>
+    </node>
+    <node id="718336277">
+      <data key="d3">14.6262803</data>
+      <data key="d4">121.0826862</data>
+      <data key="d5">2</data>
+    </node>
+    <node id="1288805577">
+      <data key="d3">14.625855</data>
+      <data key="d4">121.0830995</data>
+      <data key="d5">2</data>
+    </node>
+    <node id="1288805581">
+      <data key="d3">14.6254723</data>
+      <data key="d4">121.0836647</data>
+      <data key="d5">2</data>
+    </node>
+    <node id="3343844038">
+      <data key="d3">14.6253971</data>
+      <data key="d4">121.0838061</data>
+      <data key="d5">2</data>
+    </node>
+    <node id="4457331021">
+      <data key="d3">14.6253331</data>
+      <data key="d4">121.0838812</data>
+      <data key="d5">2</data>
+    </node>
+    <edge source="414273249" target="1288805577" id="0">
+      <data key="d6">35343633</data>
+      <data key="d7">unclassified</data>
+      <data key="d8">True</data>
+      <data key="d9">False</data>
+      <data key="d10">42.034408632550765</data>
+    </edge>
+    <edge source="1288805577" target="718336277" id="0">
+      <data key="d6">35343633</data>
+      <data key="d7">unclassified</data>
+      <data key="d8">True</data>
+      <data key="d9">False</data>
+      <data key="d10">64.91407725293038</data>
+    </edge>
+    <edge source="1288805581" target="414273249" id="0">
+      <data key="d6">35343633</data>
+      <data key="d7">unclassified</data>
+      <data key="d8">True</data>
+      <data key="d9">False</data>
+      <data key="d10">33.9446472594625</data>
+    </edge>
+    <edge source="3343844038" target="1288805581" id="0">
+      <data key="d6">35343633</data>
+      <data key="d7">unclassified</data>
+      <data key="d8">True</data>
+      <data key="d9">False</data>
+      <data key="d10">17.360067282017347</data>
+    </edge>
+    <edge source="4457331021" target="3343844038" id="0">
+      <data key="d6">35343633</data>
+      <data key="d7">unclassified</data>
+      <data key="d8">True</data>
+      <data key="d9">False</data>
+      <data key="d10">10.767239083526981</data>
+    </edge>
+    <data key="d0">2025-10-07 15:53:07</data>
+    <data key="d1">OSMnx 2.0.6</data>
+    <data key="d2">epsg:4326</data>
+  </graph>
+</graphml>
