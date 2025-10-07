@@ -63,6 +63,26 @@ const MARIKINA_BOUNDARY_RING = [
 ]; //backup boundary ring
 
 const FLOOD_SERIES = ['rr01', 'rr02', 'rr03', 'rr04'];
+const FLOOD_LAYER_OPACITY = 1;
+const FLOOD_COLOR_MODE = process.env.NEXT_PUBLIC_FLOOD_COLOR_MODE || 'aqua';
+const FLOOD_COLOR_PRESETS = {
+  screen: {
+    description: 'Grayscale ramp with screen-style brightness',
+    baseColor: { r: 0, g: 0, b: 0 },
+    highlightColor: { r: 255, g: 255, b: 255 },
+    alphaBoost: 255,
+    alphaExponent: 0.75,
+    minAlpha: 0,
+  },
+  aqua: {
+    description: 'Blue gradient with strong opacity floor',
+    baseColor: { r: 24, g: 116, b: 205 },
+    highlightColor: { r: 96, g: 200, b: 255 },
+    alphaBoost: 180,
+    alphaExponent: 1,
+    minAlpha: 160,
+  },
+};
 const FLOOD_FRAME_SETS = FLOOD_SERIES.reduce((acc, code) => {
   acc[code] = Array.from({ length: 18 }, (_, idx) => `/data/timed_floodmaps/${code}/${code}-${idx + 1}.tif`);
   return acc;
@@ -94,7 +114,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/navigation-night-v1',
+      style: 'mapbox://styles/mapbox/dark-v11', //navigation-night-v1
       center: initialCenterRef.current,
       zoom: initialZoomRef.current,
     });
@@ -546,6 +566,40 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       return Math.max(0, Math.min(255, Math.round(scaled)));
     };
 
+    const colorConfig = FLOOD_COLOR_PRESETS[FLOOD_COLOR_MODE] || FLOOD_COLOR_PRESETS.aqua;
+    const {
+      baseColor,
+      highlightColor,
+      alphaBoost = 255,
+      alphaExponent = 1,
+      minAlpha = 0,
+    } = colorConfig;
+
+    const interpolateColor = (normalized) => ({
+      r: Math.round(baseColor.r + (highlightColor.r - baseColor.r) * normalized),
+      g: Math.round(baseColor.g + (highlightColor.g - baseColor.g) * normalized),
+      b: Math.round(baseColor.b + (highlightColor.b - baseColor.b) * normalized),
+    });
+
+    const computeVisibleAlpha = (normalized, alphaSample = 0) => {
+      if (!Number.isFinite(normalized) || normalized <= 0) return 0;
+      const normalizedAdjusted = Math.pow(normalized, alphaExponent);
+      const boostAlpha = Math.round(normalizedAdjusted * alphaBoost);
+      const combined = Math.max(alphaSample, boostAlpha);
+      if (combined <= 0) return 0;
+      return Math.min(255, Math.max(minAlpha, combined));
+    };
+
+    const applyColorRamp = (normalized, alphaSample = 0) => {
+      const clampedNormalized = Math.max(0, Math.min(1, normalized));
+      const visibleAlpha = computeVisibleAlpha(clampedNormalized, alphaSample);
+      if (visibleAlpha === 0) {
+        return { r: 0, g: 0, b: 0, a: 0 };
+      }
+      const { r, g, b } = interpolateColor(clampedNormalized);
+      return { r, g, b, a: visibleAlpha };
+    };
+
     const toRgbaArray = () => {
       const rgba = new Uint8ClampedArray(totalPixels * 4);
 
@@ -567,13 +621,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       if (samplesPerPixel === 2 && rasters.length >= totalPixels * 2) {
         const stats = computeChannelStats(0);
         for (let src = 0, dest = 0; src < totalPixels * 2; src += 2, dest += 4) {
-          const intensity = normalizeSample(rasters[src], 0);
-          const alpha = normalizeSample(rasters[src + 1], 1);
-          const baseAlpha = scaleToAlpha(rasters[src], stats);
-          rgba[dest] = intensity;
-          rgba[dest + 1] = intensity;
-          rgba[dest + 2] = intensity;
-          rgba[dest + 3] = Math.max(alpha, baseAlpha);
+          const rawValue = rasters[src];
+          const normalized = scaleToAlpha(rawValue, stats) / 255;
+          const alphaSample = normalizeSample(rasters[src + 1], 1);
+          const { r, g, b, a } = applyColorRamp(normalized, alphaSample);
+          rgba[dest] = r;
+          rgba[dest + 1] = g;
+          rgba[dest + 2] = b;
+          rgba[dest + 3] = a;
         }
         return rgba;
       }
@@ -583,12 +638,12 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         const sampleIndex = i * stride;
         const rawValue = rasters[sampleIndex];
         const alpha = scaleToAlpha(rawValue, stats);
-        const visibleAlpha = alpha === 0 ? 0 : Math.max(110, alpha);
         const normalized = alpha / 255;
-        rgba[dest] = Math.round(40 + 120 * normalized);
-        rgba[dest + 1] = Math.round(120 + 95 * normalized);
-        rgba[dest + 2] = Math.round(200 + 30 * normalized);
-        rgba[dest + 3] = visibleAlpha;
+        const { r, g, b, a } = applyColorRamp(normalized, alpha);
+        rgba[dest] = r;
+        rgba[dest + 1] = g;
+        rgba[dest + 2] = b;
+        rgba[dest + 3] = a;
       }
 
       return rgba;
@@ -647,7 +702,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           id: 'flood-raster',
           type: 'raster',
           source: 'flood-raster',
-          paint: { 'raster-opacity': 0.45 },
+          paint: { 'raster-opacity': FLOOD_LAYER_OPACITY },
         });
       } else if (typeof floodSource.updateImage === 'function') {
         floodSource.updateImage({ url: dataUrl, coordinates });
@@ -658,7 +713,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           id: 'flood-raster',
           type: 'raster',
           source: 'flood-raster',
-          paint: { 'raster-opacity': 0.45 },
+          paint: { 'raster-opacity': FLOOD_LAYER_OPACITY },
         });
       }
     },
@@ -691,6 +746,10 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         clearFloodLayer();
         return;
       }
+      console.debug(
+        `[FloodOverlay] Rendering manual frame ${floodFrameIndex + 1} of ${frames.length} for series ${floodSeries}`,
+        frame.url
+      );
       renderFloodLayer(frame);
     };
     run();
@@ -712,6 +771,10 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       }
       const step = () => {
         if (cancelled) return;
+        console.debug(
+          `[FloodOverlay] Rendering auto frame ${frameIndex + 1} of ${frames.length} for series ${floodSeries}`,
+          frames[frameIndex]?.url
+        );
         renderFloodLayer(frames[frameIndex]);
         frameIndex = (frameIndex + 1) % frames.length;
         timeoutId = setTimeout(step, 1500);
