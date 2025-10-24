@@ -5,6 +5,7 @@ import os
 import json
 import pickle
 import hashlib
+import csv
 from datetime import datetime
 
 from selenium import webdriver
@@ -21,9 +22,6 @@ class ScoutAgent(BaseAgent):
     """
     The ScoutAgent is responsible for scraping real-time data from social media
     (X.com/Twitter) to identify flood-related events in Marikina City.
-
-    It inherits from BaseAgent and is designed to be controlled by a central
-    simulation loop via its setup(), step(), and shutdown() methods.
     """
     def __init__(self, agent_id: str, environment, email: str, password: str):
         super().__init__(agent_id, environment)
@@ -116,39 +114,93 @@ class ScoutAgent(BaseAgent):
     # The following methods are encapsulated within the agent class.
 
     def _login_to_twitter(self, use_saved_session=True):
-        # (This is the corrected login_to_twitter method)
+        """
+        Logs into Twitter/X.com using Selenium. Attempts to restore a saved session
+        first, then performs a fresh login if needed.
+        
+        Returns:
+            WebDriver instance if successful, None otherwise.
+        """
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        # Standard options
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        # ... (add any other options you need)
         
-        # FIX: The driver is now assigned directly to self.driver
+        # Anti-bot detection options
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument('--disable-infobars')
+        chrome_options.add_argument('--start-maximized')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-gpu")
+        custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
+        chrome_options.add_argument(f'user-agent={custom_user_agent}')
+
+        # Experimental options to make it look less like a bot
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
         self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.maximize_window()
 
         try:
-            # FIX: Calls to helper methods no longer pass the driver argument.
-            # They will use self.driver internally.
+            # Try to restore saved session first
             if use_saved_session and self._load_cookies():
                 if self._verify_login_status():
                     print(f"[{self.agent_id}] Successfully restored session.")
-                    return self.driver # Return the instance attached to self
+                    return self.driver
             
+            # Perform fresh login
             print(f"[{self.agent_id}] Performing fresh login...")
-            # ...(The rest of your login logic for filling in email/password)...
-            # Ensure it uses self.driver to perform actions.
-            # For example:
             self.driver.get("https://x.com/i/flow/login")
-            # ...
+            
+            # Wait for and enter email/username
+            print(f"[{self.agent_id}] Entering email...")
+            email_input = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[autocomplete='username']"))
+            )
+            email_input.send_keys(self.email)
+            email_input.send_keys(Keys.RETURN)
+            time.sleep(2)
+            
+            # Sometimes Twitter asks for username verification (unusual activity)
+            try:
+                print(f"[{self.agent_id}] Checking for username verification prompt...")
+                username_input = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[data-testid='ocfEnterTextTextInput']"))
+                )
+                # Extract username from email (assumes email format: username@domain.com)
+                username = self.email.split('@')[0]
+                username_input.send_keys(username)
+                username_input.send_keys(Keys.RETURN)
+                time.sleep(2)
+                print(f"[{self.agent_id}] Username verification completed.")
+            except TimeoutException:
+                print(f"[{self.agent_id}] No username verification required.")
+            
+            # Wait for and enter password
+            print(f"[{self.agent_id}] Entering password...")
+            password_input = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='password']"))
+            )
+            password_input.send_keys(self.password)
+            password_input.send_keys(Keys.RETURN)
+            
+            # Wait for successful login (home timeline appears)
+            print(f"[{self.agent_id}] Waiting for login to complete...")
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "[aria-label='Home timeline']"))
+            )
             
             print(f"[{self.agent_id}] Fresh login successful!")
-            self._save_cookies() # FIX: Call without arguments
+            self._save_cookies()
             return self.driver
             
         except Exception as e:
             print(f"[{self.agent_id}] An error occurred during login: {e}")
-            self.driver.quit()
-            self.driver = None # Ensure driver is reset on failure
+            if self.driver:
+                self.driver.quit()
+            self.driver = None
             return None
 
 
@@ -158,7 +210,7 @@ class ScoutAgent(BaseAgent):
         """
         if search_url is None:
             date = datetime.now().strftime("%Y-%m-%d")
-            search_url = f'https://x.com/search?q=%22Marikina%22%20(Baha%20OR%20Flood%20OR%20Ulan%20OR%20Rain%20OR%20pagbaha%20OR%20%22heavy%20rain%22%20OR%20%22water%20level%22)%20since:{date}&f=live'
+            search_url = f'https://x.com/search?q=%22Marikina%22%20(Baha%20OR%20Flood%20OR%20Ulan%20OR%20Rain%20OR%20pagbaha%20OR%20%22heavy%20rain%22%20OR%20%22water%20level%22)%20since:2025-10-01&f=live'
 
         try:
             print(f"[{self.agent_id}] Navigating to search URL...")

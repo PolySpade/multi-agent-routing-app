@@ -8,9 +8,6 @@ const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 const DEFAULT_ROUTING_ENDPOINT = process.env.NEXT_PUBLIC_ROUTING_ENDPOINT || 'http://127.0.0.1:8000/api/route';
 const BACKEND_ROUTING_DISABLED = process.env.NEXT_PUBLIC_DISABLE_BACKEND_ROUTING === 'true';
 
-const FLOOD_SERIES_CODES = ['rr01', 'rr02', 'rr03', 'rr04'];
-const FLOOD_FRAME_COUNT = 18;
-
 const formatDistance = (meters) => {
   if (meters == null) return '—';
   if (meters >= 1000) {
@@ -40,13 +37,6 @@ export default function Home() {
   const [message, setMessage] = useState('Click "Select Start Point" button, then click on the map.');
   const [selectionMode, setSelectionMode] = useState(null); // 'start', 'end', or null
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
-  const [floodEnabled, setFloodEnabled] = useState(false);
-  const [floodSeries, setFloodSeries] = useState('rr01');
-  const [floodFrameIndex, setFloodFrameIndex] = useState(null);
-  const floodFrameOptions = useMemo(
-    () => Array.from({ length: FLOOD_FRAME_COUNT }, (_, idx) => ({ label: `Frame ${idx + 1}`, value: idx })),
-    []
-  );
 
   // Dynamically import the MapboxMap component with SSR turned off
   const MapboxMap = useMemo(() => dynamic(() => import('@/components/MapboxMap'), { 
@@ -277,26 +267,6 @@ export default function Home() {
   }, []);
   const handleShowInstructions = () => {
     setMessage('Tip: Select start, then destination, and press “Find Safest Route” when both are set.');
-  };
-
-  const handleFloodToggle = () => {
-    setFloodEnabled((prev) => {
-      const next = !prev;
-      if (!next) {
-        setFloodFrameIndex(null);
-      }
-      return next;
-    });
-  };
-
-  const handleFloodSeriesChange = (event) => {
-    setFloodSeries(event.target.value);
-    setFloodFrameIndex(null);
-  };
-
-  const handleFloodFrameChange = (event) => {
-    const value = event.target.value;
-    setFloodFrameIndex(value === 'auto' ? null : Number(value));
   };
 
   const togglePanel = () => {
@@ -653,92 +623,6 @@ export default function Home() {
             )}
 
             {!isPanelCollapsed && (
-              <section
-                style={{
-                  background: 'rgba(30, 41, 59, 0.35)',
-                  borderRadius: '18px',
-                  padding: '1.5rem',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ margin: 0, fontSize: '0.95rem', textTransform: 'uppercase', letterSpacing: '0.08rem', color: 'rgba(226,232,240,0.8)' }}>
-                    Flood Overlay
-                  </h3>
-                  <button
-                    onClick={handleFloodToggle}
-                    style={{
-                      background: floodEnabled ? 'rgba(248, 113, 113, 0.35)' : 'rgba(34,197,94,0.35)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
-                      borderRadius: '999px',
-                      padding: '0.4rem 0.9rem',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      fontWeight: 600
-                    }}
-                  >
-                    {floodEnabled ? 'Turn Off' : 'Turn On'}
-                  </button>
-                </div>
-                <label style={{ fontSize: '0.8rem', letterSpacing: '0.05rem', textTransform: 'uppercase', opacity: 0.7 }}>
-                  Series
-                  <select
-                    value={floodSeries}
-                    onChange={handleFloodSeriesChange}
-                    disabled={!floodEnabled}
-                    style={{
-                      width: '100%',
-                      marginTop: '0.45rem',
-                      padding: '0.65rem',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      background: 'rgba(15,23,42,0.35)',
-                      color: 'white',
-                      cursor: floodEnabled ? 'pointer' : 'not-allowed'
-                    }}
-                  >
-                    {FLOOD_SERIES_CODES.map((code) => (
-                      <option key={code} value={code} style={{ color: 'black' }}>
-                        {code.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ fontSize: '0.8rem', letterSpacing: '0.05rem', textTransform: 'uppercase', opacity: 0.7 }}>
-                  Frame
-                  <select
-                    value={floodFrameIndex === null ? 'auto' : String(floodFrameIndex)}
-                    onChange={handleFloodFrameChange}
-                    disabled={!floodEnabled}
-                    style={{
-                      width: '100%',
-                      marginTop: '0.45rem',
-                      padding: '0.65rem',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      background: 'rgba(15,23,42,0.35)',
-                      color: 'white',
-                      cursor: floodEnabled ? 'pointer' : 'not-allowed'
-                    }}
-                  >
-                    <option value="auto" style={{ color: 'black' }}>
-                      Auto (loop)
-                    </option>
-                    {floodFrameOptions.map(({ label, value }) => (
-                      <option key={value} value={value} style={{ color: 'black' }}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </section>
-            )}
-
-            {!isPanelCollapsed && (
               <section style={{
                 marginTop: 'auto',
                 background: 'rgba(15, 23, 42, 0.3)',
@@ -824,9 +708,6 @@ export default function Home() {
             routePath={routePath}
             onMapClick={handleMapClick}
             panelCollapsed={isPanelCollapsed}
-            floodEnabled={floodEnabled}
-            floodSeries={floodSeries}
-            floodFrameIndex={floodFrameIndex}
           />
 
           <div style={{
