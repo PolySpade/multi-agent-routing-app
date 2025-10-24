@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Tuple
 from fastapi import BackgroundTasks # for handling background agents
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 #Agent Functions
 from app.environment.graph_manager import DynamicGraphEnvironment
@@ -59,6 +61,21 @@ app = FastAPI(
     description="API for the Multi-Agent System for Flood Route Optimization.",
     version="0.1.0"
 )
+
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/data", StaticFiles(directory="app/data"), name="data")
 
 # Create single, shared instances of your core components.
 # This ensures that all API requests use the same environment and agent objects.

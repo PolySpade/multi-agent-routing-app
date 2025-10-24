@@ -613,7 +613,7 @@ export default function Home() {
           <div style={{
             position: 'absolute',
             top: '1.25rem',
-            right: '1.25rem',
+            left: '1.25rem',
             padding: '0.85rem 1.1rem',
             borderRadius: '14px',
             background: 'rgba(15, 23, 42, 0.65)',
