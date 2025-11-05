@@ -36,6 +36,9 @@ from app.agents.routing_agent import RoutingAgent
 from app.communication.message_queue import MessageQueue
 from app.communication.acl_protocol import ACLMessage, Performative
 
+# Scheduler imports
+from app.services.flood_data_scheduler import FloodDataScheduler, set_scheduler, get_scheduler
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -161,7 +164,16 @@ message_queue = MessageQueue()
 
 # Initialize agents
 hazard_agent = HazardAgent("hazard_agent_001", environment)
-flood_agent = FloodAgent("flood_agent_001", environment, hazard_agent=hazard_agent)
+
+# FloodAgent with REAL API integration
+flood_agent = FloodAgent(
+    "flood_agent_001",
+    environment,
+    hazard_agent=hazard_agent,
+    use_simulated=False,  # Disable simulated data
+    use_real_apis=True    # Enable PAGASA + OpenWeatherMap
+)
+
 routing_agent = RoutingAgent("routing_agent_001", environment)
 evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
 
@@ -182,7 +194,35 @@ flood_agent.set_hazard_agent(hazard_agent)
 evacuation_manager.set_hazard_agent(hazard_agent)
 evacuation_manager.set_routing_agent(routing_agent)
 
+# Initialize FloodAgent scheduler (5-minute intervals)
+flood_scheduler = FloodDataScheduler(flood_agent, interval_seconds=300)
+set_scheduler(flood_scheduler)
+
 logger.info("MAS-FRO system initialized successfully")
+
+# --- 3.5. Startup and Shutdown Events ---
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on application startup."""
+    logger.info("Starting background scheduler...")
+    scheduler = get_scheduler()
+    if scheduler:
+        await scheduler.start()
+        logger.info("✅ Automated flood data collection started (every 5 minutes)")
+    else:
+        logger.warning("Scheduler not initialized")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background tasks on application shutdown."""
+    logger.info("Stopping background scheduler...")
+    scheduler = get_scheduler()
+    if scheduler:
+        await scheduler.stop()
+        logger.info("✅ Scheduler stopped gracefully")
+
 
 # --- 4. API Endpoints ---
 
@@ -503,4 +543,124 @@ async def get_statistics():
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving statistics: {str(e)}"
+        )
+
+@app.get("/api/scheduler/status", tags=["Scheduler"])
+async def get_scheduler_status():
+    """
+    Get scheduler health status.
+
+    Returns current scheduler status including:
+    - Running state
+    - Interval configuration
+    - Uptime
+    - Basic statistics
+    """
+    try:
+        scheduler = get_scheduler()
+        if not scheduler:
+            raise HTTPException(
+                status_code=503,
+                detail="Scheduler not initialized"
+            )
+
+        status = scheduler.get_status()
+        return {
+            "status": "healthy" if status["is_running"] else "stopped",
+            **status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Scheduler status error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving scheduler status: {str(e)}"
+        )
+
+@app.get("/api/scheduler/stats", tags=["Scheduler"])
+async def get_scheduler_statistics():
+    """
+    Get detailed scheduler statistics.
+
+    Returns comprehensive statistics including:
+    - Total runs
+    - Success/failure rates
+    - Data collection metrics
+    - Last run information
+    - Error history
+    """
+    try:
+        scheduler = get_scheduler()
+        if not scheduler:
+            raise HTTPException(
+                status_code=503,
+                detail="Scheduler not initialized"
+            )
+
+        status = scheduler.get_status()
+        return {
+            "scheduler_status": "running" if status["is_running"] else "stopped",
+            "configuration": {
+                "interval_seconds": status["interval_seconds"],
+                "interval_minutes": status["interval_minutes"]
+            },
+            "runtime": {
+                "uptime_seconds": status["uptime_seconds"],
+                "started_at": status["statistics"]["last_run_time"]
+            },
+            "statistics": status["statistics"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Scheduler statistics error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving scheduler statistics: {str(e)}"
+        )
+
+@app.post("/api/scheduler/trigger", tags=["Scheduler"])
+async def trigger_scheduler_manual_collection():
+    """
+    Manually trigger flood data collection (outside of schedule).
+
+    This endpoint forces an immediate data collection run without waiting
+    for the next scheduled interval. Useful for testing and on-demand updates.
+
+    Returns:
+        Collection results including status, data points, and duration
+    """
+    try:
+        scheduler = get_scheduler()
+        if not scheduler:
+            raise HTTPException(
+                status_code=503,
+                detail="Scheduler not initialized"
+            )
+
+        logger.info("Manual scheduler trigger requested via API")
+        result = await scheduler.trigger_manual_collection()
+
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": "Manual data collection completed successfully",
+                **result
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Manual collection failed: {result.get('error')}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Manual trigger error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error triggering manual collection: {str(e)}"
         )

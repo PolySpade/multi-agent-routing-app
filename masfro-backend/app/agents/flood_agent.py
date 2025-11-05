@@ -19,7 +19,7 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import logging
 from datetime import datetime
 import requests
@@ -32,8 +32,12 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 try:
     from services.data_sources import DataCollector
+    from services.river_scraper_service import RiverScraperService
+    from services.weather_service import OpenWeatherMapService
 except ImportError:
     from app.services.data_sources import DataCollector
+    from app.services.river_scraper_service import RiverScraperService
+    from app.services.weather_service import OpenWeatherMapService
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +75,8 @@ class FloodAgent(BaseAgent):
         agent_id: str,
         environment,
         hazard_agent=None,
-        use_simulated: bool = True
+        use_simulated: bool = False,
+        use_real_apis: bool = True
     ):
         """
         Initialize the FloodAgent.
@@ -80,23 +85,45 @@ class FloodAgent(BaseAgent):
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
             hazard_agent: Optional reference to HazardAgent for direct communication
-            use_simulated: Use simulated data for testing (default: True)
+            use_simulated: Use simulated data for testing (default: False)
+            use_real_apis: Use real API services (default: True)
         """
         super().__init__(agent_id, environment)
         self.hazard_agent = hazard_agent
+        self.use_real_apis = use_real_apis
 
-        # Initialize data collector (Phase 3 integration)
+        # Initialize real API services
+        if use_real_apis:
+            # PAGASA River Scraper Service
+            try:
+                self.river_scraper = RiverScraperService()
+                logger.info(f"{self.agent_id} initialized RiverScraperService")
+            except Exception as e:
+                logger.error(f"Failed to initialize RiverScraperService: {e}")
+                self.river_scraper = None
+
+            # OpenWeatherMap Service
+            try:
+                self.weather_service = OpenWeatherMapService()
+                logger.info(f"{self.agent_id} initialized OpenWeatherMapService")
+            except ValueError as e:
+                logger.warning(f"OpenWeatherMap not available: {e}")
+                self.weather_service = None
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenWeatherMapService: {e}")
+                self.weather_service = None
+        else:
+            self.river_scraper = None
+            self.weather_service = None
+            logger.info(f"{self.agent_id} real APIs disabled")
+
+        # Initialize data collector (fallback for simulated data)
         self.data_collector = DataCollector(
             use_simulated=use_simulated,
-            enable_pagasa=False,  # Enable when API access is granted
-            enable_noah=False,    # Enable when real-time data available
-            enable_mmda=False     # Enable when API access available
+            enable_pagasa=False,
+            enable_noah=False,
+            enable_mmda=False
         )
-
-        # API/Data source URLs (placeholders - update with actual endpoints)
-        self.pagasa_api_url = "https://www.pagasa.dost.gov.ph/api/rainfall"
-        self.river_sensor_url = "https://api.noah.dost.gov.ph/river-levels"
-        self.flood_monitoring_url = "https://mmda.gov.ph/flood-monitoring"
 
         # Configuration
         self.data_update_interval = 300  # 5 minutes
@@ -109,7 +136,8 @@ class FloodAgent(BaseAgent):
 
         logger.info(
             f"{self.agent_id} initialized with update interval "
-            f"{self.data_update_interval}s, simulated={use_simulated}"
+            f"{self.data_update_interval}s, real_apis={use_real_apis}, "
+            f"simulated={use_simulated}"
         )
 
     def set_hazard_agent(self, hazard_agent) -> None:
@@ -138,29 +166,67 @@ class FloodAgent(BaseAgent):
 
     def collect_and_forward_data(self) -> Dict[str, Any]:
         """
-        Manually trigger data collection and forwarding.
+        Collect flood data from ALL sources (real APIs + fallback simulated).
 
-        This method can be called to force data collection regardless
-        of the update interval. Useful for testing and on-demand updates.
+        Priority order:
+        1. Real APIs (PAGASA river levels + OpenWeatherMap) if available
+        2. Simulated data as fallback if no real data collected
 
         Returns:
             Combined data that was collected
         """
-        logger.info(f"{self.agent_id} collecting flood data...")
+        logger.info(f"{self.agent_id} collecting flood data from all sources...")
 
-        # Use DataCollector to gather data from all enabled sources
-        # Default location is Marikina City Hall
-        collected_data = self.data_collector.collect_flood_data(
-            location="Marikina",
-            coordinates=(14.6507, 121.1029)
-        )
+        combined_data = {}
 
-        # Extract and format data for internal use
-        combined_data = self._process_collected_data(collected_data)
+        # ========== PRIORITY 1: REAL API DATA ==========
+        if self.use_real_apis:
+            # Fetch real river levels from PAGASA
+            if self.river_scraper:
+                try:
+                    river_data = self.fetch_real_river_levels()
+                    if river_data:
+                        combined_data.update(river_data)
+                        logger.info(
+                            f"✅ Collected REAL river data: {len(river_data)} stations"
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to fetch real river data: {e}")
 
-        # Forward to Hazard Agent if available
+            # Fetch real weather from OpenWeatherMap
+            if self.weather_service:
+                try:
+                    weather_data = self.fetch_real_weather_data()
+                    if weather_data:
+                        location = weather_data.get("location", "Marikina")
+                        combined_data[f"{location}_weather"] = weather_data
+                        logger.info(
+                            f"✅ Collected REAL weather data for {location}"
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to fetch real weather data: {e}")
+
+        # ========== FALLBACK: SIMULATED DATA ==========
+        # Only use if no real data was collected
+        if not combined_data and self.data_collector:
+            logger.warning(
+                "⚠️ No real data available, falling back to simulated data"
+            )
+            simulated = self.data_collector.collect_flood_data(
+                location="Marikina",
+                coordinates=(14.6507, 121.1029)
+            )
+            processed = self._process_collected_data(simulated)
+            combined_data.update(processed)
+
+        # ========== FORWARD TO HAZARD AGENT ==========
         if combined_data:
+            logger.info(
+                f"📤 Forwarding {len(combined_data)} data points to HazardAgent"
+            )
             self.send_to_hazard_agent(combined_data)
+        else:
+            logger.warning("⚠️ No data collected from any source!")
 
         self.last_update = datetime.now()
         return combined_data
@@ -438,6 +504,229 @@ class FloodAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Failed to fetch flood depth data: {e}")
             return {}
+
+    def fetch_real_river_levels(self) -> Dict[str, Any]:
+        """
+        Fetch REAL river level data from PAGASA using RiverScraperService.
+
+        Returns:
+            Dict containing river level measurements with risk assessment
+        """
+        logger.info(f"{self.agent_id} fetching REAL river levels from PAGASA API")
+
+        if not self.river_scraper:
+            logger.warning("RiverScraperService not available")
+            return {}
+
+        try:
+            # Fetch from PAGASA API
+            stations = self.river_scraper.get_river_levels()
+
+            if not stations:
+                logger.warning("No river data returned from PAGASA API")
+                return {}
+
+            # Process and format data
+            river_data = {}
+
+            # Key Marikina River stations to monitor
+            marikina_stations = [
+                "Sto Nino",
+                "Nangka",
+                "Tumana Bridge",
+                "Montalban",
+                "Rosario Bridge"
+            ]
+
+            for station in stations:
+                station_name = station.get("station_name")
+
+                # Focus on Marikina-relevant stations
+                if station_name not in marikina_stations:
+                    continue
+
+                water_level = station.get("water_level_m")
+                alert_level = self._parse_float(station.get("alert_level_m"))
+                alarm_level = self._parse_float(station.get("alarm_level_m"))
+                critical_level = self._parse_float(station.get("critical_level_m"))
+
+                # Calculate risk status
+                status = "normal"
+                risk_score = 0.0
+
+                if water_level is not None:
+                    if critical_level and water_level >= critical_level:
+                        status = "critical"
+                        risk_score = 1.0
+                    elif alarm_level and water_level >= alarm_level:
+                        status = "alarm"
+                        risk_score = 0.8
+                    elif alert_level and water_level >= alert_level:
+                        status = "alert"
+                        risk_score = 0.5
+                    else:
+                        status = "normal"
+                        risk_score = 0.2
+
+                river_data[station_name] = {
+                    "water_level_m": water_level,
+                    "alert_level_m": alert_level,
+                    "alarm_level_m": alarm_level,
+                    "critical_level_m": critical_level,
+                    "status": status,
+                    "risk_score": risk_score,
+                    "timestamp": datetime.now(),
+                    "source": "PAGASA_API"
+                }
+
+            logger.info(
+                f"Fetched river data for {len(river_data)} Marikina stations. "
+                f"Statuses: {[s['status'] for s in river_data.values()]}"
+            )
+
+            # Cache the data
+            self.river_levels = river_data
+            return river_data
+
+        except Exception as e:
+            logger.error(f"Error fetching real river levels: {e}")
+            return {}
+
+    def fetch_real_weather_data(
+        self,
+        lat: float = 14.6507,
+        lon: float = 121.1029
+    ) -> Dict[str, Any]:
+        """
+        Fetch REAL weather and rainfall data from OpenWeatherMap API.
+
+        Args:
+            lat: Latitude for weather query (default: Marikina City Hall)
+            lon: Longitude for weather query (default: Marikina City Hall)
+
+        Returns:
+            Dict containing current weather and rainfall forecast
+        """
+        logger.info(f"{self.agent_id} fetching REAL weather from OpenWeatherMap")
+
+        if not self.weather_service:
+            logger.warning("OpenWeatherMapService not available (API key missing)")
+            return {}
+
+        try:
+            # Fetch forecast from OpenWeatherMap
+            forecast = self.weather_service.get_forecast(lat, lon)
+
+            if not forecast:
+                logger.warning("No weather data returned from OpenWeatherMap")
+                return {}
+
+            # Extract current conditions
+            current = forecast.get("current", {})
+            hourly = forecast.get("hourly", [])
+
+            # Current rainfall
+            current_rain = current.get("rain", {}).get("1h", 0.0)
+
+            # Forecast next 6 hours of rainfall
+            forecast_6h = []
+            total_forecast_rain = 0.0
+
+            for hour in hourly[:6]:
+                rain_1h = hour.get("rain", {}).get("1h", 0.0)
+                forecast_6h.append({
+                    "timestamp": datetime.fromtimestamp(hour.get("dt")),
+                    "rain_mm": rain_1h,
+                    "temp_c": hour.get("temp"),
+                    "humidity_pct": hour.get("humidity"),
+                    "pop": hour.get("pop")
+                })
+                total_forecast_rain += rain_1h
+
+            # Calculate 24h accumulated rainfall
+            hourly_24h = hourly[:24]
+            rainfall_24h = sum(
+                h.get("rain", {}).get("1h", 0.0) for h in hourly_24h
+            )
+
+            # Determine rainfall intensity
+            intensity = self._calculate_rainfall_intensity(current_rain)
+
+            weather_data = {
+                "location": "Marikina",
+                "coordinates": (lat, lon),
+                "current_rainfall_mm": current_rain,
+                "rainfall_24h_mm": rainfall_24h,
+                "forecast_6h_mm": total_forecast_rain,
+                "intensity": intensity,
+                "temperature_c": current.get("temp"),
+                "humidity_pct": current.get("humidity"),
+                "pressure_hpa": current.get("pressure"),
+                "forecast_hourly": forecast_6h,
+                "timestamp": datetime.now(),
+                "source": "OpenWeatherMap_API"
+            }
+
+            logger.info(
+                f"Weather data: {current_rain:.1f}mm/hr current, "
+                f"{rainfall_24h:.1f}mm 24h forecast, "
+                f"intensity={intensity}"
+            )
+
+            # Cache the data
+            self.rainfall_data["Marikina"] = weather_data
+            return weather_data
+
+        except Exception as e:
+            logger.error(f"Error fetching real weather data: {e}")
+            return {}
+
+    def _parse_float(self, value) -> Optional[float]:
+        """
+        Helper to safely parse float values.
+
+        Args:
+            value: Value to parse
+
+        Returns:
+            Float value or None if parsing fails
+        """
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _calculate_rainfall_intensity(self, rainfall_mm: float) -> str:
+        """
+        Calculate rainfall intensity category based on mm/hr.
+
+        Based on PAGASA rainfall intensity classification:
+        - Light: 0.1 - 2.5 mm/hr
+        - Moderate: 2.6 - 7.5 mm/hr
+        - Heavy: 7.6 - 15.0 mm/hr
+        - Intense: 15.1 - 30.0 mm/hr
+        - Torrential: > 30.0 mm/hr
+
+        Args:
+            rainfall_mm: Rainfall in mm/hr
+
+        Returns:
+            Intensity category string
+        """
+        if rainfall_mm <= 0:
+            return "none"
+        elif rainfall_mm <= 2.5:
+            return "light"
+        elif rainfall_mm <= 7.5:
+            return "moderate"
+        elif rainfall_mm <= 15.0:
+            return "heavy"
+        elif rainfall_mm <= 30.0:
+            return "intense"
+        else:
+            return "torrential"
 
     def send_to_hazard_agent(self, data: Dict[str, Any]) -> None:
         """
