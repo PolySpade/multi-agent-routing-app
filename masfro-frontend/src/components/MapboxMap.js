@@ -25,6 +25,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [boundaryFeature, setBoundaryFeature] = useState(null);
   const [floodTimeStep, setFloodTimeStep] = useState(1);
+  const [floodEnabled, setFloodEnabled] = useState(true);
   const onMapClickRef = useRef(onMapClick);
 
   useEffect(() => {
@@ -386,6 +387,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     const loadFloodMap = async () => {
       try {
         console.log('Loading flood map for time step:', floodTimeStep);
+        console.log('Boundary feature available:', !!boundaryFeature);
         
         // Remove existing layer and source
         if (mapRef.current.getLayer(floodLayerId)) {
@@ -410,28 +412,53 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         console.log('Parsing GeoTIFF...');
         const arrayBuffer = await response.arrayBuffer();
         console.log('ArrayBuffer size:', arrayBuffer.byteLength, 'bytes');
-        
+
         const tiff = await fromBlob(new Blob([arrayBuffer]));
         const image = await tiff.getImage();
         const width = image.getWidth();
         const height = image.getHeight();
-        const bbox = image.getBoundingBox();
-        const [minX, minY, maxX, maxY] = bbox;
-        
-        console.log('Original Bounding box (EPSG:3857):', bbox);
+        const tiffAspectRatio = width / height;
 
-        // Reproject bounding box from EPSG:3857 to EPSG:4326 (lng/lat)
-        const [west, south] = proj4('EPSG:3857', 'EPSG:4326', [minX, minY]);
-        const [east, north] = proj4('EPSG:3857', 'EPSG:4326', [maxX, maxY]);
-        
+        console.log('TIFF dimensions:', width, 'x', height, 'pixels');
+        console.log('TIFF aspect ratio:', tiffAspectRatio.toFixed(3));
+
+        // MARIKINA CITY CENTER AND COVERAGE
+        // Center point of Marikina flood-prone area
+        const centerLng = 121.10305;
+        const centerLat = 14.6456;
+
+        // Calculate bounds based on TIFF aspect ratio to prevent stretching
+        const baseCoverage = 0.06;  // Base coverage in degrees
+        let coverageWidth, coverageHeight;
+
+        if (tiffAspectRatio > 1) {
+          // Wider TIFF (landscape)
+          coverageWidth = baseCoverage;
+          coverageHeight = baseCoverage / tiffAspectRatio;
+        } else {
+          // Taller TIFF (portrait) or square
+          coverageHeight = baseCoverage * 1.5;
+          coverageWidth = coverageHeight * tiffAspectRatio;
+        }
+
+        const MARIKINA_BOUNDS = {
+          west:  centerLng - (coverageWidth / 2),
+          east:  centerLng + (coverageWidth / 2),
+          south: centerLat - (coverageHeight / 2),
+          north: centerLat + (coverageHeight / 2)
+        };
+
+        console.log('Auto-calculated Marikina bounds (aspect ratio corrected):', MARIKINA_BOUNDS);
+        console.log('Coverage width:', coverageWidth.toFixed(4), '° | height:', coverageHeight.toFixed(4), '°');
+
         const reprojectedCoords = [
-          [west, north], // top-left
-          [east, north], // top-right
-          [east, south], // bottom-right
-          [west, south]  // bottom-left
+          [MARIKINA_BOUNDS.west, MARIKINA_BOUNDS.north], // top-left
+          [MARIKINA_BOUNDS.east, MARIKINA_BOUNDS.north], // top-right
+          [MARIKINA_BOUNDS.east, MARIKINA_BOUNDS.south], // bottom-right
+          [MARIKINA_BOUNDS.west, MARIKINA_BOUNDS.south]  // bottom-left
         ];
 
-        console.log('Reprojected Coords (EPSG:4326):', reprojectedCoords);
+        console.log('Flood map coordinates:', reprojectedCoords);
         
         const rasters = await image.readRasters();
         
@@ -448,39 +475,108 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         const data = rasters[0]; // First band
         let minVal = Infinity;
         let maxVal = -Infinity;
-        
-        // Find min/max values for better color scaling
+
+        // Threshold: ignore very small values (< 0.01m) to remove artifacts
+        const FLOOD_THRESHOLD = 0.01;
+
+        // Find min/max values for better color scaling (excluding no-flood areas)
         for (let i = 0; i < data.length; i++) {
           const value = data[i];
-          if (value > 0) {
+          if (value > FLOOD_THRESHOLD) {
             minVal = Math.min(minVal, value);
             maxVal = Math.max(maxVal, value);
           }
         }
-        
-        console.log('Flood depth range:', minVal, 'to', maxVal);
-        
-        // Map values to colors - QGIS style: White to Black gradient, colorized blue, darken blend
+
+        console.log('Flood depth range:', minVal.toFixed(2), 'to', maxVal.toFixed(2), 'meters');
+        console.log('Flood threshold:', FLOOD_THRESHOLD, 'meters (values below this are transparent)');
+
+        // Get boundary polygon for clipping (if available)
+        let boundaryRing = null;
+        if (boundaryFeature?.geometry) {
+          const geom = boundaryFeature.geometry;
+          boundaryRing = geom.type === 'Polygon'
+            ? geom.coordinates[0]
+            : geom.coordinates[0][0];
+          console.log('Applying boundary clipping with', boundaryRing.length, 'points');
+        }
+
+        // Point-in-polygon check (ray casting algorithm)
+        const isPointInPolygon = (lng, lat, polygon) => {
+          if (!polygon) return true; // No boundary = show all
+
+          let inside = false;
+          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0], yi = polygon[i][1];
+            const xj = polygon[j][0], yj = polygon[j][1];
+
+            const intersect = ((yi > lat) !== (yj > lat))
+              && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+          }
+          return inside;
+        };
+
+        // Realistic flood water colors - from light cyan to deep blue
+        // ONLY show areas with actual flood water (above threshold) AND within boundary
         for (let i = 0; i < data.length; i++) {
           const value = data[i];
           const pixelIndex = i * 4;
-          
-          if (value > 0) {
-            // Normalize value to 0-1 range (white = low, black = high)
+
+          // Calculate pixel's geographic coordinates
+          const row = Math.floor(i / width);
+          const col = i % width;
+          const lng = MARIKINA_BOUNDS.west + (col / width) * (MARIKINA_BOUNDS.east - MARIKINA_BOUNDS.west);
+          const lat = MARIKINA_BOUNDS.north - (row / height) * (MARIKINA_BOUNDS.north - MARIKINA_BOUNDS.south);
+
+          // Check if pixel is within boundary
+          const inBoundary = isPointInPolygon(lng, lat, boundaryRing);
+
+          // Only render pixels with significant flood depth AND within boundary
+          if (value > FLOOD_THRESHOLD && inBoundary) {
+            // Normalize value to 0-1 range (0 = shallow, 1 = deep)
             const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0;
-            
-            // White to black gradient (255 = white, 0 = black)
-            const grayValue = Math.floor((1 - normalized) * 255);
-            
-            // Colorize with blue tint (darken blend mode simulation)
-            // Apply blue color overlay while maintaining the gradient intensity
-            const blueMultiplier = 0.7; // Darken intensity
-            imageData.data[pixelIndex] = Math.floor(grayValue * 0.3 * blueMultiplier);     // R - minimal red
-            imageData.data[pixelIndex + 1] = Math.floor(grayValue * 0.5 * blueMultiplier); // G - moderate green
-            imageData.data[pixelIndex + 2] = Math.floor(grayValue * blueMultiplier);       // B - full blue channel
-            imageData.data[pixelIndex + 3] = Math.floor(200 * (0.3 + normalized * 0.7));   // A - more opaque for deeper floods
+
+            // Realistic flood water color gradient
+            // Shallow water: Light cyan/aqua (#40E0D0)
+            // Medium water: Bright blue (#1E90FF)
+            // Deep water: Dark blue (#00008B)
+
+            let r, g, b, a;
+
+            if (normalized < 0.3) {
+              // Shallow flood: Light cyan to aqua (64, 224, 208) → (30, 144, 255)
+              const t = normalized / 0.3;
+              r = Math.floor(64 + t * (30 - 64));
+              g = Math.floor(224 + t * (144 - 224));
+              b = Math.floor(208 + t * (255 - 208));
+              a = Math.floor(180 + normalized * 200); // 180-240
+            } else if (normalized < 0.7) {
+              // Medium flood: Aqua to bright blue (30, 144, 255) → (0, 100, 255)
+              const t = (normalized - 0.3) / 0.4;
+              r = Math.floor(30 * (1 - t));
+              g = Math.floor(144 + t * (100 - 144));
+              b = 255;
+              a = Math.floor(220 + normalized * 35); // 240-255
+            } else {
+              // Deep flood: Bright blue to dark blue (0, 100, 255) → (0, 0, 139)
+              const t = (normalized - 0.7) / 0.3;
+              r = 0;
+              g = Math.floor(100 * (1 - t));
+              b = Math.floor(255 - t * (255 - 139));
+              a = 255; // Fully opaque for deep water
+            }
+
+            imageData.data[pixelIndex] = r;
+            imageData.data[pixelIndex + 1] = g;
+            imageData.data[pixelIndex + 2] = b;
+            imageData.data[pixelIndex + 3] = a;
           } else {
-            imageData.data[pixelIndex + 3] = 0; // Transparent for no flood
+            // Complete transparency for non-flooded areas
+            imageData.data[pixelIndex] = 0;
+            imageData.data[pixelIndex + 1] = 0;
+            imageData.data[pixelIndex + 2] = 0;
+            imageData.data[pixelIndex + 3] = 0;
           }
         }
 
@@ -511,9 +607,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           id: floodLayerId,
           type: 'raster',
           source: floodLayerId,
+          layout: {
+            'visibility': floodEnabled ? 'visible' : 'none'
+          },
           paint: {
-            'raster-opacity': 0.7,
-            'raster-fade-duration': 0
+            'raster-opacity': 0.5,  // Increased visibility (was 0.7)
+            'raster-fade-duration': 0,
+            'raster-brightness-max': 1.0,
+            'raster-saturation': 0.3  // Enhance color saturation
           }
         }, firstSymbolId); // Insert before labels so labels remain visible
         
@@ -522,7 +623,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           mapRef.current.moveLayer('route');
         }
         
-        console.log('Flood map loaded successfully!');
+        console.log('FLOOD MAP LOADED SUCCESSFULLY with manual Marikina bounds!');
 
       } catch (error) {
         console.warn('Flood map not available:', error.message);
@@ -535,17 +636,34 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     return () => {
       isCancelled = true;
     };
-  }, [isMapLoaded, floodTimeStep]);
+  }, [isMapLoaded, floodTimeStep, floodEnabled, boundaryFeature]);
+
+  // Control flood layer visibility based on floodEnabled state
+  useEffect(() => {
+    if (!isMapLoaded || !mapRef.current) return;
+
+    const floodLayerId = 'flood-layer';
+
+    // Check if the flood layer exists
+    if (mapRef.current.getLayer(floodLayerId)) {
+      mapRef.current.setLayoutProperty(
+        floodLayerId,
+        'visibility',
+        floodEnabled ? 'visible' : 'none'
+      );
+      console.log('Flood layer visibility set to:', floodEnabled ? 'visible' : 'none');
+    }
+  }, [floodEnabled, isMapLoaded, floodTimeStep]);
 
   return (
     <div
       ref={mapContainerRef}
       style={{ width: '100%', height: '100%', minHeight: '100vh' }}
     >
-      <div style={{ 
-        position: 'absolute', 
-        top: '20px', 
-        right: '20px', 
+      <div style={{
+        position: 'absolute',
+        top: '20px',
+        right: '20px',
         background: 'linear-gradient(160deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)',
         backdropFilter: 'blur(10px)',
         padding: '1.25rem 1.5rem',
@@ -556,13 +674,48 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         minWidth: '240px'
       }}>
         <div style={{
-          fontSize: '1.1rem',
-          fontWeight: 600,
-          color: 'white',
-          marginBottom: '0.75rem',
-          letterSpacing: '0.025rem'
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '0.75rem'
         }}>
-          🌊 Flood Simulation
+          <div style={{
+            fontSize: '1.1rem',
+            fontWeight: 600,
+            color: 'white',
+            letterSpacing: '0.025rem'
+          }}>
+            🌊 Flood Simulation
+          </div>
+          <button
+            onClick={() => setFloodEnabled(!floodEnabled)}
+            style={{
+              background: floodEnabled ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '0.4rem 0.8rem',
+              color: 'white',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.transform = 'scale(1.05)';
+              e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = 'scale(1)';
+              e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+            }}
+          >
+            <span style={{ fontSize: '0.9rem' }}>{floodEnabled ? '✓' : '✕'}</span>
+            {floodEnabled ? 'ON' : 'OFF'}
+          </button>
         </div>
         <input
           type="range"
