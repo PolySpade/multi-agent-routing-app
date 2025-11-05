@@ -2,17 +2,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 const BACKEND_API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
 export default function Dashboard() {
   const [statistics, setStatistics] = useState(null);
   const [healthStatus, setHealthStatus] = useState(null);
-  const [wsConnected, setWsConnected] = useState(false);
   const [wsMessages, setWsMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Use global WebSocket context (shared across all pages)
+  const { isConnected: wsConnected, lastMessage, requestUpdate } = useWebSocketContext();
 
   // Fetch statistics from API
   const fetchStatistics = useCallback(async () => {
@@ -50,66 +52,21 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Setup WebSocket connection
+  // Handle incoming WebSocket messages
   useEffect(() => {
-    // Don't attempt WebSocket if URL not configured
-    if (!WS_URL || WS_URL.includes('undefined') || WS_URL.includes('localhost')) {
-      console.warn('WebSocket not configured. Dashboard will show cached data only.');
-      return;
+    if (lastMessage) {
+      // Add to message log
+      setWsMessages((prev) => [lastMessage, ...prev].slice(0, 50));
+
+      // Update statistics if received
+      if (lastMessage.type === 'statistics_update') {
+        setStatistics((prev) => ({
+          ...prev,
+          route_statistics: lastMessage.data
+        }));
+      }
     }
-
-    const ws = new WebSocket(`${WS_URL}/ws/route-updates`);
-
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setWsConnected(true);
-      // Send ping every 30 seconds to keep connection alive
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 30000);
-
-      ws.pingInterval = pingInterval;
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setWsMessages((prev) => [data, ...prev].slice(0, 50)); // Keep last 50 messages
-
-        // Update statistics if received
-        if (data.type === 'statistics_update') {
-          setStatistics((prev) => ({
-            ...prev,
-            route_statistics: data.data
-          }));
-        }
-      } catch (err) {
-        console.error('Error parsing WebSocket message:', err);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.warn('WebSocket connection unavailable. Showing API data only.');
-      setWsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setWsConnected(false);
-      if (ws.pingInterval) {
-        clearInterval(ws.pingInterval);
-      }
-    };
-
-    return () => {
-      if (ws.pingInterval) {
-        clearInterval(ws.pingInterval);
-      }
-      ws.close();
-    };
-  }, []);
+  }, [lastMessage]);
 
   // Initial data fetch
   useEffect(() => {

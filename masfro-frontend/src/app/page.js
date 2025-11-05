@@ -6,7 +6,7 @@ import Link from 'next/link';
 import LocationSearch from '@/components/LocationSearch';
 import FeedbackForm from '@/components/FeedbackForm';
 import { findRoute } from '@/utils/routingService';
-import { useWebSocket } from '@/hooks/useWebSocket';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 const formatDistance = (meters) => {
   if (meters == null) return '—';
@@ -40,8 +40,8 @@ export default function Home() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackLocation, setFeedbackLocation] = useState(null);
 
-  // WebSocket connection for real-time updates
-  const { isConnected, systemStatus, statistics: wsStatistics } = useWebSocket();
+  // WebSocket connection for real-time updates (using global context)
+  const { isConnected, systemStatus, statistics: wsStatistics } = useWebSocketContext();
 
   // Dynamically import the MapboxMap component with SSR turned off
   const MapboxMap = useMemo(() => dynamic(() => import('@/components/MapboxMap'), { 

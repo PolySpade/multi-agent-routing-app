@@ -24,6 +24,16 @@ import logging
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent))
+
+try:
+    from services.data_sources import DataCollector
+except ImportError:
+    from app.services.data_sources import DataCollector
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +66,13 @@ class FloodAgent(BaseAgent):
         >>> agent.step()  # Fetches latest data and updates environment
     """
 
-    def __init__(self, agent_id: str, environment, hazard_agent=None):
+    def __init__(
+        self,
+        agent_id: str,
+        environment,
+        hazard_agent=None,
+        use_simulated: bool = True
+    ):
         """
         Initialize the FloodAgent.
 
@@ -64,9 +80,18 @@ class FloodAgent(BaseAgent):
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
             hazard_agent: Optional reference to HazardAgent for direct communication
+            use_simulated: Use simulated data for testing (default: True)
         """
         super().__init__(agent_id, environment)
         self.hazard_agent = hazard_agent
+
+        # Initialize data collector (Phase 3 integration)
+        self.data_collector = DataCollector(
+            use_simulated=use_simulated,
+            enable_pagasa=False,  # Enable when API access is granted
+            enable_noah=False,    # Enable when real-time data available
+            enable_mmda=False     # Enable when API access available
+        )
 
         # API/Data source URLs (placeholders - update with actual endpoints)
         self.pagasa_api_url = "https://www.pagasa.dost.gov.ph/api/rainfall"
@@ -84,7 +109,7 @@ class FloodAgent(BaseAgent):
 
         logger.info(
             f"{self.agent_id} initialized with update interval "
-            f"{self.data_update_interval}s"
+            f"{self.data_update_interval}s, simulated={use_simulated}"
         )
 
     def set_hazard_agent(self, hazard_agent) -> None:
@@ -123,31 +148,116 @@ class FloodAgent(BaseAgent):
         """
         logger.info(f"{self.agent_id} collecting flood data...")
 
-        # Fetch data from all sources
-        rainfall_data = self.fetch_rainfall_data()
-        river_levels = self.fetch_river_levels()
-        flood_depths = self.fetch_flood_depths()
+        # Use DataCollector to gather data from all enabled sources
+        # Default location is Marikina City Hall
+        collected_data = self.data_collector.collect_flood_data(
+            location="Marikina",
+            coordinates=(14.6507, 121.1029)
+        )
 
-        # Combine and forward to Hazard Agent
-        combined_data = {}
-        if rainfall_data or river_levels or flood_depths:
-            combined_data = self._combine_data(
-                rainfall_data,
-                river_levels,
-                flood_depths
-            )
+        # Extract and format data for internal use
+        combined_data = self._process_collected_data(collected_data)
+
+        # Forward to Hazard Agent if available
+        if combined_data:
             self.send_to_hazard_agent(combined_data)
 
         self.last_update = datetime.now()
         return combined_data
 
+    def _process_collected_data(self, collected_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process collected data into format suitable for HazardAgent.
+
+        Args:
+            collected_data: Raw data from DataCollector
+
+        Returns:
+            Processed data dict with standardized format
+        """
+        processed = {}
+
+        if "sources" not in collected_data:
+            return processed
+
+        sources = collected_data["sources"]
+
+        # Process simulated data
+        if "simulated" in sources:
+            sim_data = sources["simulated"]
+            location = collected_data.get("location", "Marikina")
+
+            # Extract rainfall
+            if "rainfall" in sim_data:
+                rainfall = sim_data["rainfall"]
+                if location not in processed:
+                    processed[location] = {}
+                processed[location].update({
+                    "rainfall_1h": rainfall.get("rainfall_mm", 0.0),
+                    "rainfall_24h": rainfall.get("rainfall_mm", 0.0) * 24,
+                    "timestamp": rainfall.get("timestamp")
+                })
+
+            # Extract flood depth
+            if "flood_depth" in sim_data:
+                depth_info = sim_data["flood_depth"]
+                if location not in processed:
+                    processed[location] = {}
+                processed[location].update({
+                    "flood_depth": depth_info.get("flood_depth_cm", 0.0) / 100.0,
+                    "risk_level": depth_info.get("risk_level", "low"),
+                    "timestamp": depth_info.get("timestamp")
+                })
+
+        # Process PAGASA data
+        if "pagasa" in sources:
+            pagasa_data = sources["pagasa"]
+            if pagasa_data.get("available"):
+                location = pagasa_data.get("station", "PAGASA")
+                if location not in processed:
+                    processed[location] = {}
+                processed[location].update({
+                    "rainfall_mm": pagasa_data.get("rainfall_mm", 0.0),
+                    "source": "PAGASA",
+                    "timestamp": pagasa_data.get("timestamp")
+                })
+
+        # Process NOAH data
+        if "noah" in sources:
+            noah_data = sources["noah"]
+            location = noah_data.get("location", "NOAH")
+            if location not in processed:
+                processed[location] = {}
+            processed[location].update({
+                "hazard_level": noah_data.get("hazard_level"),
+                "source": "NOAH",
+                "timestamp": noah_data.get("timestamp")
+            })
+
+        # Process MMDA data
+        if "mmda" in sources:
+            mmda_reports = sources["mmda"]
+            if isinstance(mmda_reports, list):
+                for report in mmda_reports:
+                    location = report.get("area", "Unknown")
+                    if location not in processed:
+                        processed[location] = {}
+                    processed[location].update({
+                        "flood_level": report.get("flood_level"),
+                        "status": report.get("status"),
+                        "source": "MMDA",
+                        "timestamp": report.get("timestamp")
+                    })
+
+        logger.debug(f"Processed data for {len(processed)} locations")
+        return processed
+
     def fetch_rainfall_data(self) -> Dict[str, Any]:
         """
         Fetch rainfall data from PAGASA rain gauges.
 
-        Queries PAGASA API or scrapes website for current rainfall measurements
-        in the Marikina area. Data includes rainfall intensity, accumulation,
-        and forecasted rainfall.
+        Uses DataCollector to query PAGASA or simulated sources for current
+        rainfall measurements in the Marikina area.
 
         Returns:
             Dict containing rainfall measurements by location
@@ -165,24 +275,33 @@ class FloodAgent(BaseAgent):
         logger.info(f"{self.agent_id} fetching rainfall data from PAGASA")
 
         try:
-            # TODO: Implement actual PAGASA API integration
-            # For now, return simulated data structure
+            # Use DataCollector to get rainfall data
+            data = self.data_collector.collect_flood_data(
+                location="Marikina",
+                coordinates=(14.6507, 121.1029)
+            )
 
-            # Simulated data for development
-            rainfall_data = {
-                "Marikina": {
-                    "rainfall_1h": 15.5,
-                    "rainfall_24h": 45.2,
-                    "intensity": "moderate",
-                    "timestamp": datetime.now()
-                },
-                "Nangka": {
-                    "rainfall_1h": 18.3,
-                    "rainfall_24h": 52.1,
-                    "intensity": "moderate",
-                    "timestamp": datetime.now()
-                }
-            }
+            # Extract rainfall data from collected sources
+            rainfall_data = {}
+            if "sources" in data:
+                if "simulated" in data["sources"]:
+                    sim_data = data["sources"]["simulated"]
+                    if "rainfall" in sim_data:
+                        rainfall_info = sim_data["rainfall"]
+                        rainfall_data["Marikina"] = {
+                            "rainfall_1h": rainfall_info.get("rainfall_mm", 0.0),
+                            "rainfall_24h": rainfall_info.get("rainfall_mm", 0.0) * 24,
+                            "intensity": rainfall_info.get("intensity", "unknown"),
+                            "timestamp": datetime.fromisoformat(rainfall_info.get("timestamp"))
+                        }
+
+                if "pagasa" in data["sources"]:
+                    pagasa_data = data["sources"]["pagasa"]
+                    if pagasa_data.get("available"):
+                        rainfall_data["PAGASA"] = {
+                            "rainfall_1h": pagasa_data.get("rainfall_mm", 0.0),
+                            "timestamp": datetime.fromisoformat(pagasa_data.get("timestamp"))
+                        }
 
             logger.info(f"Fetched rainfall data for {len(rainfall_data)} locations")
             self.rainfall_data = rainfall_data
@@ -196,9 +315,8 @@ class FloodAgent(BaseAgent):
         """
         Fetch river water level data from monitoring sensors.
 
-        Queries DOST-NOAH or other official sources for current river water
-        levels in the Marikina River and tributaries. High water levels
-        indicate increased flood risk.
+        Uses DataCollector to query DOST-NOAH or other official sources for
+        current river water levels in the Marikina River and tributaries.
 
         Returns:
             Dict containing river level measurements
@@ -216,17 +334,32 @@ class FloodAgent(BaseAgent):
         logger.info(f"{self.agent_id} fetching river level data")
 
         try:
-            # TODO: Implement actual river sensor API integration
+            # Use DataCollector to get hazard data (includes river levels)
+            data = self.data_collector.collect_flood_data(
+                location="Marikina River",
+                coordinates=(14.6507, 121.1029)
+            )
 
-            # Simulated data for development
-            river_data = {
-                "Marikina River": {
-                    "water_level": 1.2,  # meters above normal
+            # Extract river level data from NOAH source
+            river_data = {}
+            if "sources" in data and "noah" in data["sources"]:
+                noah_data = data["sources"]["noah"]
+                if noah_data.get("hazard_level"):
+                    river_data["Marikina River"] = {
+                        "water_level": 0.0,  # Placeholder
+                        "flow_rate": 0.0,
+                        "status": noah_data.get("hazard_level", "unknown"),
+                        "timestamp": datetime.fromisoformat(noah_data.get("timestamp"))
+                    }
+
+            # For simulated mode, create placeholder data
+            if not river_data and self.data_collector.use_simulated:
+                river_data["Marikina River"] = {
+                    "water_level": 1.2,
                     "flow_rate": 45.3,
                     "status": "alert",
                     "timestamp": datetime.now()
                 }
-            }
 
             logger.info(f"Fetched river level data for {len(river_data)} rivers")
             self.river_levels = river_data
@@ -240,9 +373,8 @@ class FloodAgent(BaseAgent):
         """
         Fetch current flood depth measurements from monitoring stations.
 
-        Queries flood monitoring systems (MMDA, LGU sensors) for actual
-        measured flood depths at key locations. This provides ground truth
-        for validating predictions.
+        Uses DataCollector to query flood monitoring systems (MMDA, LGU sensors)
+        for actual measured flood depths at key locations.
 
         Returns:
             Dict containing flood depth measurements
@@ -260,23 +392,44 @@ class FloodAgent(BaseAgent):
         logger.info(f"{self.agent_id} fetching flood depth measurements")
 
         try:
-            # TODO: Implement actual flood monitoring system integration
+            # Use DataCollector to get flood depth data
+            data = self.data_collector.collect_flood_data(
+                location="Marikina",
+                coordinates=(14.6507, 121.1029)
+            )
 
-            # Simulated data for development
-            flood_data = {
-                "J.P. Rizal Avenue": {
-                    "flood_depth": 0.3,
-                    "affected_area": "Intersection near LRT",
-                    "passability": "passable",
-                    "timestamp": datetime.now()
-                },
-                "Nangka Road": {
-                    "flood_depth": 0.8,
-                    "affected_area": "Low-lying section",
-                    "passability": "impassable",
-                    "timestamp": datetime.now()
-                }
-            }
+            # Extract flood depth data from collected sources
+            flood_data = {}
+            
+            # Process simulated data
+            if "sources" in data and "simulated" in data["sources"]:
+                sim_data = data["sources"]["simulated"]
+                if "flood_depth" in sim_data:
+                    depth_info = sim_data["flood_depth"]
+                    flood_depth_m = depth_info.get("flood_depth_cm", 0.0) / 100.0
+                    
+                    # Determine passability based on depth
+                    passability = "passable" if flood_depth_m < 0.5 else "impassable"
+                    
+                    flood_data["Marikina"] = {
+                        "flood_depth": flood_depth_m,
+                        "affected_area": "City center",
+                        "passability": passability,
+                        "timestamp": datetime.fromisoformat(depth_info.get("timestamp"))
+                    }
+
+            # Process MMDA data if available
+            if "sources" in data and "mmda" in data["sources"]:
+                mmda_reports = data["sources"]["mmda"]
+                if isinstance(mmda_reports, list):
+                    for report in mmda_reports:
+                        location = report.get("area", "Unknown")
+                        flood_data[location] = {
+                            "flood_depth": report.get("flood_level", 0.0),
+                            "affected_area": location,
+                            "passability": report.get("status", "unknown"),
+                            "timestamp": datetime.fromisoformat(report.get("timestamp"))
+                        }
 
             logger.info(f"Fetched flood depth data for {len(flood_data)} locations")
             self.flood_depth_data = flood_data

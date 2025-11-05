@@ -12,19 +12,27 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
   const pingIntervalRef = useRef(null);
 
   const connect = useCallback(() => {
-    // Don't attempt WebSocket connection if URL is not configured
-    if (!url || url.includes('undefined') || url.includes('localhost')) {
-      console.warn('WebSocket URL not configured for production. Running in offline mode.');
+    // Don't attempt WebSocket connection if URL is not properly configured
+    if (!url || url.includes('undefined')) {
+      console.warn('WebSocket URL not configured. Running in offline mode.');
       setIsConnected(false);
       return;
     }
 
     try {
+      console.log('🔌 Attempting WebSocket connection to:', url);
+      console.log('🔌 URL breakdown:', {
+        protocol: url.split(':')[0],
+        host: url.split('/')[2],
+        path: '/' + url.split('/').slice(3).join('/')
+      });
+
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('WebSocket connected to', url);
+        console.log('✅ WebSocket connected successfully to', url);
+        console.log('✅ WebSocket ready state:', ws.readyState);
         setIsConnected(true);
 
         // Send ping every 30 seconds to keep connection alive
@@ -72,12 +80,32 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
       };
 
       ws.onerror = (error) => {
-        console.warn('WebSocket connection error. Running in offline mode.');
+        console.error('❌ WebSocket error occurred');
+        console.error('❌ Error details:', {
+          type: error.type,
+          target: error.target,
+          readyState: ws.readyState,
+          url: url,
+          timestamp: new Date().toISOString()
+        });
+        console.error('❌ ReadyState meanings: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED');
         setIsConnected(false);
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.onclose = (event) => {
+        console.log('🔌 WebSocket disconnected');
+        console.log('🔌 Close details:', {
+          code: event.code,
+          reason: event.reason || 'No reason provided',
+          wasClean: event.wasClean,
+          timestamp: new Date().toISOString()
+        });
+        console.log('🔌 Close code meanings:', {
+          1000: 'Normal closure',
+          1001: 'Going away',
+          1006: 'Abnormal closure (no close frame)',
+          1015: 'TLS handshake failure'
+        });
         setIsConnected(false);
 
         // Clean up ping interval
@@ -128,9 +156,18 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
   }, [sendMessage]);
 
   useEffect(() => {
+    // Prevent multiple connection attempts
+    if (wsRef.current &&
+        (wsRef.current.readyState === WebSocket.CONNECTING ||
+         wsRef.current.readyState === WebSocket.OPEN)) {
+      console.log('⚠️ WebSocket already connected/connecting, skipping new connection');
+      return;
+    }
+
     connect();
 
     return () => {
+      console.log('🧹 Cleaning up WebSocket connection');
       disconnect();
     };
   }, [connect, disconnect]);
