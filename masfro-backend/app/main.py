@@ -1,70 +1,85 @@
 # filename: masfro-backend/main.py
 
-from fastapi import FastAPI
+"""
+FastAPI Backend for Multi-Agent System for Flood Route Optimization (MAS-FRO)
+
+This is the main entry point for the MAS-FRO backend API. It initializes all
+agents in the multi-agent system and provides REST API endpoints for route
+requests and system monitoring.
+
+Author: MAS-FRO Development Team
+Date: November 2025
+"""
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Tuple
-from fastapi import BackgroundTasks # for handling background agents
+from typing import List, Tuple, Optional, Dict, Any
+from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
-#Agent Functions
+# Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
+from app.agents.flood_agent import FloodAgent
+from app.agents.scout_agent import ScoutAgent
+from app.agents.hazard_agent import HazardAgent
+from app.agents.evacuation_manager_agent import EvacuationManagerAgent
+from app.agents.routing_agent import RoutingAgent
+
+# No direct algorithm imports needed - RoutingAgent handles all pathfinding
+
+# Communication imports
+from app.communication.message_queue import MessageQueue
+from app.communication.acl_protocol import ACLMessage, Performative
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # --- 1. Data Models (using Pydantic) ---
-# This defines the expected JSON structure for a request to the /api/route endpoint.
-# FastAPI will automatically validate incoming data against this model.
+
 class RouteRequest(BaseModel):
-    start_location: Tuple[float, float] # e.g., (14.62, 121.12)
+    """Request model for route calculation."""
+    start_location: Tuple[float, float]  # (latitude, longitude)
     end_location: Tuple[float, float]
+    preferences: Optional[Dict[str, Any]] = None
 
-# --- 2. Core Simulation Components (Placeholders) ---
-# These are the classes from your methodology. For now, they are simple placeholders.
+class RouteResponse(BaseModel):
+    """Response model for route results."""
+    route_id: str
+    status: str
+    path: List[Tuple[float, float]]
+    distance: Optional[float] = None
+    estimated_time: Optional[float] = None
+    risk_level: Optional[float] = None
+    warnings: List[str] = []
+    message: Optional[str] = None
 
-# class DynamicGraphEnvironment:
-#     """
-#     Manages the road network graph (using NetworkX and OSMnx).
-#     This class will load the map data and handle dynamic updates to edge weights (risk scores).
-#     """
-#     def __init__(self):
-#         # TODO: Implement graph loading from OSMnx as per Section 4.4.2.
-#         print("DynamicGraphEnvironment initialized.")
-#         self.graph = None # This will hold the NetworkX graph object.
+class FeedbackRequest(BaseModel):
+    """Request model for user feedback."""
+    route_id: str
+    feedback_type: str  # "clear", "blocked", "flooded", "traffic"
+    location: Optional[Tuple[float, float]] = None
+    severity: Optional[float] = None
+    description: Optional[str] = None
 
-class RoutingAgent:
-    """
-    Responsible for computing the safest and most efficient path.
-    It queries the DynamicGraphEnvironment to perform its calculations.
-    """
-    def __init__(self, environment: DynamicGraphEnvironment):
-        # The agent needs a reference to the environment to access the graph.
-        self.environment = environment
-        print("RoutingAgent initialized.")
+# --- 2. FastAPI Application Setup ---
 
-    def find_safest_route(self, start_node, end_node) -> List[Tuple[float, float]]:
-        """
-        Calculates the optimal route based on risk and distance.
-        # TODO: Implement the risk-aware A* algorithm described in your paper.
-        """
-        print(f"Finding route from {start_node} to {end_node}...")
-        # For now, return a hardcoded placeholder path for testing.
-        return [
-            (14.6231, 121.1011), # Placeholder coordinate 1
-            (14.6245, 121.1023), # Placeholder coordinate 2
-            (14.6258, 121.1035)  # Placeholder coordinate 3
-        ]
-
-# --- 3. FastAPI Application Setup ---
-
-# Create the main FastAPI application instance.
 app = FastAPI(
     title="MAS-FRO API",
-    description="API for the Multi-Agent System for Flood Route Optimization.",
-    version="0.1.0"
+    description="Multi-Agent System for Flood Route Optimization API",
+    version="1.0.0"
 )
 
+# CORS configuration
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
@@ -75,46 +90,271 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static files (flood maps, data)
 app.mount("/data", StaticFiles(directory="app/data"), name="data")
 
-# Create single, shared instances of your core components.
-# This ensures that all API requests use the same environment and agent objects.
+# --- 3. Initialize Multi-Agent System ---
+
+logger.info("Initializing MAS-FRO Multi-Agent System...")
+
+# Initialize environment
 environment = DynamicGraphEnvironment()
-routing_agent = RoutingAgent(environment)
+
+# Initialize message queue for agent communication
+message_queue = MessageQueue()
+
+# Initialize agents
+hazard_agent = HazardAgent("hazard_agent_001", environment)
+flood_agent = FloodAgent("flood_agent_001", environment, hazard_agent=hazard_agent)
+routing_agent = RoutingAgent("routing_agent_001", environment)
+evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
+
+# ScoutAgent requires Twitter/X credentials - initialize when needed
+# Example:
+#   scout_agent = ScoutAgent(
+#       "scout_agent_001",
+#       environment,
+#       email="your_email@example.com",
+#       password="your_password",
+#       hazard_agent=hazard_agent
+#   )
+#   scout_agent.set_hazard_agent(hazard_agent)
+scout_agent = None
+
+# Link agents (create agent network)
+flood_agent.set_hazard_agent(hazard_agent)
+evacuation_manager.set_hazard_agent(hazard_agent)
+evacuation_manager.set_routing_agent(routing_agent)
+
+logger.info("MAS-FRO system initialized successfully")
 
 # --- 4. API Endpoints ---
-@app.post("/api/route", tags=["Routing"])
-async def get_route(request: RouteRequest) -> dict:
-    """
-    Accepts start and end coordinates and returns the safest calculated route.
-    """
-    # The `request` object is an instance of `RouteRequest` with validated data.
-    path = routing_agent.find_safest_route(
-        start_node=request.start_location,
-        end_node=request.end_location
-    )
-    
-    return {"status": "success", "path": path}
 
 @app.get("/", tags=["General"])
 async def read_root():
-    """A simple endpoint to check if the server is running."""
-    return {"message": "Welcome to the MAS-FRO Backend API"}
+    """Health check endpoint."""
+    return {
+        "message": "Welcome to MAS-FRO Backend API",
+        "version": "1.0.0",
+        "status": "operational"
+    }
 
+@app.get("/api/health", tags=["General"])
+async def health_check():
+    """System health check."""
+    graph_status = "loaded" if environment.graph else "not_loaded"
 
+    return {
+        "status": "healthy",
+        "graph_status": graph_status,
+        "agents": {
+            "flood_agent": "active" if flood_agent else "inactive",
+            "hazard_agent": "active" if hazard_agent else "inactive",
+            "routing_agent": "active" if routing_agent else "inactive",
+            "evacuation_manager": "active" if evacuation_manager else "inactive"
+        }
+    }
 
+@app.post("/api/route", tags=["Routing"], response_model=RouteResponse)
+async def get_route(request: RouteRequest):
+    """
+    Calculate optimal flood-safe route between two points.
 
-# @app.post("/api/admin/update-hazards", tags=["Admin"])
-# async def trigger_hazard_updates(background_tasks: BackgroundTasks):
-#     """
-#     Triggers the background agents to scrape for the latest hazard data.
-#     This endpoint returns immediately.
-#     """
-#     print("API CALL: Received request to update hazard data.")
+    Uses RoutingAgent with risk-aware A* algorithm to find the safest path
+    considering current flood conditions.
+    """
+    logger.info(f"Route request: {request.start_location} -> {request.end_location}")
 
-#     # Add the scraping functions to the background tasks queue
-#     # Pass the shared 'environment' object so the agent can update it
-#     background_tasks.add_task(scrape_pagasa_rainfall_data, environment)
-#     # background_tasks.add_task(scrape_social_media_data, environment) # For your scout agent
+    try:
+        # Check if graph is loaded
+        if not environment.graph:
+            raise HTTPException(
+                status_code=503,
+                detail="Road network not loaded. Please contact administrator."
+            )
 
-#     return {"message": "Hazard data update process started in the background."}
+        # Use RoutingAgent to calculate route
+        route_result = routing_agent.calculate_route(
+            start=request.start_location,
+            end=request.end_location,
+            preferences=request.preferences
+        )
+
+        if not route_result.get("path"):
+            raise HTTPException(
+                status_code=404,
+                detail="No safe route found between these locations."
+            )
+
+        # Generate route ID
+        import uuid
+        route_id = str(uuid.uuid4())
+
+        return RouteResponse(
+            route_id=route_id,
+            status="success",
+            path=route_result["path"],
+            distance=route_result.get("distance"),
+            estimated_time=route_result.get("estimated_time"),
+            risk_level=route_result.get("risk_level"),
+            warnings=route_result.get("warnings", [])
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Route calculation validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Route calculation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during route calculation: {str(e)}"
+        )
+
+@app.post("/api/feedback", tags=["Feedback"])
+async def submit_feedback(feedback: FeedbackRequest):
+    """
+    Submit user feedback about road conditions.
+
+    Users can report:
+    - Road clear (passable)
+    - Road blocked (impassable)
+    - Flooding detected
+    - Traffic conditions
+    """
+    logger.info(f"Feedback received: {feedback.feedback_type} for route {feedback.route_id}")
+
+    try:
+        # Process feedback through evacuation manager
+        success = evacuation_manager.collect_user_feedback(
+            route_id=feedback.route_id,
+            feedback_type=feedback.feedback_type,
+            location=feedback.location,
+            data={
+                "severity": feedback.severity or 0.5,
+                "description": feedback.description
+            }
+        )
+
+        if success:
+            return {
+                "status": "success",
+                "message": "Feedback received and processed. Thank you!"
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid feedback data"
+            )
+
+    except Exception as e:
+        logger.error(f"Feedback processing error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing feedback: {str(e)}"
+        )
+
+@app.post("/api/evacuation-center", tags=["Routing"])
+async def get_nearest_evacuation_center(
+    location: Tuple[float, float]
+):
+    """
+    Find nearest evacuation center and calculate route.
+
+    Returns the closest safe evacuation center with route information.
+    """
+    logger.info(f"Evacuation center request from {location}")
+
+    try:
+        if not environment.graph:
+            raise HTTPException(
+                status_code=503,
+                detail="Road network not loaded."
+            )
+
+        result = routing_agent.find_nearest_evacuation_center(location)
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="No evacuation centers found or accessible."
+            )
+
+        return {
+            "status": "success",
+            "evacuation_center": result["center"],
+            "route": {
+                "path": result["path"],
+                "distance": result["metrics"]["total_distance"],
+                "estimated_time": result["metrics"]["estimated_time"],
+                "risk_level": result["metrics"]["average_risk"]
+            },
+            "alternatives": result.get("alternatives", [])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Evacuation center lookup error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error finding evacuation center: {str(e)}"
+        )
+
+@app.post("/api/admin/collect-flood-data", tags=["Admin"])
+async def trigger_flood_data_collection():
+    """
+    Manually trigger flood data collection from FloodAgent.
+
+    This endpoint is useful for testing the agent communication workflow
+    and forcing an update of flood conditions.
+    """
+    logger.info("Manual flood data collection triggered")
+
+    try:
+        # Trigger FloodAgent to collect and forward data
+        data = flood_agent.collect_and_forward_data()
+
+        return {
+            "status": "success",
+            "message": "Flood data collection completed",
+            "locations_updated": len(data),
+            "data_summary": list(data.keys()) if data else []
+        }
+
+    except Exception as e:
+        logger.error(f"Flood data collection error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error collecting flood data: {str(e)}"
+        )
+
+@app.get("/api/statistics", tags=["Monitoring"])
+async def get_statistics():
+    """Get system statistics."""
+    try:
+        stats = evacuation_manager.get_route_statistics()
+
+        graph_stats = {}
+        if environment.graph:
+            graph_stats = {
+                "total_nodes": environment.graph.number_of_nodes(),
+                "total_edges": environment.graph.number_of_edges()
+            }
+
+        return {
+            "route_statistics": stats,
+            "graph_statistics": graph_stats,
+            "system_status": "operational"
+        }
+
+    except Exception as e:
+        logger.error(f"Statistics error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving statistics: {str(e)}"
+        )

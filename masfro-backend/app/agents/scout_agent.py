@@ -17,17 +17,42 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from .base_agent import BaseAgent
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ScoutAgent(BaseAgent):
     """
     The ScoutAgent is responsible for scraping real-time data from social media
     (X.com/Twitter) to identify flood-related events in Marikina City.
+
+    This agent collects crowdsourced Volunteered Geographic Information (VGI)
+    from social media, processes it using NLP, and forwards validated reports
+    to the HazardAgent for data fusion.
+
+    Attributes:
+        agent_id: Unique identifier for this agent
+        environment: Reference to DynamicGraphEnvironment
+        hazard_agent: Reference to HazardAgent for data forwarding
+        nlp_processor: NLP processor for tweet analysis
+        email: Twitter/X account email
+        password: Twitter/X account password
     """
-    def __init__(self, agent_id: str, environment, email: str, password: str):
+    def __init__(self, agent_id: str, environment, email: str, password: str, hazard_agent=None):
         super().__init__(agent_id, environment)
         self.email = email
         self.password = password
         self.driver = None
+        self.hazard_agent = hazard_agent
+
+        # Initialize NLP processor
+        try:
+            from ..ml_models.nlp_processor import NLPProcessor
+            self.nlp_processor = NLPProcessor()
+            logger.info(f"{self.agent_id} initialized with NLP processor")
+        except Exception as e:
+            logger.warning(f"{self.agent_id} failed to initialize NLP processor: {e}")
+            self.nlp_processor = None
         
         # --- CENTRALIZED FILE PATHS ---
         # Define the path to the data directory relative to the project root.
@@ -44,7 +69,16 @@ class ScoutAgent(BaseAgent):
         print(f"  -> Master tweet file path: {self.master_file}")
         print(f"  -> Session file path: {self.session_file}")
 
-        
+    def set_hazard_agent(self, hazard_agent) -> None:
+        """
+        Set reference to HazardAgent for data forwarding.
+
+        Args:
+            hazard_agent: HazardAgent instance
+        """
+        self.hazard_agent = hazard_agent
+        logger.info(f"{self.agent_id} linked to {hazard_agent.agent_id}")
+
     def setup(self) -> bool:
         """
         Initializes the Selenium WebDriver and logs into X.com.
@@ -71,34 +105,76 @@ class ScoutAgent(BaseAgent):
             list: A list of newly found tweet dictionaries.
         """
         print(f"\n[{self.agent_id}] Performing step at {datetime.now().strftime('%H:%M:%S')}")
-        
+
         # 1. Search for recent tweets
         raw_tweets = self._search_tweets()
-        
+
         # 2. Add new tweets to our master list and get only the new ones back
         newly_added_tweets = self._add_new_tweets_to_master(raw_tweets)
 
         if newly_added_tweets:
             print(f"[{self.agent_id}] Found {len(newly_added_tweets)} new tweets.")
-            # --- CRITICAL MAS LOGIC ---
-            # TODO: Implement the logic to parse these tweets.
-            # For each tweet, identify keywords (e.g., "baha", "flood") and
-            # street names or landmarks (e.g., "Tañong", "J.P. Rizal").
-            # Then, call the environment to update the risk scores.
-            #
-            # Example:
-            # for tweet in newly_added_tweets:
-            #     location, severity = self._parse_tweet_for_hazard(tweet)
-            #     if location:
-            #         # Find the corresponding edge(s) in the graph for the location
-            #         edge = self.environment.find_edge_by_location(location)
-            #         # Update the risk based on severity
-            #         self.environment.update_edge_risk(edge.u, edge.v, edge.key, severity)
-            pass
+
+            # 3. Process tweets with NLP and forward to HazardAgent
+            self._process_and_forward_tweets(newly_added_tweets)
         else:
             print(f"[{self.agent_id}] No new tweets found in this step.")
-            
+
         return newly_added_tweets
+
+    def _process_and_forward_tweets(self, tweets: list) -> None:
+        """
+        Process tweets using NLP and forward to HazardAgent.
+
+        Args:
+            tweets: List of tweet dictionaries to process
+        """
+        if not self.nlp_processor:
+            logger.warning(f"{self.agent_id} has no NLP processor, skipping tweet processing")
+            return
+
+        if not self.hazard_agent:
+            logger.warning(f"{self.agent_id} has no HazardAgent reference, data not forwarded")
+            return
+
+        processed_reports = []
+
+        for tweet in tweets:
+            try:
+                # Extract flood info using NLP
+                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+
+                if flood_info['is_flood_related']:
+                    # Create scout report for HazardAgent
+                    report = {
+                        "location": flood_info['location'] or "Marikina",  # Default to Marikina
+                        "severity": flood_info['severity'],
+                        "report_type": flood_info['report_type'],
+                        "confidence": flood_info['confidence'],
+                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
+                        "source": "twitter",
+                        "source_url": tweet.get('url', ''),
+                        "username": tweet.get('username', ''),
+                        "text": tweet['text']
+                    }
+
+                    processed_reports.append(report)
+                    logger.debug(
+                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
+                        f"{flood_info['location']} - severity {flood_info['severity']:.2f}"
+                    )
+
+            except Exception as e:
+                logger.error(f"{self.agent_id} error processing tweet: {e}")
+                continue
+
+        # Forward all processed reports to HazardAgent
+        if processed_reports:
+            logger.info(
+                f"{self.agent_id} forwarding {len(processed_reports)} "
+                f"flood reports to HazardAgent"
+            )
+            self.hazard_agent.process_scout_data(processed_reports)
 
     def shutdown(self):
         """
