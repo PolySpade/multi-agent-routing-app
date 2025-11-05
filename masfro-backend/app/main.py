@@ -11,13 +11,16 @@ Author: MAS-FRO Development Team
 Date: November 2025
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Set
 from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import asyncio
+import json
+from datetime import datetime
 
 # Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
@@ -39,6 +42,57 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# --- WebSocket Connection Manager ---
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time updates."""
+
+    def __init__(self):
+        """Initialize connection manager."""
+        self.active_connections: Set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        """Accept new WebSocket connection."""
+        await websocket.accept()
+        self.active_connections.add(websocket)
+        logger.info(
+            f"WebSocket connected. Total connections: {len(self.active_connections)}"
+        )
+
+    def disconnect(self, websocket: WebSocket):
+        """Remove WebSocket connection."""
+        self.active_connections.discard(websocket)
+        logger.info(
+            f"WebSocket disconnected. "
+            f"Total connections: {len(self.active_connections)}"
+        )
+
+    async def broadcast(self, message: dict):
+        """Broadcast message to all connected clients."""
+        disconnected = set()
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending to WebSocket: {e}")
+                disconnected.add(connection)
+
+        # Clean up disconnected clients
+        for conn in disconnected:
+            self.disconnect(conn)
+
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        """Send message to specific client."""
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Error sending personal message: {e}")
+            self.disconnect(websocket)
+
+
+# Initialize WebSocket manager
+ws_manager = ConnectionManager()
 
 # --- 1. Data Models (using Pydantic) ---
 
@@ -79,14 +133,16 @@ app = FastAPI(
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -332,6 +388,96 @@ async def trigger_flood_data_collection():
             status_code=500,
             detail=f"Error collecting flood data: {str(e)}"
         )
+
+@app.websocket("/ws/route-updates")
+async def websocket_route_updates(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time route and risk updates.
+
+    Clients can connect to receive live updates about:
+    - Flood risk level changes
+    - Route recalculations
+    - System status updates
+    - Hazard alerts
+    """
+    await ws_manager.connect(websocket)
+
+    try:
+        # Send initial connection message
+        await ws_manager.send_personal_message(
+            {
+                "type": "connection",
+                "status": "connected",
+                "message": "Connected to MAS-FRO real-time updates",
+                "timestamp": datetime.now().isoformat()
+            },
+            websocket
+        )
+
+        # Send initial system status
+        graph_status = "loaded" if environment.graph else "not_loaded"
+        await ws_manager.send_personal_message(
+            {
+                "type": "system_status",
+                "graph_status": graph_status,
+                "agents": {
+                    "flood_agent": "active" if flood_agent else "inactive",
+                    "hazard_agent": "active" if hazard_agent else "inactive",
+                    "routing_agent": "active" if routing_agent else "inactive",
+                    "evacuation_manager": "active" if evacuation_manager else "inactive"
+                },
+                "timestamp": datetime.now().isoformat()
+            },
+            websocket
+        )
+
+        # Keep connection alive and listen for messages
+        while True:
+            try:
+                # Receive message from client
+                data = await websocket.receive_json()
+
+                # Handle different message types
+                if data.get("type") == "ping":
+                    await ws_manager.send_personal_message(
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.now().isoformat()
+                        },
+                        websocket
+                    )
+
+                elif data.get("type") == "request_update":
+                    # Send current risk levels and system status
+                    stats = evacuation_manager.get_route_statistics()
+                    await ws_manager.send_personal_message(
+                        {
+                            "type": "statistics_update",
+                            "data": stats,
+                            "timestamp": datetime.now().isoformat()
+                        },
+                        websocket
+                    )
+
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {e}")
+                await ws_manager.send_personal_message(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    websocket
+                )
+
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        ws_manager.disconnect(websocket)
+
 
 @app.get("/api/statistics", tags=["Monitoring"])
 async def get_statistics():

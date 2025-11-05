@@ -525,8 +525,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         console.log('Flood map loaded successfully!');
 
       } catch (error) {
-        console.error('Error loading flood map:', error);
-        console.error('Error details:', error.message, error.stack);
+        console.warn('Flood map not available:', error.message);
+        // Silently fail - flood maps are optional for basic map functionality
       }
     };
 

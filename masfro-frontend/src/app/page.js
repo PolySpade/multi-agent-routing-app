@@ -1,9 +1,12 @@
 'use client'; // This directive is necessary for React hooks
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import LocationSearch from '@/components/LocationSearch';
+import FeedbackForm from '@/components/FeedbackForm';
 import { findRoute } from '@/utils/routingService';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 const formatDistance = (meters) => {
   if (meters == null) return '—';
@@ -34,6 +37,11 @@ export default function Home() {
   const [message, setMessage] = useState('Click "Select Start Point" button, then click on the map.');
   const [selectionMode, setSelectionMode] = useState(null); // 'start', 'end', or null
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackLocation, setFeedbackLocation] = useState(null);
+
+  // WebSocket connection for real-time updates
+  const { isConnected, systemStatus, statistics: wsStatistics } = useWebSocket();
 
   // Dynamically import the MapboxMap component with SSR turned off
   const MapboxMap = useMemo(() => dynamic(() => import('@/components/MapboxMap'), { 
@@ -166,8 +174,30 @@ export default function Home() {
     );
   }, []);
   const handleShowInstructions = () => {
-    setMessage('Tip: Select start, then destination, and press “Find Safest Route” when both are set.');
+    setMessage('Tip: Select start, then destination, and press "Find Safest Route" when both are set.');
   };
+
+  const handleOpenFeedback = () => {
+    setShowFeedback(true);
+    // Use current location or start point as feedback location
+    setFeedbackLocation(startPoint);
+  };
+
+  const handleCloseFeedback = () => {
+    setShowFeedback(false);
+  };
+
+  // Update message when system status changes
+  useEffect(() => {
+    if (systemStatus && !loading) {
+      const graphStatus = systemStatus.graph_status;
+      if (graphStatus === 'loaded') {
+        setMessage('System ready. All agents active and graph loaded.');
+      } else if (graphStatus === 'not_loaded') {
+        setMessage('Warning: Road network not loaded. Some features may be unavailable.');
+      }
+    }
+  }, [systemStatus, loading]);
 
   const togglePanel = () => {
     setIsPanelCollapsed((prev) => !prev);
@@ -250,6 +280,22 @@ export default function Home() {
                       Smart Flood Routing
                     </p>
                   </div>
+                  <Link href="/dashboard" style={{
+                    background: 'rgba(15, 23, 42, 0.25)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    color: 'white',
+                    borderRadius: '999px',
+                    padding: '0.4rem 0.9rem',
+                    textDecoration: 'none',
+                    fontSize: '0.8rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    transition: 'all 0.3s ease'
+                  }}>
+                    Dashboard
+                    <span aria-hidden="true">📊</span>
+                  </Link>
                   <button
                     onClick={togglePanel}
                     style={{
@@ -519,6 +565,33 @@ export default function Home() {
                     )}
                   </button>
                 </div>
+
+                <button
+                  onClick={handleOpenFeedback}
+                  style={{
+                    padding: '0.95rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    background: 'rgba(15, 23, 42, 0.25)',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.6rem',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(15, 23, 42, 0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(15, 23, 42, 0.25)';
+                  }}
+                >
+                  📝 Report Road Condition
+                </button>
               </section>
             )}
 
@@ -530,11 +603,29 @@ export default function Home() {
                 padding: '1.4rem',
                 border: '1px solid rgba(255,255,255,0.1)'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem' }}>
-                  <span style={{ fontSize: '1rem' }}>ℹ️</span>
-                  <strong style={{ fontSize: '0.95rem', letterSpacing: '0.05rem', textTransform: 'uppercase' }}>
-                    Status
-                  </strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '1rem' }}>ℹ️</span>
+                    <strong style={{ fontSize: '0.95rem', letterSpacing: '0.05rem', textTransform: 'uppercase' }}>
+                      Status
+                    </strong>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontSize: '0.75rem',
+                    opacity: 0.8
+                  }}>
+                    <div style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: isConnected ? '#22c55e' : '#94a3b8',
+                      animation: isConnected ? 'pulse 2s infinite' : 'none'
+                    }} />
+                    {isConnected ? 'Live' : 'Offline'}
+                  </div>
                 </div>
                 <p style={{
                   margin: 0,
@@ -692,6 +783,33 @@ export default function Home() {
             </button>
           )}
         </section>
+
+        {showFeedback && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '2rem'
+          }}
+          onClick={handleCloseFeedback}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <FeedbackForm
+                routeId={routePath ? 'current-route' : null}
+                onClose={handleCloseFeedback}
+                currentLocation={feedbackLocation}
+              />
+            </div>
+          </div>
+        )}
       </main>
     </>
   );
