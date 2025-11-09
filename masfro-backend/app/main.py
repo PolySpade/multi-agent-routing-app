@@ -11,7 +11,7 @@ Author: MAS-FRO Development Team
 Date: November 2025
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query
 from pydantic import BaseModel
 from typing import List, Tuple, Optional, Dict, Any, Set
 from fastapi import BackgroundTasks
@@ -1140,3 +1140,178 @@ async def get_database_statistics(
             status_code=500,
             detail=f"Error retrieving statistics: {str(e)}"
         )
+
+
+# ============================================================================
+# GeoTIFF Flood Map Endpoints
+# ============================================================================
+
+@app.get("/api/geotiff/available-maps")
+async def get_available_flood_maps():
+    """
+    Get list of all available GeoTIFF flood maps.
+
+    Returns list of available return periods and time steps.
+    """
+    try:
+        from app.services.geotiff_service import get_geotiff_service
+
+        service = get_geotiff_service()
+        maps = service.get_available_maps()
+
+        return {
+            "status": "success",
+            "total_maps": len(maps),
+            "maps": maps,
+            "return_periods": service.return_periods,
+            "time_steps": service.time_steps
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting available maps: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving available maps: {str(e)}"
+        )
+
+
+@app.get("/api/geotiff/flood-map")
+async def get_flood_map(
+    return_period: str = Query(
+        "rr01",
+        description="Return period (rr01, rr02, rr03, rr04)"
+    ),
+    time_step: int = Query(
+        1,
+        ge=1,
+        le=18,
+        description="Time step (1-18 hours)"
+    )
+):
+    """
+    Get flood map metadata for specific return period and time step.
+
+    Returns bounds, statistics, and metadata but not the full raster data.
+    Use /api/geotiff/tiff endpoint to get the actual TIFF file.
+    """
+    try:
+        from app.services.geotiff_service import get_geotiff_service
+
+        service = get_geotiff_service()
+        data, metadata = service.load_flood_map(return_period, time_step)
+
+        return {
+            "status": "success",
+            "metadata": metadata,
+            "note": "Use /api/geotiff/tiff endpoint to download the actual TIFF file"
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting flood map: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving flood map: {str(e)}"
+        )
+
+
+@app.get("/api/geotiff/flood-depth")
+async def get_flood_depth_at_point(
+    lon: float = Query(..., description="Longitude (WGS84)"),
+    lat: float = Query(..., description="Latitude (WGS84)"),
+    return_period: str = Query(
+        "rr01",
+        description="Return period (rr01, rr02, rr03, rr04)"
+    ),
+    time_step: int = Query(
+        1,
+        ge=1,
+        le=18,
+        description="Time step (1-18 hours)"
+    )
+):
+    """
+    Get flood depth at a specific coordinate.
+
+    Useful for checking flood depth at a specific location without
+    downloading the entire TIFF file.
+    """
+    try:
+        from app.services.geotiff_service import get_geotiff_service
+
+        service = get_geotiff_service()
+        depth = service.get_flood_depth_at_point(
+            lon, lat, return_period, time_step
+        )
+
+        if depth is None:
+            return {
+                "status": "success",
+                "lon": lon,
+                "lat": lat,
+                "return_period": return_period,
+                "time_step": time_step,
+                "flood_depth": None,
+                "message": "No flood depth data at this location (out of bounds or no data)"
+            }
+
+        return {
+            "status": "success",
+            "lon": lon,
+            "lat": lat,
+            "return_period": return_period,
+            "time_step": time_step,
+            "flood_depth": depth,
+            "flood_depth_cm": round(depth * 100, 2),
+            "is_flooded": depth > 0.01  # >1cm threshold
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error querying flood depth: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error querying flood depth: {str(e)}"
+        )
+
+
+@app.get("/data/timed_floodmaps/{return_period}/{filename}")
+async def serve_geotiff_file(return_period: str, filename: str):
+    """
+    Serve GeoTIFF files directly for frontend visualization.
+
+    Example: /data/timed_floodmaps/rr01/rr01-1.tif
+    """
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+
+    # Validate return period
+    valid_periods = ["rr01", "rr02", "rr03", "rr04"]
+    if return_period not in valid_periods:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid return period. Valid: {valid_periods}"
+        )
+
+    # Validate filename pattern
+    if not filename.endswith(".tif") or not filename.startswith(return_period):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid filename format"
+        )
+
+    file_path = Path(f"app/data/timed_floodmaps/{return_period}/{filename}")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=file_path,
+        media_type="image/tiff",
+        filename=filename
+    )
+

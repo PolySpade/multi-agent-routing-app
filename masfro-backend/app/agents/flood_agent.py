@@ -34,10 +34,12 @@ try:
     from services.data_sources import DataCollector
     from services.river_scraper_service import RiverScraperService
     from services.weather_service import OpenWeatherMapService
+    from services.dam_water_scraper_service import DamWaterScraperService
 except ImportError:
     from app.services.data_sources import DataCollector
     from app.services.river_scraper_service import RiverScraperService
     from app.services.weather_service import OpenWeatherMapService
+    from app.services.dam_water_scraper_service import DamWaterScraperService
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +114,18 @@ class FloodAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"Failed to initialize OpenWeatherMapService: {e}")
                 self.weather_service = None
+
+            # Dam Water Scraper Service
+            try:
+                self.dam_scraper = DamWaterScraperService()
+                logger.info(f"{self.agent_id} initialized DamWaterScraperService")
+            except Exception as e:
+                logger.error(f"Failed to initialize DamWaterScraperService: {e}")
+                self.dam_scraper = None
         else:
             self.river_scraper = None
             self.weather_service = None
+            self.dam_scraper = None
             logger.info(f"{self.agent_id} real APIs disabled")
 
         # Initialize data collector (fallback for simulated data)
@@ -133,6 +144,7 @@ class FloodAgent(BaseAgent):
         self.rainfall_data: Dict[str, Any] = {}
         self.river_levels: Dict[str, Any] = {}
         self.flood_depth_data: Dict[str, Any] = {}
+        self.dam_levels: Dict[str, Any] = {}
 
         logger.info(
             f"{self.agent_id} initialized with update interval "
@@ -205,6 +217,20 @@ class FloodAgent(BaseAgent):
                         )
                 except Exception as e:
                     logger.error(f"Failed to fetch real weather data: {e}")
+
+            # Fetch real dam levels from PAGASA
+            if self.dam_scraper:
+                try:
+                    dam_data = self.fetch_real_dam_levels()
+                    if dam_data:
+                        # Add each dam as a separate data point
+                        for dam_name, dam_info in dam_data.items():
+                            combined_data[dam_name] = dam_info
+                        logger.info(
+                            f"✅ Collected REAL dam data: {len(dam_data)} dams"
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to fetch real dam data: {e}")
 
         # ========== FALLBACK: SIMULATED DATA ==========
         # Only use if no real data was collected
@@ -679,6 +705,96 @@ class FloodAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"Error fetching real weather data: {e}")
+            return {}
+
+    def fetch_real_dam_levels(self) -> Dict[str, Any]:
+        """
+        Fetch REAL dam water level data from PAGASA using DamWaterScraperService.
+
+        Returns:
+            Dict containing dam water levels with risk assessment
+        """
+        logger.info(f"{self.agent_id} fetching REAL dam levels from PAGASA")
+
+        if not self.dam_scraper:
+            logger.warning("DamWaterScraperService not available")
+            return {}
+
+        try:
+            # Fetch from PAGASA flood page
+            dams = self.dam_scraper.get_dam_levels()
+
+            if not dams:
+                logger.warning("No dam data returned from PAGASA")
+                return {}
+
+            # Process and format data
+            dam_data = {}
+
+            for dam in dams:
+                dam_name = dam.get("Dam Name", "Unknown")
+
+                # Extract key metrics
+                latest_rwl = dam.get("Latest RWL (m)")
+                latest_dev_nhwl = dam.get("Latest Dev from NHWL (m)")
+                nhwl = dam.get("NHWL (m)")
+                rule_curve = dam.get("Latest Rule Curve (m)")
+                dev_rule_curve = dam.get("Latest Dev from Rule Curve (m)")
+
+                # Calculate risk status based on deviation from NHWL
+                status = "normal"
+                risk_score = 0.0
+
+                if latest_dev_nhwl is not None:
+                    if latest_dev_nhwl >= 2.0:
+                        # >2m above NHWL = critical
+                        status = "critical"
+                        risk_score = 1.0
+                    elif latest_dev_nhwl >= 1.0:
+                        # 1-2m above NHWL = alarm
+                        status = "alarm"
+                        risk_score = 0.8
+                    elif latest_dev_nhwl >= 0.5:
+                        # 0.5-1m above NHWL = alert
+                        status = "alert"
+                        risk_score = 0.5
+                    elif latest_dev_nhwl >= 0.0:
+                        # At or slightly above NHWL = watch
+                        status = "watch"
+                        risk_score = 0.3
+                    else:
+                        # Below NHWL = normal
+                        status = "normal"
+                        risk_score = 0.1
+
+                dam_data[dam_name] = {
+                    "dam_name": dam_name,
+                    "reservoir_water_level_m": latest_rwl,
+                    "normal_high_water_level_m": nhwl,
+                    "deviation_from_nhwl_m": latest_dev_nhwl,
+                    "rule_curve_elevation_m": rule_curve,
+                    "deviation_from_rule_curve_m": dev_rule_curve,
+                    "status": status,
+                    "risk_score": risk_score,
+                    "latest_time": dam.get("Latest Time"),
+                    "latest_date": dam.get("Latest Date"),
+                    "water_level_change_hr": dam.get("Water Level Deviation (Hr)"),
+                    "water_level_change_amt": dam.get("Water Level Deviation (Amt)"),
+                    "timestamp": datetime.now(),
+                    "source": "PAGASA_Dam_Monitoring"
+                }
+
+            logger.info(
+                f"Fetched dam data for {len(dam_data)} dams. "
+                f"Statuses: {[d['status'] for d in dam_data.values()]}"
+            )
+
+            # Cache the data
+            self.dam_levels = dam_data
+            return dam_data
+
+        except Exception as e:
+            logger.error(f"Error fetching real dam levels: {e}")
             return {}
 
     def _parse_float(self, value) -> Optional[float]:

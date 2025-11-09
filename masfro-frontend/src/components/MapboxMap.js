@@ -27,6 +27,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [boundaryFeature, setBoundaryFeature] = useState(null);
   const [floodTimeStep, setFloodTimeStep] = useState(1);
+  const [returnPeriod, setReturnPeriod] = useState('rr01');
   const [floodEnabled, setFloodEnabled] = useState(true);
   const onMapClickRef = useRef(onMapClick);
 
@@ -421,7 +422,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         }
 
         // Fetch and parse the GeoTIFF from backend server
-        const tiffUrl = `${BACKEND_API_URL}/data/timed_floodmaps/rr01/rr01-${floodTimeStep}.tif`;
+        const tiffUrl = `${BACKEND_API_URL}/data/timed_floodmaps/${returnPeriod}/${returnPeriod}-${floodTimeStep}.tif`;
         console.log('Fetching TIFF from:', tiffUrl);
         
         const response = await fetch(tiffUrl);
@@ -659,7 +660,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     return () => {
       isCancelled = true;
     };
-  }, [isMapLoaded, floodTimeStep, floodEnabled, boundaryFeature]);
+  }, [isMapLoaded, floodTimeStep, returnPeriod, floodEnabled, boundaryFeature]);
 
   // Control flood layer visibility based on floodEnabled state
   useEffect(() => {
@@ -676,7 +677,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       );
       console.log('Flood layer visibility set to:', floodEnabled ? 'visible' : 'none');
     }
-  }, [floodEnabled, isMapLoaded, floodTimeStep]);
+  }, [floodEnabled, isMapLoaded, floodTimeStep, returnPeriod]);
 
   return (
     <div
@@ -740,6 +741,49 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             {floodEnabled ? 'ON' : 'OFF'}
           </button>
         </div>
+
+        {/* Return Period Selector */}
+        <div style={{ marginBottom: '0.75rem' }}>
+          <label style={{
+            display: 'block',
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '0.875rem',
+            marginBottom: '0.5rem',
+            fontWeight: 500
+          }}>
+            Return Period:
+          </label>
+          <select
+            value={returnPeriod}
+            onChange={(e) => setReturnPeriod(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              borderRadius: '6px',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              background: 'rgba(255, 255, 255, 0.15)',
+              color: 'white',
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              outline: 'none',
+              fontWeight: 500
+            }}
+          >
+            <option value="rr01" style={{ background: '#667eea', color: 'white' }}>
+              2-Year Flood (RR01)
+            </option>
+            <option value="rr02" style={{ background: '#667eea', color: 'white' }}>
+              5-Year Flood (RR02)
+            </option>
+            <option value="rr03" style={{ background: '#667eea', color: 'white' }}>
+              Return Period 3 (RR03)
+            </option>
+            <option value="rr04" style={{ background: '#667eea', color: 'white' }}>
+              10-Year Flood (RR04)
+            </option>
+          </select>
+        </div>
+
         <input
           type="range"
           min="1"
