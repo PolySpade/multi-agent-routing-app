@@ -4,6 +4,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import shp from 'shpjs';
 import { fromUrl, fromBlob } from 'geotiff';
 import proj4 from 'proj4';
+import { useWebSocket } from '../hooks/useWebSocket';
+import FloodAlerts from './FloodAlerts';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -27,6 +29,27 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const [floodTimeStep, setFloodTimeStep] = useState(1);
   const [floodEnabled, setFloodEnabled] = useState(true);
   const onMapClickRef = useRef(onMapClick);
+
+  // WebSocket connection for real-time flood updates and alerts
+  const {
+    isConnected,
+    floodData,
+    criticalAlerts,
+    schedulerStatus,
+    clearAlerts
+  } = useWebSocket();
+
+  // Log WebSocket connection status
+  useEffect(() => {
+    console.log('WebSocket connection status:', isConnected ? 'Connected ✅' : 'Disconnected ❌');
+  }, [isConnected]);
+
+  // Log when new flood data arrives via WebSocket
+  useEffect(() => {
+    if (floodData) {
+      console.log('🌊 Received real-time flood data update:', floodData);
+    }
+  }, [floodData]);
 
   useEffect(() => {
     onMapClickRef.current = onMapClick;
@@ -752,6 +775,13 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           </span>
         </div>
       </div>
+
+      {/* Real-time Flood Alerts */}
+      <FloodAlerts
+        alerts={criticalAlerts}
+        onClear={clearAlerts}
+        isConnected={isConnected}
+      />
     </div>
   );
 }

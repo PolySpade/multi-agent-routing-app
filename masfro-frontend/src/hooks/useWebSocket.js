@@ -7,6 +7,9 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
   const [lastMessage, setLastMessage] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
   const [statistics, setStatistics] = useState(null);
+  const [floodData, setFloodData] = useState(null);
+  const [criticalAlerts, setCriticalAlerts] = useState([]);
+  const [schedulerStatus, setSchedulerStatus] = useState(null);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const pingIntervalRef = useRef(null);
@@ -31,8 +34,9 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('✅ WebSocket connected successfully to', url);
-        console.log('✅ WebSocket ready state:', ws.readyState);
+        console.log('✅ WebSocket connected successfully!');
+        console.log('📡 Connected to:', url);
+        console.log('🔗 Connection state: OPEN (ready for real-time updates)');
         setIsConnected(true);
 
         // Send ping every 30 seconds to keep connection alive
@@ -51,20 +55,51 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
           // Handle different message types
           switch (data.type) {
             case 'connection':
-              console.log('Connected to MAS-FRO:', data.message);
+              console.log('✅ Connected to MAS-FRO:', data.message);
               break;
 
             case 'system_status':
               setSystemStatus(data);
+              console.log('📊 System status updated:', data);
               break;
 
             case 'statistics_update':
               setStatistics(data.data);
               break;
 
+            case 'flood_update':
+              // Real-time flood data update from scheduler
+              setFloodData(data.data);
+              console.log('🌊 Flood data updated:', {
+                timestamp: data.timestamp,
+                source: data.source,
+                dataPoints: Object.keys(data.data || {}).length
+              });
+              break;
+
+            case 'critical_alert':
+              // Critical water level alert
+              setCriticalAlerts(prev => {
+                const newAlert = {
+                  ...data,
+                  id: `${data.station}_${Date.now()}`,
+                  receivedAt: new Date().toISOString()
+                };
+                console.warn('🚨 CRITICAL ALERT:', data.message);
+                // Keep last 10 alerts
+                return [newAlert, ...prev].slice(0, 10);
+              });
+              break;
+
+            case 'scheduler_update':
+              // Scheduler status update
+              setSchedulerStatus(data.status);
+              console.log('⏰ Scheduler update:', data.status);
+              break;
+
             case 'risk_update':
               // Handle risk level updates
-              console.log('Risk update received:', data);
+              console.log('⚠️ Risk update received:', data);
               break;
 
             case 'pong':
@@ -72,7 +107,7 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
               break;
 
             default:
-              console.log('Unknown message type:', data.type);
+              console.log('❓ Unknown message type:', data.type);
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
@@ -80,31 +115,22 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
       };
 
       ws.onerror = (error) => {
-        console.error('❌ WebSocket error occurred');
-        console.error('❌ Error details:', {
-          type: error.type,
-          target: error.target,
+        console.warn('⚠️ WebSocket connection issue (will auto-retry)');
+        console.debug('Connection state:', {
           readyState: ws.readyState,
           url: url,
           timestamp: new Date().toISOString()
         });
-        console.error('❌ ReadyState meanings: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED');
         setIsConnected(false);
       };
 
       ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected');
-        console.log('🔌 Close details:', {
+        console.log('🔌 WebSocket disconnected - reconnecting in 5s');
+        console.debug('Close details:', {
           code: event.code,
           reason: event.reason || 'No reason provided',
           wasClean: event.wasClean,
           timestamp: new Date().toISOString()
-        });
-        console.log('🔌 Close code meanings:', {
-          1000: 'Normal closure',
-          1001: 'Going away',
-          1006: 'Abnormal closure (no close frame)',
-          1015: 'TLS handshake failure'
         });
         setIsConnected(false);
 
@@ -116,7 +142,7 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
 
         // Attempt to reconnect after 5 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('Attempting to reconnect...');
+          console.log('🔄 Reconnecting to WebSocket...');
           connect();
         }, 5000);
       };
@@ -177,8 +203,12 @@ export function useWebSocket(url = `${WS_URL}/ws/route-updates`) {
     lastMessage,
     systemStatus,
     statistics,
+    floodData,
+    criticalAlerts,
+    schedulerStatus,
     sendMessage,
     requestUpdate,
-    reconnect: connect
+    reconnect: connect,
+    clearAlerts: () => setCriticalAlerts([])
   };
 }
