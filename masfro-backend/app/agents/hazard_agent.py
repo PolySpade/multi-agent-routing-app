@@ -24,6 +24,12 @@ from typing import Dict, Any, List, Tuple, Optional
 import logging
 from datetime import datetime
 
+# GeoTIFF service import
+try:
+    from services.geotiff_service import get_geotiff_service
+except ImportError:
+    from app.services.geotiff_service import get_geotiff_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,10 +82,25 @@ class HazardAgent(BaseAgent):
             "historical": 0.2  # Historical flood data weight
         }
 
+        # GeoTIFF service for flood depth queries
+        try:
+            self.geotiff_service = get_geotiff_service()
+            logger.info(f"{self.agent_id} initialized GeoTIFFService")
+        except Exception as e:
+            logger.error(f"Failed to initialize GeoTIFFService: {e}")
+            self.geotiff_service = None
+
+        # Flood prediction configuration (default: rr01, time_step 1)
+        self.return_period = "rr01"  # Default return period
+        self.time_step = 1  # Default time step (1 hour)
+
         # ML model placeholder (to be integrated later)
         self.flood_predictor = None
 
-        logger.info(f"{self.agent_id} initialized with risk weights: {self.risk_weights}")
+        logger.info(
+            f"{self.agent_id} initialized with risk weights: {self.risk_weights}, "
+            f"return_period: {self.return_period}, time_step: {self.time_step}"
+        )
 
     def step(self):
         """
@@ -148,6 +169,10 @@ class HazardAgent(BaseAgent):
         self.flood_data_cache[location] = flood_data
 
         logger.debug(f"Flood data cached for location: {location}")
+
+        # Trigger risk calculation and graph update after receiving flood data
+        logger.info(f"{self.agent_id} triggering hazard processing after flood data update")
+        self.process_hazard_data()
 
     def process_scout_data(self, scout_reports: List[Dict[str, Any]]) -> None:
         """
@@ -251,18 +276,160 @@ class HazardAgent(BaseAgent):
         logger.info(f"Data fusion complete for {len(fused_data)} locations")
         return fused_data
 
+    def get_flood_depth_at_edge(
+        self,
+        u: int,
+        v: int,
+        return_period: Optional[str] = None,
+        time_step: Optional[int] = None
+    ) -> Optional[float]:
+        """
+        Query flood depth for a specific edge from GeoTIFF data.
+
+        Args:
+            u: Source node ID
+            v: Target node ID
+            return_period: Return period (rr01-rr04), uses default if None
+            time_step: Time step (1-18), uses default if None
+
+        Returns:
+            Average flood depth along edge in meters, or None if unavailable
+        """
+        if not self.geotiff_service or not self.environment or not self.environment.graph:
+            return None
+
+        rp = return_period or self.return_period
+        ts = time_step or self.time_step
+
+        try:
+            # Get node coordinates
+            u_data = self.environment.graph.nodes[u]
+            v_data = self.environment.graph.nodes[v]
+
+            u_lon, u_lat = float(u_data['x']), float(u_data['y'])
+            v_lon, v_lat = float(v_data['x']), float(v_data['y'])
+
+            # Query flood depth at both endpoints
+            depth_u = self.geotiff_service.get_flood_depth_at_point(
+                u_lon, u_lat, rp, ts
+            )
+            depth_v = self.geotiff_service.get_flood_depth_at_point(
+                v_lon, v_lat, rp, ts
+            )
+
+            # Calculate average depth (if at least one endpoint has data)
+            depths = [d for d in [depth_u, depth_v] if d is not None]
+            if depths:
+                avg_depth = sum(depths) / len(depths)
+                return avg_depth
+            else:
+                return None
+
+        except Exception as e:
+            logger.debug(f"Error querying flood depth for edge ({u},{v}): {e}")
+            return None
+
+    def get_edge_flood_depths(
+        self,
+        return_period: Optional[str] = None,
+        time_step: Optional[int] = None
+    ) -> Dict[Tuple, float]:
+        """
+        Query flood depths for all edges in the graph.
+
+        Args:
+            return_period: Return period (rr01-rr04), uses default if None
+            time_step: Time step (1-18), uses default if None
+
+        Returns:
+            Dict mapping edge tuples to flood depths in meters
+                Format: {(u, v, key): depth, ...}
+        """
+        if not self.geotiff_service or not self.environment or not self.environment.graph:
+            logger.warning("GeoTIFF service or graph not available")
+            return {}
+
+        edge_depths = {}
+        rp = return_period or self.return_period
+        ts = time_step or self.time_step
+
+        logger.info(f"Querying flood depths for all edges (rp={rp}, ts={ts})")
+
+        edge_count = 0
+        flooded_count = 0
+
+        for u, v, key in self.environment.graph.edges(keys=True):
+            depth = self.get_flood_depth_at_edge(u, v, rp, ts)
+
+            if depth is not None and depth > 0.01:  # Threshold: 1cm
+                edge_depths[(u, v, key)] = depth
+                flooded_count += 1
+
+            edge_count += 1
+
+        logger.info(
+            f"Flood depth query complete: {flooded_count}/{edge_count} edges flooded "
+            f"(>{0.01}m)"
+        )
+
+        return edge_depths
+
+    def set_flood_scenario(
+        self, return_period: str = "rr01", time_step: int = 1
+    ) -> None:
+        """
+        Dynamically configure the flood scenario for GeoTIFF queries.
+
+        This allows the HazardAgent to switch between different flood scenarios
+        (return periods) and time steps for flood prediction.
+
+        Args:
+            return_period: Return period to use (rr01, rr02, rr03, rr04)
+                - rr01: 2-year return period
+                - rr02: 5-year return period
+                - rr03: 10-year return period
+                - rr04: 25-year return period
+            time_step: Time step in hours (1-18)
+
+        Raises:
+            ValueError: If return_period or time_step is invalid
+
+        Example:
+            >>> hazard_agent.set_flood_scenario("rr03", 12)  # 10-year, 12 hours
+        """
+        valid_return_periods = ["rr01", "rr02", "rr03", "rr04"]
+        if return_period not in valid_return_periods:
+            raise ValueError(
+                f"Invalid return_period '{return_period}'. Must be one of {valid_return_periods}"
+            )
+
+        if not 1 <= time_step <= 18:
+            raise ValueError(f"Invalid time_step {time_step}. Must be between 1 and 18")
+
+        self.return_period = return_period
+        self.time_step = time_step
+
+        logger.info(
+            f"{self.agent_id} flood scenario updated: "
+            f"return_period={return_period}, time_step={time_step}"
+        )
+
     def calculate_risk_scores(self, fused_data: Dict[str, Any]) -> Dict[Tuple, float]:
         """
-        Calculate risk scores for road segments based on fused data.
+        Calculate risk scores for road segments based on GeoTIFF flood depths and fused data.
+
+        Combines:
+        1. GeoTIFF flood depth data (spatial flood extents)
+        2. Fused data from FloodAgent and ScoutAgent (river levels, weather, crowdsourced)
 
         Args:
             fused_data: Fused data from multiple sources
 
         Returns:
-            Dict mapping edge tuples to risk scores
+            Dict mapping edge tuples to risk scores (0.0-1.0)
                 Format: {(u, v, key): risk_score, ...}
         """
-        logger.debug(f"{self.agent_id} calculating risk scores")
+        logger.debug(f"{self.agent_id} calculating risk scores with GeoTIFF integration")
 
         if not self.environment or not hasattr(self.environment, 'graph') or not self.environment.graph:
             logger.warning("Graph environment not available for risk calculation")
@@ -270,34 +437,61 @@ class HazardAgent(BaseAgent):
 
         risk_scores = {}
 
-        # For each location with flood data, update nearby edges
+        # Query GeoTIFF flood depths for all edges
+        edge_flood_depths = self.get_edge_flood_depths()
+
+        # Convert flood depths to risk scores
+        # Risk mapping: depth -> risk_score
+        #   0.0-0.3m: low risk (0.0-0.3)
+        #   0.3-0.6m: moderate risk (0.3-0.6)
+        #   0.6-1.0m: high risk (0.6-0.8)
+        #   >1.0m: critical risk (0.8-1.0)
+        for edge_tuple, depth in edge_flood_depths.items():
+            if depth <= 0.3:
+                risk_from_depth = depth  # Linear: 0.3m = 0.3 risk
+            elif depth <= 0.6:
+                risk_from_depth = 0.3 + (depth - 0.3) * 1.0  # 0.3-0.6m -> 0.3-0.6 risk
+            elif depth <= 1.0:
+                risk_from_depth = 0.6 + (depth - 0.6) * 0.5  # 0.6-1.0m -> 0.6-0.8 risk
+            else:
+                risk_from_depth = min(0.8 + (depth - 1.0) * 0.2, 1.0)  # >1.0m -> 0.8-1.0 risk
+
+            risk_scores[edge_tuple] = risk_from_depth * self.risk_weights["flood_depth"]
+
+        # Add risk from fused data (river levels, weather, crowdsourced)
+        # Apply a base risk from environmental conditions
         for location, data in fused_data.items():
             risk_level = data["risk_level"]
-            logger.debug(f"Location {location} has risk level: {risk_level:.2f}")
 
-            # Apply risk to all edges (simplified approach for MVP)
-            # In production, this would:
-            # 1. Geocode location names to coordinates
-            # 2. Find edges within radius
-            # 3. Apply distance-based decay
+            # Apply environmental risk to all edges (global modifier)
+            # This represents system-wide conditions (heavy rain, rising river levels)
+            for edge_tuple in list(self.environment.graph.edges(keys=True)):
+                current_risk = risk_scores.get(edge_tuple, 0.0)
 
-            # For now, apply a base risk increase to all edges
-            # This simulates system-wide flood conditions
-            try:
-                graph = self.environment.graph
-                for u, v, key in list(graph.edges(keys=True))[:100]:  # Limit for performance
-                    # Create edge tuple
-                    edge_tuple = (u, v, key)
+                # Combine GeoTIFF risk with environmental risk
+                # Environmental risk acts as a multiplier/modifier
+                environmental_factor = risk_level * (
+                    self.risk_weights["crowdsourced"] + self.risk_weights["historical"]
+                )
 
-                    # If edge already has a risk score, take the max
-                    current_risk = risk_scores.get(edge_tuple, 0.0)
-                    new_risk = max(current_risk, risk_level * 0.5)  # 50% of reported risk
-                    risk_scores[edge_tuple] = new_risk
+                # Take max to preserve highest risk
+                combined_risk = max(current_risk, current_risk + environmental_factor)
+                risk_scores[edge_tuple] = min(combined_risk, 1.0)  # Cap at 1.0
 
-            except Exception as e:
-                logger.error(f"Error calculating risk for location {location}: {e}")
+        # Count risk distribution
+        if risk_scores:
+            low_risk = sum(1 for r in risk_scores.values() if r < 0.3)
+            mod_risk = sum(1 for r in risk_scores.values() if 0.3 <= r < 0.6)
+            high_risk = sum(1 for r in risk_scores.values() if 0.6 <= r < 0.8)
+            crit_risk = sum(1 for r in risk_scores.values() if r >= 0.8)
 
-        logger.info(f"Calculated risk scores for {len(risk_scores)} edges")
+            logger.info(
+                f"Calculated risk scores for {len(risk_scores)} edges using GeoTIFF data. "
+                f"Distribution: low={low_risk}, moderate={mod_risk}, high={high_risk}, critical={crit_risk}"
+            )
+        else:
+            logger.info("No risk scores calculated (no flooded edges detected)")
+
         return risk_scores
 
     def update_environment(self, risk_scores: Dict[Tuple, float]) -> None:

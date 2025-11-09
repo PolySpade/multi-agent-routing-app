@@ -1,11 +1,11 @@
 # MAS-FRO Project TODO List
 
 **Last Updated:** November 9, 2025
-**Project Progress:** 80% Complete (Phases 1-5 done, Phase 6 pending)
+**Project Progress:** 85% Complete (Phases 1-6 done, Phase 7 pending)
 
 ---
 
-## ✅ Completed (Phases 1-4)
+## ✅ Completed (Phases 1-6)
 
 ### Phase 1: Foundation & Core Agents
 - [x] DynamicGraphEnvironment setup
@@ -82,46 +82,56 @@
   - [x] Added text() wrapper for raw SQL queries
   - [x] Database connection check working
 
+### Phase 6: GeoTIFF Integration (100%)
+- [x] GeoTIFFService with lazy loading and LRU caching
+- [x] Rasterio integration for TIFF file reading
+- [x] Coordinate transformation (EPSG:4326 ↔ EPSG:3857)
+- [x] GeoTIFF API endpoints (4 endpoints)
+  - [x] GET /api/geotiff/available-maps - List all 72 flood maps
+  - [x] GET /api/geotiff/flood-map - Get map metadata
+  - [x] GET /api/geotiff/flood-depth - Query depth at coordinates
+  - [x] GET /data/timed_floodmaps/{return_period}/{filename} - Serve TIFF files
+- [x] Frontend return period selector (RR01, RR02, RR03, RR04)
+- [x] Frontend time slider (1-18 hours)
+- [x] Dynamic TIFF loading in MapboxMap.js
+- [x] All 72 GeoTIFF files accessible (4 return periods × 18 time steps)
+- [x] End-to-end testing verified
+
 ---
 
 ## 🚧 In Progress
 
-### Phase 6: GeoTIFF Integration (0%)
-- [ ] Load GeoTIFF files on server startup
-- [ ] Parse flood depth data from TIFF
+### Phase 7: Agent-GeoTIFF Integration (0%)
 - [ ] Map flood depths to graph nodes
+- [ ] Integrate GeoTIFF data with HazardAgent risk calculation
+- [ ] Update RoutingAgent to use GeoTIFF flood data
 
 ---
 
 ## 📋 Next Priorities
 
-### Phase 6: GeoTIFF Integration (Est: 8-12 hours)
+### Phase 7: Agent-GeoTIFF Integration (Est: 6-8 hours)
 
-**Priority: MEDIUM**
-**Goal:** Integrate 72 flood maps into routing system
+**Priority: HIGH**
+**Goal:** Connect GeoTIFF flood depth data to HazardAgent and RoutingAgent
 
 **Tasks:**
-- [ ] Load GeoTIFF files on server startup
-- [ ] Parse flood depth data from TIFF
-- [ ] Map flood depths to graph nodes
-- [ ] Integrate with HazardAgent risk calculation
-- [ ] Update RoutingAgent to use GeoTIFF data
-- [ ] Create API endpoint to query flood depth at coordinates
-- [ ] Frontend: Display current flood map on Mapbox
-- [ ] Frontend: Time slider for 18 time steps
-- [ ] Frontend: Return period selector (RR01, RR02, RR05, RR10)
-- [ ] Performance optimization (caching, lazy loading)
+- [ ] Map flood depths from GeoTIFF to graph nodes
+- [ ] Update HazardAgent to query GeoTIFF flood depths
+- [ ] Integrate flood depth into risk score calculation
+- [ ] Update RoutingAgent to use real-time flood data from GeoTIFF
+- [ ] Add time-based flood prediction (use time steps)
+- [ ] Test routing with different return periods
 
 **Files to Modify:**
 - `masfro-backend/app/agents/hazard_agent.py`
 - `masfro-backend/app/agents/routing_agent.py`
-- `masfro-backend/app/services/geotiff_service.py` (new)
-- `masfro-frontend/src/components/MapboxMap.js`
+- `masfro-backend/app/services/geotiff_service.py`
 
-**Data Available:**
-- 72 GeoTIFF files in `masfro-backend/app/data/timed_floodmaps/`
-- 4 return periods: RR01, RR02, RR05, RR10
-- 18 time steps each (1-18 hours)
+**Expected Outcome:**
+- Routes avoid flooded areas based on GeoTIFF data
+- Risk scores reflect actual flood depths
+- Time-aware routing (predict floods based on time step)
 
 ---
 
@@ -282,7 +292,7 @@
 
 ## 📊 Progress Tracking
 
-### Overall Project Status: 80%
+### Overall Project Status: 85%
 
 **Completed Phases:**
 - ✅ Phase 1: Foundation (100%)
@@ -291,15 +301,16 @@
 - ✅ Phase 3: Automatic Scheduler (100%)
 - ✅ Phase 4: WebSocket Broadcasting (100%)
 - ✅ Phase 5: Database Integration (100%)
+- ✅ Phase 6: GeoTIFF Integration (100%)
 
 **Upcoming Phases:**
-- ⏳ Phase 6: GeoTIFF Integration (0%)
+- ⏳ Phase 7: Agent-GeoTIFF Integration (0%)
 
 **Time Estimates:**
-- Phase 6: 8-12 hours
+- Phase 7: 6-8 hours
 - Testing: 8-10 hours
 - Monitoring: 4-6 hours
-- **Total Remaining:** 20-28 hours
+- **Total Remaining:** 18-24 hours
 
 ---
 
@@ -314,16 +325,22 @@
 - [x] Store scheduler data
 - [x] End-to-end testing
 
-**Priority 2: GeoTIFF Integration** ⬅️ NEXT PHASE
-- [ ] Load GeoTIFF files on server startup
-- [ ] Parse flood depth data from TIFF
-- [ ] Map flood depths to graph nodes
-- [ ] Integrate with HazardAgent
+**Priority 2: Phase 6 GeoTIFF Integration** ✅ COMPLETED
+- [x] Created GeoTIFFService with lazy loading
+- [x] GeoTIFF API endpoints (4 endpoints)
+- [x] Frontend return period selector
+- [x] Frontend integration with MapboxMap
+- [x] All 72 GeoTIFF files accessible
 
-**Priority 3: Documentation**
-- [ ] Update README with Phase 5 completion
+**Priority 3: Phase 7 Agent-GeoTIFF Integration** ⬅️ NEXT PHASE
+- [ ] Map flood depths to graph nodes
+- [ ] Integrate with HazardAgent risk calculation
+- [ ] Update RoutingAgent to use GeoTIFF data
+
+**Priority 4: Documentation**
+- [ ] Update README with Phases 5-6 completion
 - [ ] Create deployment guide
-- [ ] Document database API endpoints
+- [ ] Document GeoTIFF API endpoints
 
 ---
 
@@ -377,11 +394,21 @@
 
 ---
 
-**Next Action:** Begin GeoTIFF Integration (Phase 6) - Load and parse 72 flood maps
+**Next Action:** Begin Agent-GeoTIFF Integration (Phase 7) - Connect flood depths to routing agents
 
-**Estimated Completion:** Phase 6 in 1-2 weeks with current pace
+**Estimated Completion:** Phase 7 in 3-4 days with current pace
 
-**Recent Accomplishment:** ✅ Phase 5 Database Integration completed (Nov 9, 2025)
+**Recent Accomplishments:**
+
+✅ **Phase 6 GeoTIFF Integration completed** (Nov 9, 2025)
+- GeoTIFFService with lazy loading and LRU caching (maxsize=32)
+- 4 GeoTIFF API endpoints for metadata and querying
+- Frontend return period selector (RR01, RR02, RR03, RR04)
+- Dynamic TIFF loading with time slider (1-18 hours)
+- All 72 GeoTIFF files accessible and tested
+- Coordinate transformation (WGS84 ↔ Web Mercator)
+
+✅ **Phase 5 Database Integration completed** (Nov 9, 2025)
 - PostgreSQL database with 3 tables
 - SQLAlchemy ORM with Alembic migrations
 - 5 historical data API endpoints
