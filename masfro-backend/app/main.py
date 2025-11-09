@@ -11,16 +11,19 @@ Author: MAS-FRO Development Team
 Date: November 2025
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
 from typing import List, Tuple, Optional, Dict, Any, Set
 from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 import logging
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
+from uuid import UUID
 
 # Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
@@ -39,6 +42,9 @@ from app.communication.acl_protocol import ACLMessage, Performative
 # Scheduler imports
 from app.services.flood_data_scheduler import FloodDataScheduler, set_scheduler, get_scheduler
 
+# Database imports
+from app.database import get_db, FloodDataRepository, check_connection, init_db
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -46,14 +52,76 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# --- Utility Functions ---
+
+class DateTimeEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder that handles datetime and Decimal objects.
+
+    Converts datetime objects to ISO format strings for JSON serialization.
+    """
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
+
+def to_json_serializable(data: Any) -> str:
+    """
+    Convert data to JSON string with datetime handling.
+
+    Args:
+        data: Data to convert (dict, list, or primitive)
+
+    Returns:
+        JSON string with all datetime objects converted
+    """
+    return json.dumps(data, cls=DateTimeEncoder)
+
+
+def convert_datetimes_to_strings(obj: Any) -> Any:
+    """
+    Recursively convert all datetime objects to ISO format strings.
+
+    Args:
+        obj: Object to convert (can be dict, list, datetime, or primitive)
+
+    Returns:
+        Converted object with all datetime instances as ISO strings
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: convert_datetimes_to_strings(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_datetimes_to_strings(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_datetimes_to_strings(item) for item in obj)
+    else:
+        return obj
+
+
 # --- WebSocket Connection Manager ---
 
 class ConnectionManager:
-    """Manages WebSocket connections for real-time updates."""
+    """
+    Manages WebSocket connections for real-time flood updates.
+
+    Broadcasts:
+    - Flood data updates (every 5 minutes from scheduler)
+    - Critical water level alerts (Alarm/Critical thresholds)
+    - Scheduler status updates
+    - System notifications
+    """
 
     def __init__(self):
         """Initialize connection manager."""
         self.active_connections: Set[WebSocket] = set()
+        self.last_flood_state: Optional[Dict[str, Any]] = None
+        self.critical_stations: Set[str] = set()  # Track critical river stations
 
     async def connect(self, websocket: WebSocket):
         """Accept new WebSocket connection."""
@@ -72,13 +140,40 @@ class ConnectionManager:
         )
 
     async def broadcast(self, message: dict):
-        """Broadcast message to all connected clients."""
+        """
+        Broadcast message to all connected clients.
+
+        Uses custom JSON encoder to handle datetime objects.
+        """
         disconnected = set()
+
+        # Serialize message with custom encoder for datetime handling
+        try:
+            json_str = to_json_serializable(message)
+            logger.debug(f"Successfully serialized message of type: {message.get('type')}")
+        except Exception as e:
+            logger.error(f"JSON serialization error: {e}")
+            logger.error(f"Message keys: {message.keys()}")
+            logger.error(f"Message type field: {message.get('type')}")
+            # Try to identify which field has the datetime issue
+            for key, value in message.items():
+                try:
+                    json.dumps({key: value}, cls=DateTimeEncoder)
+                except Exception as field_error:
+                    logger.error(f"Field '{key}' caused error: {field_error}, value type: {type(value)}")
+            raise  # Re-raise to prevent sending bad data
+
         for connection in self.active_connections:
             try:
-                await connection.send_json(message)
+                logger.debug(f"Attempting send_text with string of length: {len(json_str)}, type: {type(json_str)}")
+                logger.debug(f"First 100 chars: {json_str[:100]}")
+                await connection.send_text(json_str)
+                logger.debug("send_text successful")
             except Exception as e:
                 logger.error(f"Error sending to WebSocket: {e}")
+                logger.error(f"Exception type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 disconnected.add(connection)
 
         # Clean up disconnected clients
@@ -92,6 +187,131 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Error sending personal message: {e}")
             self.disconnect(websocket)
+
+    async def broadcast_flood_update(self, flood_data: Dict[str, Any]):
+        """
+        Broadcast flood data update to all connected clients.
+
+        Args:
+            flood_data: Dictionary containing river levels and weather data
+        """
+        if not self.active_connections:
+            return  # No clients to broadcast to
+
+        # Pre-convert ALL datetime objects to ISO format strings recursively
+        clean_flood_data = convert_datetimes_to_strings(flood_data)
+
+        message = {
+            "type": "flood_update",
+            "data": clean_flood_data,  # Now guaranteed to have no datetime objects
+            "timestamp": datetime.now().isoformat(),
+            "source": "flood_agent"
+        }
+
+        await self.broadcast(message)
+        logger.info(f"Broadcasted flood update to {len(self.active_connections)} clients")
+
+    async def broadcast_critical_alert(
+        self,
+        station_name: str,
+        water_level: float,
+        risk_level: str,
+        message_text: str
+    ):
+        """
+        Broadcast critical water level alert to all connected clients.
+
+        Args:
+            station_name: Name of the river station
+            water_level: Current water level in meters
+            risk_level: Risk classification (ALERT, ALARM, CRITICAL)
+            message_text: Human-readable alert message
+        """
+        alert = {
+            "type": "critical_alert",
+            "severity": risk_level.lower(),
+            "station": station_name,
+            "water_level": water_level,
+            "risk_level": risk_level,
+            "message": message_text,
+            "timestamp": datetime.now().isoformat(),  # Convert to string
+            "action_required": risk_level in ["ALARM", "CRITICAL"]
+        }
+
+        await self.broadcast(alert)
+        logger.warning(
+            f"🚨 CRITICAL ALERT broadcasted: {station_name} - {risk_level} "
+            f"({water_level}m) to {len(self.active_connections)} clients"
+        )
+
+    async def broadcast_scheduler_update(self, status: Dict[str, Any]):
+        """
+        Broadcast scheduler status update.
+
+        Args:
+            status: Scheduler status dictionary with run information
+        """
+        message = {
+            "type": "scheduler_update",
+            "status": status,
+            "timestamp": datetime.now().isoformat()  # Convert to string
+        }
+
+        await self.broadcast(message)
+        logger.debug(f"Broadcasted scheduler update to {len(self.active_connections)} clients")
+
+    async def check_and_alert_critical_levels(self, flood_data: Dict[str, Any]):
+        """
+        Check flood data for critical water levels and broadcast alerts.
+
+        Args:
+            flood_data: Flood data from FloodAgent containing river levels
+        """
+        if "river_levels" not in flood_data:
+            return
+
+        river_levels = flood_data["river_levels"]
+
+        for station_name, data in river_levels.items():
+            risk_level = data.get("risk_level", "NORMAL")
+            water_level = data.get("water_level", 0.0)
+
+            # Alert on ALARM or CRITICAL levels
+            if risk_level in ["ALARM", "CRITICAL"]:
+                # Check if this is a new critical station
+                station_key = f"{station_name}_{risk_level}"
+                if station_key not in self.critical_stations:
+                    self.critical_stations.add(station_key)
+
+                    # Create alert message
+                    if risk_level == "CRITICAL":
+                        message = (
+                            f"⚠️ CRITICAL FLOOD WARNING: {station_name} has reached "
+                            f"CRITICAL water level ({water_level:.2f}m). "
+                            f"EVACUATE IMMEDIATELY if you are in the affected area!"
+                        )
+                    else:  # ALARM
+                        message = (
+                            f"⚠️ FLOOD ALARM: {station_name} water level is at "
+                            f"{water_level:.2f}m (ALARM level). "
+                            f"Prepare for possible evacuation."
+                        )
+
+                    await self.broadcast_critical_alert(
+                        station_name=station_name,
+                        water_level=water_level,
+                        risk_level=risk_level,
+                        message_text=message
+                    )
+
+            # Clear from critical set if level drops below ALARM
+            elif risk_level in ["NORMAL", "ALERT"]:
+                # Remove all critical/alarm entries for this station
+                to_remove = {
+                    key for key in self.critical_stations
+                    if key.startswith(station_name)
+                }
+                self.critical_stations -= to_remove
 
 
 # Initialize WebSocket manager
@@ -194,8 +414,12 @@ flood_agent.set_hazard_agent(hazard_agent)
 evacuation_manager.set_hazard_agent(hazard_agent)
 evacuation_manager.set_routing_agent(routing_agent)
 
-# Initialize FloodAgent scheduler (5-minute intervals)
-flood_scheduler = FloodDataScheduler(flood_agent, interval_seconds=300)
+# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
+flood_scheduler = FloodDataScheduler(
+    flood_agent,
+    interval_seconds=300,
+    ws_manager=ws_manager
+)
 set_scheduler(flood_scheduler)
 
 logger.info("MAS-FRO system initialized successfully")
@@ -205,6 +429,16 @@ logger.info("MAS-FRO system initialized successfully")
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on application startup."""
+    # Check database connection
+    logger.info("Checking database connection...")
+    if check_connection():
+        logger.info("✅ Database connection successful")
+        # Initialize database tables (if not exist)
+        init_db()
+    else:
+        logger.error("❌ Database connection failed - historical data storage disabled")
+
+    # Start scheduler
     logger.info("Starting background scheduler...")
     scheduler = get_scheduler()
     if scheduler:
@@ -663,4 +897,246 @@ async def trigger_scheduler_manual_collection():
         raise HTTPException(
             status_code=500,
             detail=f"Error triggering manual collection: {str(e)}"
+        )
+
+
+# --- 5. Historical Flood Data Endpoints ---
+
+@app.get("/api/flood-data/latest", tags=["Flood Data History"])
+async def get_latest_flood_data(db: Session = Depends(get_db)):
+    """
+    Get the most recent flood data collection.
+
+    Returns the latest flood data including river levels and weather conditions.
+    """
+    try:
+        repo = FloodDataRepository(db)
+        collection = repo.get_latest_collection()
+
+        if not collection:
+            raise HTTPException(
+                status_code=404,
+                detail="No flood data collections found"
+            )
+
+        return {
+            "collection_id": str(collection.id),
+            "collected_at": collection.collected_at.isoformat(),
+            "data_source": collection.data_source,
+            "success": collection.success,
+            "duration_seconds": collection.duration_seconds,
+            "river_stations_count": collection.river_stations_count,
+            "weather_data_available": collection.weather_data_available,
+            "river_levels": [
+                {
+                    "station_name": river.station_name,
+                    "water_level": river.water_level,
+                    "risk_level": river.risk_level,
+                    "alert_level": river.alert_level,
+                    "alarm_level": river.alarm_level,
+                    "critical_level": river.critical_level,
+                }
+                for river in collection.river_levels
+            ],
+            "weather_data": {
+                "rainfall_1h": collection.weather_data.rainfall_1h if collection.weather_data else None,
+                "rainfall_24h_forecast": collection.weather_data.rainfall_24h_forecast if collection.weather_data else None,
+                "intensity": collection.weather_data.intensity if collection.weather_data else None,
+                "temperature": collection.weather_data.temperature if collection.weather_data else None,
+                "humidity": collection.weather_data.humidity if collection.weather_data else None,
+            } if collection.weather_data else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving latest flood data: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving flood data: {str(e)}"
+        )
+
+
+@app.get("/api/flood-data/history", tags=["Flood Data History"])
+async def get_flood_data_history(
+    hours: int = 24,
+    success_only: bool = True,
+    db: Session = Depends(get_db)
+):
+    """
+    Get historical flood data collections within a time range.
+
+    Args:
+        hours: Number of hours of history (default: 24)
+        success_only: Only return successful collections (default: True)
+
+    Returns:
+        List of flood data collections
+    """
+    try:
+        repo = FloodDataRepository(db)
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours)
+
+        collections = repo.get_collections_in_range(
+            start_time=start_time,
+            end_time=end_time,
+            success_only=success_only
+        )
+
+        return {
+            "time_range": {
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+                "hours": hours
+            },
+            "total_collections": len(collections),
+            "collections": [
+                {
+                    "collection_id": str(c.id),
+                    "collected_at": c.collected_at.isoformat(),
+                    "success": c.success,
+                    "duration_seconds": c.duration_seconds,
+                    "river_stations_count": c.river_stations_count,
+                    "weather_data_available": c.weather_data_available,
+                    "error_message": c.error_message if not c.success else None
+                }
+                for c in collections
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving flood data history: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving history: {str(e)}"
+        )
+
+
+@app.get("/api/flood-data/river/{station_name}/history", tags=["Flood Data History"])
+async def get_river_level_history(
+    station_name: str,
+    hours: int = 24,
+    db: Session = Depends(get_db)
+):
+    """
+    Get historical water levels for a specific river station.
+
+    Args:
+        station_name: Name of the river station
+        hours: Number of hours of history (default: 24)
+
+    Returns:
+        Historical river level data
+    """
+    try:
+        repo = FloodDataRepository(db)
+        river_levels = repo.get_river_level_history(
+            station_name=station_name,
+            hours=hours
+        )
+
+        if not river_levels:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data found for station '{station_name}'"
+            )
+
+        return {
+            "station_name": station_name,
+            "time_range_hours": hours,
+            "data_points": len(river_levels),
+            "history": [
+                {
+                    "recorded_at": river.recorded_at.isoformat(),
+                    "water_level": river.water_level,
+                    "risk_level": river.risk_level,
+                    "alert_level": river.alert_level,
+                    "alarm_level": river.alarm_level,
+                    "critical_level": river.critical_level,
+                }
+                for river in river_levels
+            ]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving river level history: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving river history: {str(e)}"
+        )
+
+
+@app.get("/api/flood-data/critical-alerts", tags=["Flood Data History"])
+async def get_critical_alerts(
+    hours: int = 24,
+    db: Session = Depends(get_db)
+):
+    """
+    Get history of critical water level alerts (ALARM and CRITICAL levels).
+
+    Args:
+        hours: Number of hours of history (default: 24)
+
+    Returns:
+        List of critical alerts
+    """
+    try:
+        repo = FloodDataRepository(db)
+        alerts = repo.get_critical_alerts_history(hours=hours)
+
+        return {
+            "time_range_hours": hours,
+            "total_alerts": len(alerts),
+            "critical_alerts": [
+                {
+                    "station_name": alert.station_name,
+                    "recorded_at": alert.recorded_at.isoformat(),
+                    "water_level": alert.water_level,
+                    "risk_level": alert.risk_level,
+                    "critical_level": alert.critical_level,
+                    "severity": "CRITICAL" if alert.risk_level == "CRITICAL" else "ALARM"
+                }
+                for alert in alerts
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving critical alerts: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving alerts: {str(e)}"
+        )
+
+
+@app.get("/api/flood-data/statistics", tags=["Flood Data History"])
+async def get_database_statistics(
+    days: int = 7,
+    db: Session = Depends(get_db)
+):
+    """
+    Get summary statistics for historical flood data.
+
+    Args:
+        days: Number of days for statistics (default: 7)
+
+    Returns:
+        Database statistics including collection counts and success rates
+    """
+    try:
+        repo = FloodDataRepository(db)
+        stats = repo.get_statistics(days=days)
+
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving database statistics: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving statistics: {str(e)}"
         )

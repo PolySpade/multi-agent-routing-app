@@ -16,6 +16,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+from app.database import SessionLocal, FloodDataRepository
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,16 +36,23 @@ class FloodDataScheduler:
         stats: Collection statistics
     """
 
-    def __init__(self, flood_agent, interval_seconds: int = 300):
+    def __init__(
+        self,
+        flood_agent,
+        interval_seconds: int = 300,
+        ws_manager: Optional[Any] = None
+    ):
         """
         Initialize the scheduler.
 
         Args:
             flood_agent: FloodAgent instance to schedule
             interval_seconds: Collection interval (default: 300 = 5 minutes)
+            ws_manager: WebSocket ConnectionManager for broadcasting updates
         """
         self.flood_agent = flood_agent
         self.interval_seconds = interval_seconds
+        self.ws_manager = ws_manager
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
@@ -61,8 +70,105 @@ class FloodDataScheduler:
 
         logger.info(
             f"FloodDataScheduler initialized with interval={interval_seconds}s "
-            f"({interval_seconds/60:.1f} minutes)"
+            f"({interval_seconds/60:.1f} minutes), "
+            f"WebSocket broadcasting={'enabled' if ws_manager else 'disabled'}"
         )
+
+    def _save_to_database(
+        self,
+        data: Dict[str, Any],
+        duration_seconds: float,
+        data_source: str = "real"
+    ) -> Optional[Any]:
+        """
+        Save collected flood data to database.
+
+        Args:
+            data: Flood data dictionary from FloodAgent (flat structure)
+            duration_seconds: Collection duration
+            data_source: Data source ('real' or 'simulated')
+
+        Returns:
+            FloodDataCollection instance or None on error
+        """
+        db = SessionLocal()
+        try:
+            repo = FloodDataRepository(db)
+
+            # Extract river levels from flat dictionary
+            # FloodAgent returns: {"Montalban": {...}, "Nangka": {...}, "Marikina_weather": {...}}
+            river_levels_data = []
+            weather_data_dict = None
+
+            for key, value in data.items():
+                if isinstance(value, dict):
+                    # Check if this is weather data (keys ending with _weather)
+                    if key.endswith("_weather"):
+                        # Extract weather data
+                        weather_data_dict = {
+                            "rainfall_1h": value.get("rainfall_1h"),
+                            "rainfall_3h": value.get("rainfall_3h"),
+                            "rainfall_24h_forecast": value.get("rainfall_24h_forecast"),
+                            "intensity": value.get("intensity"),
+                            "intensity_category": value.get("intensity_category"),
+                            "temperature": value.get("temperature"),
+                            "humidity": value.get("humidity"),
+                            "pressure": value.get("pressure"),
+                            "weather_main": value.get("weather_main"),
+                            "weather_description": value.get("weather_description"),
+                            "wind_speed": value.get("wind_speed"),
+                            "wind_direction": value.get("wind_direction"),
+                            "data_source": value.get("source", "OpenWeatherMap"),
+                        }
+                    else:
+                        # This is a river station
+                        river_levels_data.append({
+                            "station_name": key,
+                            "water_level": value.get("water_level", 0.0),
+                            "risk_level": value.get("risk_level", "NORMAL"),
+                            "alert_level": value.get("alert_level"),
+                            "alarm_level": value.get("alarm_level"),
+                            "critical_level": value.get("critical_level"),
+                            "data_source": value.get("source", "PAGASA"),
+                        })
+
+            # Save to database
+            collection = repo.create_collection(
+                river_levels_data=river_levels_data,
+                weather_data_dict=weather_data_dict,
+                data_source=data_source,
+                duration_seconds=duration_seconds,
+            )
+
+            logger.info(f"💾 Data saved to database: collection_id={collection.id}")
+            return collection
+
+        except Exception as e:
+            logger.error(f"❌ Database save error: {e}")
+            return None
+        finally:
+            db.close()
+
+    def _save_failed_collection(self, error_message: str, data_source: str = "real"):
+        """
+        Save a failed collection record to database.
+
+        Args:
+            error_message: Error description
+            data_source: Data source that failed
+        """
+        db = SessionLocal()
+        try:
+            repo = FloodDataRepository(db)
+            collection = repo.create_failed_collection(
+                error_message=error_message,
+                data_source=data_source,
+            )
+            logger.info(f"💾 Failed collection saved: collection_id={collection.id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save error record: {e}")
+        finally:
+            db.close()
 
     async def _collection_loop(self):
         """
@@ -100,15 +206,42 @@ class FloodDataScheduler:
                         f"✅ Scheduled collection successful: {len(data)} data points "
                         f"in {duration:.2f}s"
                     )
+
+                    # Save to database
+                    await asyncio.to_thread(
+                        self._save_to_database,
+                        data,
+                        duration
+                    )
+
+                    # Broadcast flood data update via WebSocket
+                    if self.ws_manager:
+                        try:
+                            await self.ws_manager.broadcast_flood_update(data)
+                            await self.ws_manager.check_and_alert_critical_levels(data)
+                            logger.debug("WebSocket broadcast completed")
+                        except Exception as ws_error:
+                            logger.error(f"WebSocket broadcast error: {ws_error}")
+
                 else:
                     self.stats["failed_runs"] += 1
                     logger.warning("⚠️ Scheduled collection returned no data")
+                    # Save failed collection
+                    await asyncio.to_thread(
+                        self._save_failed_collection,
+                        "Collection returned no data"
+                    )
 
             except Exception as e:
                 self.stats["failed_runs"] += 1
                 self.stats["last_error"] = str(e)
                 self.stats["last_run_time"] = datetime.now()
                 logger.error(f"❌ Scheduled collection error: {e}")
+                # Save failed collection
+                await asyncio.to_thread(
+                    self._save_failed_collection,
+                    str(e)
+                )
 
             # Wait for next interval
             if self.is_running:
@@ -206,15 +339,39 @@ class FloodDataScheduler:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
 
+            # Save to database
+            if data:
+                await asyncio.to_thread(
+                    self._save_to_database,
+                    data,
+                    duration
+                )
+
+            # Broadcast flood data update via WebSocket
+            if data and self.ws_manager:
+                try:
+                    await self.ws_manager.broadcast_flood_update(data)
+                    await self.ws_manager.check_and_alert_critical_levels(data)
+                    logger.info("Manual collection broadcast completed")
+                except Exception as ws_error:
+                    logger.error(f"WebSocket broadcast error: {ws_error}")
+
             return {
                 "status": "success",
                 "data_points": len(data) if data else 0,
                 "duration_seconds": round(duration, 2),
-                "timestamp": end_time.isoformat()
+                "timestamp": end_time.isoformat(),
+                "broadcasted": bool(data and self.ws_manager),
+                "saved_to_db": bool(data)
             }
 
         except Exception as e:
             logger.error(f"Manual collection error: {e}")
+            # Save failed collection
+            await asyncio.to_thread(
+                self._save_failed_collection,
+                str(e)
+            )
             return {
                 "status": "error",
                 "error": str(e),

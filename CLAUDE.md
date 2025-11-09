@@ -74,3 +74,7 @@ npm run lint
 The application implements a multi-agent routing system where different agents collaborate to find optimal routes considering various factors like weather conditions, hazards, and real-time data. The DynamicGraphEnvironment manages the road network graph using OSMnx and NetworkX for route optimization.
 
 The frontend provides an interactive map interface for route visualization and user interaction, while the backend handles the complex multi-agent routing computations.
+
+
+## Agent Utilization
+Use proper agents for each task. Analyze the code and use the agents in the appropriate places.
