@@ -3899,7 +3899,7 @@ scout_agent = ScoutAgent(...)  # Optional (requires Twitter credentials)
 
 **A**: Multi-Agent System for Flood Route Optimization - a distributed AI system using 5 autonomous agents providing real-time flood-safe navigation for **Marikina City, Philippines** (21.5 km², ~450,000 population). System integrates PAGASA river levels, OpenWeatherMap forecasts, DOST-NOAH GeoTIFF flood maps, and Twitter/X crowdsourced reports to compute optimal evacuation routes balancing safety (60% weight) vs. distance (40% weight).
 
-**Q2: How do I set up the development environment?**
+**Q2: How do we set up the development environment?**
 
 **A**:
 ```bash
@@ -3955,7 +3955,7 @@ uvicorn app.main:app --reload
 - macOS 12+ (Monterey or later)
 - Linux: Ubuntu 20.04+, Debian 11+, Fedora 35+
 
-**Q4: Where do I get API keys?**
+**Q4: Where do we get API keys?**
 
 **A**:
 
@@ -4045,7 +4045,7 @@ cost(edge) = w_distance × length + w_risk × length × risk_score
 
 **Implementation**: `app/algorithms/risk_aware_astar.py:115-227` (risk_aware_astar function)
 
-**Q8: Can I test the system without API keys?**
+**Q8: Can we test the system without API keys?**
 
 **A**: ✅ **Yes!** System has graceful fallback to simulated data
 
@@ -4077,7 +4077,7 @@ INFO: Falling back to simulated weather data
 
 **Testing Mode**: Set `use_simulated=True` in `app/main.py:389-395` to force simulated data
 
-**Q9: How do I add a new agent to the system?**
+**Q9: How do we add a new agent to the system?**
 
 **A**:
 
@@ -4181,7 +4181,7 @@ def test_traffic_agent_collects_data():
 
 **Q11-Q20**: (Testing, Database, WebSocket, Deployment, Performance, Baseline, Contributing, Errors, Documentation)
 
-**Q11**: How do I run tests? | **A**: `uv run pytest` (all tests), `uv run pytest tests/unit/` (unit only), `uv run pytest --cov=app` (with coverage)
+**Q11**: How do we run tests? | **A**: `uv run pytest` (all tests), `uv run pytest tests/unit/` (unit only), `uv run pytest --cov=app` (with coverage)
 
 **Q12**: What database schema? | **A**: 3 tables - `flood_data_collections` (UUID PK, metadata), `river_levels` (Integer PK, FK to collections, station data), `weather_data` (Integer PK, unique FK, 1:1 with collections). See `app/database/models.py` (271 lines)
 

@@ -1,31 +1,110 @@
 % MAS-FRO Defense Presentation (Beamer)
 % Theme: Singapore
 % Note: Compile with lualatex/xelatex or pdflatex (TikZ + listings required)
+% Best Practices: 2025 Computer Science Research Standards
+
 \documentclass[aspectratio=169]{beamer}
 \usetheme{Singapore}
 \usecolortheme{default}
 
-% Packages
-\usepackage{tikz}
-\usetikzlibrary{arrows,positioning,shapes,calc,backgrounds}
-\usepackage{listings}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage{graphicx}
-\usepackage{xcolor}
-\usepackage{hyperref}
-\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+% ============================================
+% PACKAGE LOADING (Proper Order)
+% ============================================
 
-% Colors
+% 1. Font Encoding (must be first)
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% 2. Language Support
+\usepackage[english]{babel}
+
+% 2.5. Bibliography Support (APA citations)
+\usepackage{apacite}
+
+% 3. Typography Enhancement
+\usepackage{microtype}
+
+% 4. Graphics and Diagrams
+\usepackage{graphicx}
+\usepackage{adjustbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows,positioning,shapes,calc,backgrounds,arrows.meta,patterns,decorations.pathmorphing,fit}
+
+% 5. Mathematics
+\usepackage{amsmath,amssymb}
+\usepackage{mathtools}
+
+% 6. Units and Numbers
+\usepackage{siunitx}
+\sisetup{
+  mode=match,
+  reset-text-family=false,
+  text-family-to-math=true
+}
+
+% 7. Tables
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{colortbl}
+
+% 8. Code Listings
+\usepackage{listings}
+
+% 9. Colors (before hyperref)
+\usepackage{xcolor}
+
+% 10. Hyperlinks (must be last, except for some packages)
+\usepackage{hyperref}
+
+% ============================================
+% COLOR DEFINITIONS
+% ============================================
+
+% Base Colors
 \definecolor{darkgreen}{RGB}{0,100,0}
 \definecolor{darkorange}{RGB}{255,140,0}
 \definecolor{darkred}{RGB}{139,0,0}
 
-% Code listings style
+% Semantic Color Commands
+\newcommand{\statuscomplete}{\textcolor{darkgreen}}
+\newcommand{\statuspartial}{\textcolor{darkorange}}
+\newcommand{\statusmissing}{\textcolor{darkred}}
+
+% ============================================
+% MATHEMATICAL OPERATORS
+% ============================================
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclarePairedDelimiter{\abs}{\lvert}{\rvert}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+\DeclarePairedDelimiter{\set}{\{}{\}}
+\DeclarePairedDelimiter{\paren}{(}{)}
+
+% ============================================
+% HYPERREF CONFIGURATION
+% ============================================
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue,
+  pdfauthor={[Student Name]},
+  pdftitle={MAS-FRO: Multi-Agent System for Flood Route Optimization},
+  pdfsubject={Thesis Defense Presentation},
+  pdfkeywords={Multi-Agent Systems, Flood Routing, Risk-Aware Pathfinding}
+}
+
+% ============================================
+% CODE LISTINGS CONFIGURATION
+% ============================================
+
 \lstdefinelanguage{json}{
   basicstyle=\ttfamily\footnotesize,
   showstringspaces=false,
   breaklines=true,
+  escapeinside={(*@}{@*)},
   literate=
    *{0}{{{\color{black}0}}}{1}
     {1}{{{\color{black}1}}}{1}
@@ -38,24 +117,69 @@
     {8}{{{\color{black}8}}}{1}
     {9}{{{\color{black}9}}}{1}
 }
+
 \lstset{
   language=Python,
-  basicstyle=\footnotesize\ttfamily,
-  keywordstyle=\color{blue},
-  commentstyle=\color{gray},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
   stringstyle=\color{red},
+  numberstyle=\tiny\color{gray},
   numbers=left,
-  numberstyle=\tiny,
+  numbersep=5pt,
+  stepnumber=1,
   breaklines=true,
-  frame=single
+  breakatwhitespace=true,
+  frame=single,
+  frameround=tttt,
+  rulecolor=\color{black!30},
+  backgroundcolor=\color{gray!5},
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=2,
+  captionpos=b,
+  escapeinside={(*@}{@*)},
+  aboveskip=\smallskipamount,
+  belowskip=\smallskipamount
 }
 
-% Title page info
+% ============================================
+% BEAMER TEMPLATE CUSTOMIZATIONS
+% ============================================
+
+% Frame numbering
+\setbeamertemplate{footline}[frame number]
+
+% Block styling
+\setbeamertemplate{blocks}[rounded][shadow=true]
+
+% Table row spacing
+\renewcommand{\arraystretch}{1.2}
+
+% Itemize spacing
+\setlength{\itemsep}{0.3em}
+
+% Navigation symbols (remove default, add custom if needed)
+\setbeamertemplate{navigation symbols}{}
+
+% Section and subsection in toc
+\setbeamertemplate{section in toc}[sections numbered]
+\setbeamertemplate{subsection in toc}[subsections numbered]
+
+% ============================================
+% TITLE PAGE INFO
+% ============================================
+
 \title{MAS-FRO: Multi-Agent System for Flood Route Optimization}
 \subtitle{Real-Time Flood-Safe Navigation for Marikina City, Philippines}
 \author{[Student Name]}
 \institute{De La Salle University \\ College of Computer Studies}
 \date{November 2025}
+
+% ============================================
+% DOCUMENT BEGIN
+% ============================================
 
 \begin{document}
 
@@ -68,29 +192,59 @@
   \begin{center}\small Prototype System (85\% Complete) --- Pending Comparative Validation\end{center}
 \end{frame}
 
+% ============================================
+% SECTION: Problem & Motivation
+% ============================================
+\section{Problem \& Motivation}
+
 % -------------------------
 % Problem & Motivation (6)
 % -------------------------
 \begin{frame}{The Ondoy Disaster (2009)}
+  \vspace{-8pt}
   \begin{itemize}
-    \item 455mm rainfall in 6 hours; 21.5m peak water level (\(\approx\)4.5m above critical)
+    \item \SI{455}{\milli\meter} rainfall in \SI{6}{\hour}; \SI{21.5}{\meter} peak water level (\(\approx\SI{4.5}{\meter}\) above critical)
     \item 464 deaths nationwide, 80+ in Marikina; PHP 11B damages
-    \item Traditional navigation failed; residents routed into trap zones
   \end{itemize}
   \vspace{6pt}
   \begin{center}
-  \begin{tikzpicture}[scale=0.8]
-    \draw[thick] (0,0) rectangle (9,5);
-    \node[anchor=west] at (0.2,4.6) {\small Stylized Map (Marikina boundary, flood extent)};
-    \draw[fill=blue!20,draw=blue!40] (1,1) ellipse (2 and 0.8);
-    \draw[fill=blue!20,draw=blue!40] (5,2.5) ellipse (2.5 and 1);
-    \draw[very thick,blue] (0.7,4.5) -- (8.2,0.5);
-  \end{tikzpicture}
+  \adjustbox{width=0.8\textwidth,center}{\begin{tikzpicture}[scale=0.6]
+    % Map boundary (Marikina City)
+    \draw[thick,black!60] (0,0) rectangle (10,6);
+    \node[anchor=center,font=\footnotesize\bfseries] at (5,5.5) {Marikina City Boundary};
+    
+    % Flood zones (blue ellipses with reduced opacity)
+    \draw[fill=blue!10,draw=blue!70!black,very thick,pattern=north east lines,pattern color=blue!30] (1.5,1.2) ellipse (2.2 and 1.0);
+    \node[anchor=center,font=\scriptsize,text=blue!90!black] at (1.5,1.2) {Flood Zone 1};
+    
+    \draw[fill=blue!10,draw=blue!70!black,very thick,pattern=north east lines,pattern color=blue!30] (6,3) ellipse (2.8 and 1.3);
+    \node[anchor=center,font=\scriptsize,text=blue!90!black] at (6,3) {Flood Zone 2};
+    
+    % Marikina River (wavy blue line)
+    \draw[very thick,blue!80!black,decorate,decoration={snake,amplitude=2pt,segment length=8pt}] (0.8,5.5) -- (9.5,0.8);
+    \node[anchor=west,font=\footnotesize\bfseries,text=blue!80!black,rotate=-35] at (1.2,5.2) {Marikina River};
+    
+    % Reference point (N for North)
+    \node[font=\scriptsize\bfseries] at (9.5,5.8) {N};
+    \draw[->,thick] (9.5,5.6) -- (9.5,5.4);
+    
+    % Legend box moved to bottom center
+    \draw[fill=white,draw=black,thick,rounded corners] (3.5,-0.8) rectangle (6.5,0.3);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (3.7,0.1) {Legend:};
+    \draw[thick,black!60] (3.7,-0.2) -- (4.2,-0.2);
+    \node[anchor=west,font=\tiny] at (4.3,-0.2) {City Boundary};
+    \draw[fill=blue!10,draw=blue!70!black,thick] (3.7,-0.45) ellipse (0.25 and 0.12);
+    \node[anchor=west,font=\tiny] at (4.3,-0.45) {Flood Zones};
+    \draw[very thick,blue!80!black] (3.7,-0.7) -- (4.2,-0.7);
+    \node[anchor=west,font=\tiny] at (4.3,-0.7) {River};
+  \end{tikzpicture}}
   \end{center}
+  \vspace{2pt}
+  \begin{center}\small Traditional navigation failed; residents routed into trap zones\end{center}
 \end{frame}
 
 \begin{frame}{Research Gap}
-  \small
+  \footnotesize
   \begin{tabular}{lccccc}
     \toprule
     System & Multi-Agent & Real-Time Flood & Crowdsourced & Risk-Aware & Deployed \\
@@ -108,27 +262,51 @@
 \end{frame}
 
 \begin{frame}{Marikina City Context}
-  \small
-  \begin{itemize}
-    \item Boundary: 21.5 km\(^2\); Population: \(\sim\)450,000
-    \item Road network: \(|V|\approx 2{,}500\), \(|E|\approx 5{,}000\)
-    \item Geographic extent: 14.61–14.75°N, 121.08–121.13°E
-  \end{itemize}
+  \vspace{-6pt}
+  \begin{center}
+  \small Boundary: \SI{21.5}{\kilo\meter\squared}; Population: \(\sim\)450,000 | Road network: \(\abs{V}\approx 10{,}000\), \(\abs{E}\approx 20{,}000\)
+  \end{center}
   \vspace{4pt}
-  \begin{tikzpicture}[scale=0.9]
-    \draw[thick] (0,0) rectangle (10,5);
-    \node at (8.6,4.7) {\tiny N};
-    \draw[->] (8.6,4.5)--(8.6,4.0);
-    \draw[thick,rounded corners,gray] (1,0.8) rectangle (9,4.2);
-    \draw[very thick,blue] (1.3,3.8) .. controls (5,3) .. (8.7,1.1);
-    \foreach \x/\y in {2/3.2,3.5/2.7,4.5/2.2,6/2.0,7.5/1.6}{
-      \fill[red] (\x,\y) circle (2pt);
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[scale=0.65]
+    % City boundary
+    \draw[thick,black!70,rounded corners=3pt] (0.5,0.5) rectangle (9.5,5.5);
+    \node[anchor=center,font=\footnotesize\bfseries] at (5,5.2) {Marikina City};
+    
+    % Marikina River (curved path with label)
+    \draw[very thick,blue!80!black,decorate,decoration={snake,amplitude=1.5pt,segment length=6pt}] (1.2,4.2) .. controls (5,3.2) .. (8.8,1.5);
+    \node[anchor=center,font=\footnotesize\bfseries,text=blue!80!black,rotate=-25] at (5,2.8) {Marikina River};
+    
+    % PAGASA stations (red dots with labels) - increased spacing
+    \foreach \x/\y/\name in {2/3.8/Sto Nino,3.8/3.2/Nangka,4.8/2.7/Tumana,6.2/2.4/Montalban,7.8/2.0/Rosario}{
+      \fill[red!80!black] (\x,\y) circle (3pt);
+      \node[anchor=south,font=\scriptsize,text=red!80!black] at (\x,\y+0.2) {\name};
     }
-    \foreach \x/\y in {2.2/3.6,3.8/2.9,5.1/2.5,6.8/2.2,8.2/1.5}{
-      \draw[fill=green!60!black] (\x,\y) -- +(0.15,0.3) -- +(-0.15,0.3) -- cycle;
+    
+    % Evacuation centers (green triangles) - repositioned to avoid overlap
+    \foreach \x/\y/\num in {2.3/4.3/1,4.0/3.5/2,5.3/3.0/3,7.0/2.7/4,8.5/2.3/5}{
+      \draw[fill=green!70!black,draw=green!50!black,thick] (\x,\y) -- +(0.2,0.35) -- +(-0.2,0.35) -- cycle;
+      \node[anchor=south,font=\scriptsize,text=green!70!black] at (\x,\y+0.45) {EC\num};
     }
-    \draw[gray!70] (1.5,1) grid[step=0.5] (8.5,4);
-  \end{tikzpicture}
+    
+    % Road network (simplified grid, lighter)
+    \draw[gray!40,very thin] (1,1) grid[step=0.8] (9,4.5);
+    
+    % Compass rose
+    \node[font=\footnotesize\bfseries] at (9.0,5.3) {N};
+    \draw[->,thick,black!70] (9.0,5.1) -- (9.0,4.8);
+    
+    % Legend box moved to bottom center
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (3.2,-0.8) rectangle (6.8,0.3);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (3.4,0.1) {Legend:};
+    \fill[red!80!black] (3.4,-0.2) circle (2.5pt);
+    \node[anchor=west,font=\tiny] at (3.7,-0.2) {PAGASA Stations (5)};
+    \draw[fill=green!70!black,draw=green!50!black,thick] (3.4,-0.45) -- +(0.12,0.2) -- +(-0.12,0.2) -- cycle;
+    \node[anchor=west,font=\tiny] at (3.7,-0.45) {Evacuation Centers};
+    \draw[very thick,blue!80!black] (3.4,-0.7) -- (3.9,-0.7);
+    \node[anchor=west,font=\tiny] at (4.0,-0.7) {Marikina River};
+  \end{tikzpicture}}
+  \end{center}
 \end{frame}
 
 \begin{frame}{Five Challenges}
@@ -162,7 +340,7 @@
       \textbf{In Scope}
       \begin{itemize}\itemsep2pt
         \item Marikina City only
-        \item 5+ months operational
+        \item 5+ months operational (projected)
         \item Real APIs integrated
       \end{itemize}
     \column{0.33\textwidth}
@@ -181,6 +359,11 @@
       \end{itemize}
   \end{columns}
 \end{frame}
+
+% ============================================
+% SECTION: Theoretical Foundations
+% ============================================
+\section{Theoretical Foundations}
 
 % -------------------------
 % Theory (4)
@@ -210,9 +393,9 @@
 \begin{frame}{Graph Theory \& A* Algorithm}
   \small
   \begin{itemize}
-    \item Road network: directed multi-graph \(G=(V,E,W)\), \(|V|\approx 2{,}500\), \(|E|\approx 5{,}000\)
+    \item Road network: directed multi-graph \(G=(V,E,W)\), \(\abs{V}\approx 10{,}000\), \(\abs{E}\approx 20{,}000\)
     \item A*: \(f(n)=g(n)+h(n)\). If \(h\) admissible \(\Rightarrow\) optimal path
-    \item Haversine heuristic; Complexity: \(\mathcal{O}((|V|+|E|)\log |V|)\)
+    \item Haversine heuristic; Complexity: \(\mathcal{O}((\abs{V}+\abs{E})\log \abs{V})\)
   \end{itemize}
   \vspace{6pt}
   \begin{block}{Heuristic}
@@ -244,6 +427,11 @@
   \end{block}
 \end{frame}
 
+% ============================================
+% SECTION: Related Work
+% ============================================
+\section{Related Work}
+
 % -------------------------
 % Related Work (3)
 % -------------------------
@@ -261,67 +449,157 @@
 \end{frame}
 
 \begin{frame}{Risk-Aware Pathfinding Timeline}
-  \begin{tikzpicture}[node distance=1.7cm]
-    \node (n1) [draw,rounded corners,align=center] {1959\\Dijkstra};
-    \node (n2) [draw,rounded corners,align=center,right=2.8cm of n1] {1968\\Hart et al. (A*)};
-    \node (n3) [draw,rounded corners,align=center,right=2.8cm of n2] {1983\\Provan \& Ball};
-    \node (n4) [draw,rounded corners,align=center,below=1.4cm of n2] {2006\\Nikolova et al.};
-    \node (n5) [draw,rounded corners,align=center,right=2.8cm of n3] {2011\\Blackmore et al.};
-    \node (n6) [draw,rounded corners,align=center,below=1.4cm of n3,fill=green!10] {2025\\MAS-FRO};
-    \draw[->] (n1)--(n2);
-    \draw[->] (n2)--(n3);
-    \draw[->] (n3)--(n5);
-    \draw[->] (n2)--(n4);
-    \draw[->] (n3)--(n6);
-  \end{tikzpicture}
-  \vspace{6pt}
-  \begin{center}\small Application of established techniques to a novel operational domain.\end{center}
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.92\textwidth,center}{\begin{tikzpicture}[
+    milestone/.style={draw,rounded corners,fill=blue!10,minimum width=1.8cm,minimum height=0.9cm,align=center,font=\footnotesize\bfseries},
+    risk-aware/.style={draw,rounded corners,fill=orange!10,minimum width=1.8cm,minimum height=0.9cm,align=center,font=\footnotesize\bfseries},
+    current/.style={draw,rounded corners,fill=green!15,minimum width=2.0cm,minimum height=1.0cm,align=center,font=\footnotesize\bfseries,very thick}
+  ]
+    % Timeline nodes with increased vertical spacing
+    \node[milestone] (n1) at (0,3) {\textbf{1959}\\Dijkstra};
+    \node[milestone] (n2) at (2.8,3) {\textbf{1968}\\Hart et al.\\A*};
+    \node[risk-aware] (n3) at (5.6,3) {\textbf{1983}\\Provan \& Ball};
+    \node[risk-aware] (n4) at (2.8,1) {\textbf{2006}\\Nikolova\\Stochastic};
+    \node[risk-aware] (n5) at (8.4,3) {\textbf{2011}\\Blackmore\\Multi-Obj};
+    \node[current] (n6) at (5.6,1) {\textbf{2025}\\MAS-FRO};
+    
+    % Timeline axis
+    \draw[->,very thick,black!50] (-0.5,0.5) -- (9.5,0.5);
+    \node[anchor=north,font=\scriptsize] at (0,0.4) {1959};
+    \node[anchor=north,font=\scriptsize] at (2.8,0.4) {1968};
+    \node[anchor=north,font=\scriptsize] at (5.6,0.4) {1983};
+    \node[anchor=north,font=\scriptsize] at (8.4,0.4) {2011};
+    \node[anchor=north,font=\scriptsize\bfseries,text=green!70!black] at (5.6,0.1) {2025};
+    
+    % Simplified connections - removed redundant arrows
+    \draw[->,very thick,blue!70!black] (n1) -- node[above,font=\tiny] {foundation} (n2);
+    \draw[->,very thick,blue!70!black] (n2) -- node[above,font=\tiny] {extension} (n3);
+    \draw[->,very thick,orange!70!black] (n2) -- node[left,font=\tiny] {stochastic} (n4);
+    \draw[->,very thick,orange!70!black] (n3) -- node[above,font=\tiny] {multi-obj} (n5);
+    \draw[->,very thick,green!70!black] (n3) -- node[right,font=\tiny] {application} (n6);
+    \draw[->,very thick,green!70!black,dashed] (n4) -- node[below,font=\tiny] {influences} (n6);
+    \draw[->,very thick,green!70!black,dashed] (n5) -- node[right,font=\tiny] {influences} (n6);
+    
+    % Legend moved to bottom
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (3.5,-1.2) rectangle (6.5,-0.4);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (3.7,-0.5) {Legend:};
+    \node[milestone,minimum width=0.7cm,minimum height=0.35cm,font=\tiny] at (3.7,-0.75) {};
+    \node[anchor=west,font=\tiny] at (4.1,-0.75) {Foundation};
+    \node[risk-aware,minimum width=0.7cm,minimum height=0.35cm,font=\tiny] at (3.7,-0.95) {};
+    \node[anchor=west,font=\tiny] at (4.1,-0.95) {Risk-Aware};
+    \node[current,minimum width=0.7cm,minimum height=0.35cm,font=\tiny] at (5.2,-0.75) {};
+    \node[anchor=west,font=\tiny] at (5.6,-0.75) {MAS-FRO};
+  \end{tikzpicture}}
+  \end{center}
+  \vspace{4pt}
+  \begin{center}\small Application of established techniques to a novel operational domain (flood evacuation).\end{center}
 \end{frame}
 
 \begin{frame}{MAS-FRO Unique Niche}
-  \begin{tikzpicture}
-    \def\r{2.5}
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.85\textwidth,center}{\begin{tikzpicture}[scale=0.75]
+    \def\r{2.2}
+    % Circle 1: Multi-Agent - increased separation
     \begin{scope}[shift={(0,0)}]
-      \draw[fill=blue!10,draw=blue] (0,0) circle (\r);
-      \node at (0,1.6) {Multi-Agent};
+      \draw[fill=blue!10,draw=blue!70!black,very thick] (0,0) circle (\r);
+      \node[font=\footnotesize\bfseries,text=blue!80!black] at (0,1.6) {Multi-Agent\\Systems};
+      \node[font=\scriptsize,text=blue!70!black,anchor=north] at (0,-2.0) {RoboCup, Academic MAS};
     \end{scope}
-    \begin{scope}[shift={(2.2,0)}]
-      \draw[fill=green!10,draw=green!60!black] (0,0) circle (\r);
-      \node at (0,1.6) {Real-Time Flood};
+    % Circle 2: Real-Time Flood - increased separation
+    \begin{scope}[shift={(3.0,0)}]
+      \draw[fill=green!10,draw=green!70!black,very thick] (0,0) circle (\r);
+      \node[font=\footnotesize\bfseries,text=green!80!black] at (0,1.6) {Real-Time\\Flood Data};
+      \node[font=\scriptsize,text=green!70!black,anchor=north] at (0,-2.0) {DOST-NOAH, OWM};
     \end{scope}
-    \begin{scope}[shift={(1.1,-1.8)}]
-      \draw[fill=orange!10,draw=orange!80!black] (0,0) circle (\r);
-      \node at (0,-1.6) {Operational};
+    % Circle 3: Operational - repositioned
+    \begin{scope}[shift={(1.5,-1.9)}]
+      \draw[fill=orange!10,draw=orange!70!black,very thick] (0,0) circle (\r);
+      \node[font=\footnotesize\bfseries,text=orange!80!black] at (0,-1.6) {Operational\\Deployment};
+      \node[font=\scriptsize,text=orange!70!black,anchor=south] at (0,2.0) {Google Maps, Waze};
     \end{scope}
-    \node[draw,thick,fill=yellow!20,rounded corners] at (1.1,-0.2) {MAS-FRO};
-  \end{tikzpicture}
+    
+    % Intersection labels - better positioned with white background
+    \node[draw,fill=white,rounded corners=2pt,font=\scriptsize\bfseries,text=purple!80!black,inner sep=2pt] at (1.5,0.4) {MAS + Flood};
+    \node[draw,fill=white,rounded corners=2pt,font=\scriptsize\bfseries,text=red!80!black,inner sep=2pt] at (0.75,-0.95) {MAS + Op};
+    \node[draw,fill=white,rounded corners=2pt,font=\scriptsize\bfseries,text=brown!80!black,inner sep=2pt] at (2.25,-0.95) {Flood + Op};
+    
+    % Center intersection (MAS-FRO) - larger with better contrast
+    \node[draw,very thick,fill=yellow!30,rounded corners=3pt,font=\footnotesize\bfseries,minimum width=1.6cm,minimum height=0.7cm,text=black!90] at (1.5,-0.7) {MAS-FRO};
+    
+    % Legend moved to bottom
+    \draw[fill=white,draw=black,thick,rounded corners=3pt] (1.0,-3.8) rectangle (5.0,-2.8);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (1.2,-2.9) {Legend:};
+    \draw[fill=blue!10,draw=blue!70!black,thick] (1.2,-3.3) circle (0.15);
+    \node[anchor=west,font=\tiny] at (1.5,-3.3) {Multi-Agent};
+    \draw[fill=green!10,draw=green!70!black,thick] (1.2,-3.5) circle (0.15);
+    \node[anchor=west,font=\tiny] at (1.5,-3.5) {Real-Time Flood};
+    \draw[fill=orange!10,draw=orange!70!black,thick] (3.2,-3.3) circle (0.15);
+    \node[anchor=west,font=\tiny] at (3.5,-3.3) {Operational};
+  \end{tikzpicture}}
+  \end{center}
   \vspace{4pt}
-  \small Others: Google Maps (Real-time+Operational), RoboCup (MAS), NOAH (Real-time).
+  \begin{center}\small \textbf{Unique Position:} Only MAS-FRO combines all three capabilities in an operational prototype.\end{center}
 \end{frame}
+
+% ============================================
+% SECTION: System Architecture
+% ============================================
+\section{System Architecture}
 
 % -------------------------
 % System Architecture (10)
 % -------------------------
 \begin{frame}{Architecture Overview}
+  \vspace{-4pt}
   \begin{center}
-  \begin{tikzpicture}[node distance=1.2cm]
-    \node[draw,rounded corners,fill=gray!10] (env) {DynamicGraphEnvironment};
-    \node[draw,rounded corners,above=of env,fill=blue!10] (haz) {HazardAgent};
-    \node[draw,dashed,rounded corners,left=2.8cm of haz,fill=green!10] (flood) {FloodAgent};
-    \node[draw,dashed,rounded corners,right=2.8cm of haz,fill=green!10] (scout) {ScoutAgent};
-    \node[draw,rounded corners,above left=0.8cm and 1.2cm of haz,fill=yellow!10] (route) {RoutingAgent};
-    \node[draw,rounded corners,above right=0.8cm and 1.2cm of haz,fill=yellow!10] (evac) {EvacuationManager};
-    \draw[->] (flood) -- node[above,sloped]{INFORM} (haz);
-    \draw[->] (scout) -- node[above,sloped]{INFORM} (haz);
-    \draw[->] (haz) -- node[right]{update} (env);
-    \draw[<->] (route) -- node[above]{REQUEST/CONFIRM} (evac);
-    \draw[->] (route) -- node[right]{query} (env);
-  \end{tikzpicture}
+  \adjustbox{width=0.9\textwidth,center}{\begin{tikzpicture}[
+    interface/.style={draw,rounded corners,fill=yellow!10,minimum width=2.0cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    service/.style={draw,rounded corners,fill=orange!10,minimum width=2.0cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    coordinator/.style={draw,rounded corners,fill=blue!15,minimum width=2.0cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    collector/.style={draw,dashed,rounded corners,fill=green!10,minimum width=2.0cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    env/.style={draw,rounded corners,fill=gray!15,minimum width=2.8cm,minimum height=0.75cm,align=center,font=\footnotesize\bfseries}
+  ]
+    % Layer labels (on the left) - increased spacing
+    \node[anchor=east,font=\footnotesize\bfseries] at (-0.4,6.0) {Interface:};
+    \node[anchor=east,font=\footnotesize\bfseries] at (-0.4,4.8) {Service:};
+    \node[anchor=east,font=\footnotesize\bfseries] at (-0.4,3.6) {Coordination:};
+    \node[anchor=east,font=\footnotesize\bfseries] at (-0.4,2.4) {Collection:};
+    \node[anchor=east,font=\footnotesize\bfseries] at (-0.4,1.0) {Environment:};
+    
+    % Layer 1: Interface Layer
+    \node[interface] (evac) at (2.2,6.0) {Evacuation\\Manager};
+    \node[interface] (user) at (5.0,6.0) {User};
+    
+    % Layer 2: Service Layer
+    \node[service] (route) at (3.6,4.8) {RoutingAgent};
+    
+    % Layer 3: Coordination Layer
+    \node[coordinator] (haz) at (3.6,3.6) {HazardAgent};
+    
+    % Layer 4: Data Collection Layer
+    \node[collector] (flood) at (2.0,2.4) {FloodAgent};
+    \node[collector] (scout) at (5.2,2.4) {ScoutAgent};
+    
+    % Layer 5: Environment
+    \node[env] (env) at (3.6,1.0) {DynamicGraph\\Environment};
+    
+    % Connections with simplified labels
+    \draw[->,very thick,blue!70!black] (user) -- node[above,font=\tiny] {HTTP} (evac);
+    \draw[<->,very thick,orange!70!black] (evac) -- node[left,font=\tiny] {REQUEST/\\CONFIRM} (route);
+    \draw[->,very thick,green!70!black] (flood) -- node[above,font=\tiny] {INFORM} (haz);
+    \draw[->,very thick,green!70!black] (scout) -- node[above,font=\tiny] {INFORM} (haz);
+    \draw[->,very thick,blue!70!black] (haz) -- node[right,font=\tiny] {update} (env);
+    \draw[->,very thick,orange!70!black] (route) -- node[left,font=\tiny] {query} (env);
+    \draw[->,very thick,blue!70!black] (route) -- node[right,font=\tiny] {route} (evac);
+    \draw[->,very thick,blue!70!black] (evac) -- node[above,font=\tiny] {HTTP} (user);
+  \end{tikzpicture}}
   \end{center}
 \end{frame}
 
 \begin{frame}{Agent Roles Matrix}
-  \small
+  \footnotesize
   \begin{tabular}{llllll}
     \toprule
     Agent & Type & Role & LOC & File & Status \\
@@ -330,7 +608,7 @@
     ScoutAgent & Collector & Crowdsourced (Twitter/X NLP) & 486 & \texttt{scout\_agent.py} & Operational \\
     HazardAgent & Coordinator & Fusion, risk calculation & 594 & \texttt{hazard\_agent.py} & Operational \\
     RoutingAgent & Service & Risk-aware A* & 459 & \texttt{routing\_agent.py} & Operational \\
-    EvacuationMgr & Interface & Requests, feedback & 430 & \texttt{evacuation\_manager\_agent.py} & Operational \\
+    EvacuationMgr & Interface & Requests, feedback & 430 & \texttt{evac\_mgr\_agent.py} & Operational \\
     \bottomrule
   \end{tabular}
 \end{frame}
@@ -356,39 +634,102 @@ ACLMessage(
 \end{frame}
 
 \begin{frame}{Communication Sequence}
-  \begin{tikzpicture}[node distance=1.2cm]
-    \node (user) at (0,0) {User};
-    \node (evac) at (3,0) {EvacuationMgr};
-    \node (route) at (6,0) {RoutingAgent};
-    \node (graph) at (9,0) {Graph};
-    \draw[->] (user) -- node[above]{HTTP} (evac);
-    \draw[->] (evac) -- node[above]{REQUEST} (route);
-    \draw[->] (route) -- node[above]{query} (graph);
-    \draw[->] (route) -- node[below]{CONFIRM} (evac);
-    \draw[->] (evac) -- node[below]{HTTP} (user);
-  \end{tikzpicture}
-  \vspace{6pt}
-  \small T=0s to T=3s (typical).
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[
+    lifeline/.style={thick,black!60},
+    actor/.style={draw,rounded corners,fill=blue!10,minimum width=1.6cm,minimum height=0.55cm,align=center,font=\footnotesize\bfseries},
+    agent/.style={draw,rounded corners,fill=green!10,minimum width=1.6cm,minimum height=0.55cm,align=center,font=\footnotesize\bfseries},
+    service/.style={draw,rounded corners,fill=yellow!10,minimum width=1.6cm,minimum height=0.55cm,align=center,font=\footnotesize\bfseries},
+    env/.style={draw,rounded corners,fill=gray!10,minimum width=1.6cm,minimum height=0.55cm,align=center,font=\footnotesize\bfseries}
+  ]
+    % Actors/Agents at top - reduced vertical extent
+    \node[actor] (user) at (1,5.5) {User};
+    \node[agent] (evac) at (3.5,5.5) {Evacuation\\Manager};
+    \node[service] (route) at (6,5.5) {Routing\\Agent};
+    \node[env] (graph) at (8.5,5.5) {Graph\\Environment};
+    
+    % Lifelines (vertical dashed lines) - shortened
+    \draw[lifeline,dashed] (1,5.2) -- (1,1);
+    \draw[lifeline,dashed] (3.5,5.2) -- (3.5,1);
+    \draw[lifeline,dashed] (6,5.2) -- (6,1);
+    \draw[lifeline,dashed] (8.5,5.2) -- (8.5,1);
+    
+    % Messages (horizontal arrows with timing) - condensed spacing
+    % T=0s: User -> EvacMgr
+    \draw[->,very thick,blue!70!black] (1,4.6) -- node[above,font=\tiny] {HTTP Request} (3.5,4.6);
+    \node[anchor=west,font=\tiny,text=blue!70!black] at (1,4.5) {0s};
+    
+    % T=0.5s: EvacMgr -> RoutingAgent
+    \draw[->,very thick,green!70!black] (3.5,4.0) -- node[above,font=\tiny] {REQUEST} (6,4.0);
+    \node[anchor=west,font=\tiny,text=green!70!black] at (3.5,3.9) {0.5s};
+    
+    % T=1s: RoutingAgent -> Graph
+    \draw[->,very thick,orange!70!black] (6,3.4) -- node[above,font=\tiny] {query} (8.5,3.4);
+    \node[anchor=west,font=\tiny,text=orange!70!black] at (6,3.3) {1s};
+    
+    % T=2s: Graph -> RoutingAgent (response)
+    \draw[->,very thick,orange!70!black,dashed] (8.5,2.8) -- node[below,font=\tiny] {data} (6,2.8);
+    \node[anchor=east,font=\tiny,text=orange!70!black] at (8.5,2.7) {2s};
+    
+    % T=2.5s: RoutingAgent -> EvacMgr
+    \draw[->,very thick,green!70!black] (6,2.2) -- node[below,font=\tiny] {CONFIRM} (3.5,2.2);
+    \node[anchor=east,font=\tiny,text=green!70!black] at (6,2.1) {2.5s};
+    
+    % T=3s: EvacMgr -> User
+    \draw[->,very thick,blue!70!black] (3.5,1.6) -- node[below,font=\tiny] {HTTP Response} (1,1.6);
+    \node[anchor=east,font=\tiny,text=blue!70!black] at (3.5,1.5) {3s};
+    
+    % Timeline label at bottom
+    \node[anchor=center,font=\footnotesize\bfseries] at (4.75,0.5) {Total: ~3 seconds (typical)};
+  \end{tikzpicture}}
+  \end{center}
 \end{frame}
 
 \begin{frame}{Dynamic Graph Environment}
-  \small
-  \begin{itemize}
-    \item Edge weights: \(W(e,t)= \text{length}(e)\cdot r(e,t)\)
-    \item Risk color map: green (low) \(\rightarrow\) red (high)
-    \item Update cadence: 5 minutes
-  \end{itemize}
+  \vspace{-6pt}
+  \begin{center}
+  \small Edge weights: \(W(e,t)= \text{length}(e)\cdot r(e,t)\) | Risk: green (low) \(\rightarrow\) orange (medium) \(\rightarrow\) red (high) | Update: 5 minutes
+  \end{center}
   \vspace{6pt}
-  \begin{tikzpicture}
-    \foreach \i in {0,...,4}{
-      \foreach \j in {0,...,2}{
-        \filldraw (0.8+1.5*\i,0.8+1.2*\j) circle (2pt);
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[scale=0.7]
+    % Road network nodes (intersections)
+    \foreach \i in {0,...,5}{
+      \foreach \j in {0,...,3}{
+        \filldraw[black!60] (1+1.3*\i,0.8+1.0*\j) circle (2.5pt);
       }
     }
-    \draw[line width=1mm,green!70!black] (0.8,0.8)--(2.3,2.0)--(3.8,1.2);
-    \draw[line width=1mm,orange] (3.8,1.2)--(5.3,2.4);
-    \draw[line width=1mm,red] (5.3,2.4)--(6.8,1.6);
-  \end{tikzpicture}
+    
+    % Low risk edges (green) - simplified labels
+    \draw[line width=2mm,green!70!black] (1,0.8) -- (2.3,1.8);
+    \draw[line width=2mm,green!70!black] (2.3,1.8) -- (3.6,1.3);
+    \node[anchor=center,font=\scriptsize\bfseries,text=green!70!black] at (2.3,1.3) {Low};
+    
+    % Medium risk edges (orange)
+    \draw[line width=2mm,orange!80!red] (3.6,1.3) -- (4.9,2.3);
+    \draw[line width=2mm,orange!80!red] (4.9,2.3) -- (6.2,1.8);
+    \node[anchor=center,font=\scriptsize\bfseries,text=orange!80!red] at (5.3,2.0) {Medium};
+    
+    % High risk edges (red)
+    \draw[line width=2mm,red!80!black] (6.2,1.8) -- (7.5,2.8);
+    \draw[line width=2mm,red!80!black] (7.5,2.8) -- (8.8,2.1);
+    \node[anchor=center,font=\scriptsize\bfseries,text=red!80!black] at (7.5,2.3) {High};
+    
+    % Blocked edge (very high risk)
+    \draw[line width=2.5mm,red!90!black,opacity=0.6] (4.9,0.8) -- node[above,sloped,font=\scriptsize\bfseries,text=red!90!black] {BLOCKED} (6.2,0.8);
+    
+    % Legend box moved to bottom
+    \draw[fill=white,draw=black,thick,rounded corners=3pt] (3.0,-0.8) rectangle (7.0,0.2);
+    \node[anchor=north west,font=\footnotesize\bfseries] at (3.2,0.0) {Risk Legend:};
+    \draw[line width=2.5mm,green!70!black] (3.2,-0.3) -- (3.8,-0.3);
+    \node[anchor=west,font=\tiny] at (3.9,-0.3) {Low (0.0-0.3)};
+    \draw[line width=2.5mm,orange!80!red] (3.2,-0.5) -- (3.8,-0.5);
+    \node[anchor=west,font=\tiny] at (3.9,-0.5) {Medium (0.3-0.7)};
+    \draw[line width=2.5mm,red!80!black] (5.2,-0.3) -- (5.8,-0.3);
+    \node[anchor=west,font=\tiny] at (5.9,-0.3) {High (0.7-1.0)};
+  \end{tikzpicture}}
+  \end{center}
 \end{frame}
 
 \begin{frame}[fragile]{Risk-Aware A*: Balancing Safety and Distance}
@@ -416,19 +757,47 @@ def weight_function(u, v, edge_data):
 \end{frame}
 
 \begin{frame}{Multi-Source Data Fusion}
-  \begin{tikzpicture}[node distance=1.6cm]
-    \node[draw,rounded corners,fill=blue!10] (p1) {PAGASA (\(\alpha_1=0.5\))};
-    \node[draw,rounded corners,below=of p1,fill=green!10] (p2) {Crowdsourced (\(\alpha_2=0.3\))};
-    \node[draw,rounded corners,below=of p2,fill=orange!10] (p3) {Historical (\(\alpha_3=0.2\), planned)};
-    \node[draw,rounded corners,right=3.0cm of p2,fill=gray!10] (fuse) {Weighted Sum};
-    \node[draw,rounded corners,right=3.0cm of fuse,fill=yellow!10] (out) {Edge Risk Scores};
-    \draw[->] (p1)--(fuse);
-    \draw[->] (p2)--(fuse);
-    \draw[->] (p3)--(fuse);
-    \draw[->] (fuse)--(out);
-  \end{tikzpicture}
-  \vspace{6pt}
-  \alert{Weights heuristic; empirical calibration pending (publication gap).}
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[
+    source/.style={draw,rounded corners,fill=blue!10,minimum width=2.2cm,minimum height=0.7cm,align=center,font=\footnotesize\bfseries},
+    process/.style={draw,rounded corners,fill=gray!15,minimum width=2.5cm,minimum height=1.0cm,align=center,font=\footnotesize\bfseries},
+    output/.style={draw,rounded corners,fill=yellow!15,minimum width=2.2cm,minimum height=0.7cm,align=center,font=\footnotesize\bfseries},
+    formula/.style={draw,rounded corners,fill=purple!5,minimum width=3.5cm,minimum height=0.9cm,align=center,font=\scriptsize}
+  ]
+    % Data sources - increased vertical spacing
+    \node[source] (p1) at (0,3.5) {PAGASA\\Official};
+    \node[source] (p2) at (0,2.0) {Crowdsourced\\(Twitter/X)};
+    \node[source,fill=orange!10] (p3) at (0,0.5) {Historical\\(Planned)};
+    
+    % Weight labels - repositioned to avoid overlap
+    \node[font=\footnotesize\bfseries,text=blue!70!black] at (-1.3,3.5) {\(\alpha_1=0.5\)};
+    \node[font=\footnotesize\bfseries,text=green!70!black] at (-1.3,2.0) {\(\alpha_2=0.3\)};
+    \node[font=\footnotesize\bfseries,text=orange!70!black] at (-1.3,0.5) {\(\alpha_3=0.2\)};
+    
+    % Fusion process with formula
+    \node[process] (fuse) at (4.5,2.0) {Weighted\\Aggregation};
+    \node[formula] at (4.5,0.5) {\(R_{\text{fused}} = \alpha_1 R_{\text{off}} + \alpha_2 R_{\text{crowd}} + \alpha_3 R_{\text{hist}}\)};
+    
+    % Output
+    \node[output] (out) at (8,2.0) {Edge Risk\\Scores};
+    
+    % Arrows with labels
+    \draw[->,very thick,blue!70!black] (p1) -- node[above,font=\tiny,sloped] {\(R_{\text{off}}\)} (fuse);
+    \draw[->,very thick,green!70!black] (p2) -- node[above,font=\tiny,sloped] {\(R_{\text{crowd}}\)} (fuse);
+    \draw[->,very thick,orange!70!black,dashed] (p3) -- node[below,font=\tiny,sloped] {\(R_{\text{hist}}\)} (fuse);
+    \draw[->,very thick,black!70] (fuse) -- node[above,font=\tiny] {\(R_{\text{fused}}\)} (out);
+    
+    % Weight explanation moved to bottom
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (3.5,-1.0) rectangle (7.5,-0.2);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (3.7,-0.3) {Weights:};
+    \node[anchor=west,font=\tiny] at (3.7,-0.5) {\(\alpha_1 + \alpha_2 + \alpha_3 = 1.0\)};
+    \node[anchor=west,font=\tiny,text=orange!70!black] at (3.7,-0.7) {Historical: planned};
+    \node[anchor=west,font=\tiny,text=red!70!black] at (5.5,-0.5) {Calibration pending};
+  \end{tikzpicture}}
+  \end{center}
+  \vspace{4pt}
+  \begin{center}\small \alert{Weights heuristic; empirical calibration pending (publication gap).}\end{center}
 \end{frame}
 
 \begin{frame}[fragile]{FloodAgent Implementation (Key Method)}
@@ -465,10 +834,15 @@ def fuse_data(self) -> Dict[str, Any]:
   \begin{itemize}
     \item 5 Autonomous Agents; \(\sim\)8,000 LOC
     \item PAGASA stations: 17\(\rightarrow\)5 (Marikina-filtered)
-    \item 72 GeoTIFF flood maps; \(|V|\approx 2{,}500\), \(|E|\approx 5{,}000\)
-    \item Update cycle: 5 minutes; 95\% real data
+    \item 72 GeoTIFF flood maps; \(\abs{V}\approx 10{,}000\), \(\abs{E}\approx 20{,}000\)
+    \item Update cycle: \SI{5}{\minute}; 95\% real data
   \end{itemize}
 \end{frame}
+
+% ============================================
+% SECTION: Agreement Form Compliance
+% ============================================
+\section{Agreement Form Compliance}
 
 % -------------------------
 % Agreement Form Compliance (8)
@@ -479,13 +853,13 @@ def fuse_data(self) -> Dict[str, Any]:
     \toprule
     Item & Description & Status & Gap \\
     \midrule
-    1 & MAS Communication & \textcolor{darkorange}{4/5} & Stress testing \\
-    2 & Dynamic Graph & \textcolor{darkgreen}{5/5} & Calibration pending \\
-    3 & Baseline & \textcolor{darkred}{0/3} & \textbf{CRITICAL} \\
-    4 & Risk-Aware A* & \textcolor{darkgreen}{Complete} & -- \\
-    5 & Simulation & \textcolor{darkorange}{2/4} & Systematic testing \\
-    6 & Web Prototype & \textcolor{darkgreen}{Complete} & -- \\
-    7 & Paper & \textcolor{darkred}{Rejected} & 3,5,1.v \\
+    1 & MAS Communication & \statuspartial{4/5} & Stress testing \\
+    2 & Dynamic Graph & \statuscomplete{5/5} & Calibration pending \\
+    3 & Baseline & \statusmissing{0/3} & \textbf{CRITICAL} \\
+    4 & Risk-Aware A* & \statuscomplete{Complete} & -- \\
+    5 & Simulation & \statuspartial{2/4} & Systematic testing \\
+    6 & Web Prototype & \statuscomplete{Complete} & -- \\
+    7 & Paper & \statusmissing{Rejected} & 3,5,1.v \\
     \bottomrule
   \end{tabular}
 \end{frame}
@@ -513,7 +887,7 @@ def fuse_data(self) -> Dict[str, Any]:
   Caveat: Weight calibration pending.
 \end{frame}
 
-\begin{frame}{Item 3 - Baseline (\textcolor{darkred}{Critical Gap})}
+\begin{frame}{Item 3 - Baseline (\statusmissing{Critical Gap})}
   \small
   \begin{itemize}
     \item 0/3 complete: centralized baseline, time/accuracy/scalability comparisons absent
@@ -525,14 +899,14 @@ def fuse_data(self) -> Dict[str, Any]:
 \begin{frame}{Item 4 - Risk-Aware A* (Complete)}
   \small
   \[
-    P^*=\arg\min_{P\in\mathcal{P}(s,t)} \sum_{e\in P} C(e),\quad
+    P^*=\argmin_{P\in\mathcal{P}(s,t)} \sum_{e\in P} C(e),\quad
     C(e)=
     \begin{cases}
       \infty & r(e)\ge 0.9\\
       w_d d(e)+ w_r d(e) r(e) & \text{otherwise}
     \end{cases}
   \]
-  Complexity: \(\mathcal{O}((|V|+|E|)\log |V|)\).
+  Complexity: \(\mathcal{O}((\abs{V}+\abs{E})\log \abs{V})\).
 \end{frame}
 
 \begin{frame}{Item 5 - Simulation Testing (2/4)}
@@ -550,7 +924,7 @@ def fuse_data(self) -> Dict[str, Any]:
   \small
   \begin{itemize}
     \item Next.js 15 + Mapbox GL; 18+ REST endpoints
-    \item WebSocket (5-min updates); PostgreSQL (5+ months data)
+    \item WebSocket (5-min updates); PostgreSQL (5+ months data, projected)
     \item Status: Functional prototype (\emph{not} production-hardened)
   \end{itemize}
 \end{frame}
@@ -569,25 +943,58 @@ def fuse_data(self) -> Dict[str, Any]:
   Roadmap: Phase 1 (56–72h) to close 3,5,1.v; Phase 2: real-world validation.
 \end{frame}
 
+% ============================================
+% SECTION: Implementation Highlights
+% ============================================
+\section{Implementation Highlights}
+
 % -------------------------
 % Implementation Highlights (5)
 % -------------------------
 \begin{frame}{Real-Time Data Integration}
-  \begin{tikzpicture}[node distance=1.2cm]
-    \node[draw,rounded corners,fill=blue!10] (p1) {PAGASA};
-    \node[draw,rounded corners,right=of p1,fill=blue!10] (p2) {OpenWeatherMap};
-    \node[draw,rounded corners,right=of p2,fill=blue!10] (p3) {GeoTIFF};
-    \node[draw,rounded corners,right=of p3,fill=blue!10] (p4) {Twitter/X (NLP)};
-    \node[draw,rounded corners,below=1.2cm of p2,fill=gray!10] (haz) {HazardAgent};
-    \node[draw,rounded corners,right=2.8cm of haz,fill=gray!10] (graph) {Graph};
-    \draw[->] (p1)--(haz);
-    \draw[->] (p2)--(haz);
-    \draw[->] (p3)--(haz);
-    \draw[->] (p4)--(haz);
-    \draw[->] (haz)--(graph);
-  \end{tikzpicture}
-  \vspace{6pt}
-  Update cadence: 5 minutes. API costs: within free tier.
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[
+    source/.style={draw,rounded corners,fill=blue!10,minimum width=1.8cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    agent/.style={draw,rounded corners,fill=gray!15,minimum width=2.3cm,minimum height=0.75cm,align=center,font=\footnotesize\bfseries},
+    env/.style={draw,rounded corners,fill=green!10,minimum width=2.3cm,minimum height=0.75cm,align=center,font=\footnotesize\bfseries}
+  ]
+    % Data sources - increased horizontal spacing
+    \node[source] (p1) at (0,4) {PAGASA\\River};
+    \node[source] (p2) at (2.2,4) {OpenWeather\\Map};
+    \node[source] (p3) at (4.4,4) {GeoTIFF\\Maps};
+    \node[source] (p4) at (6.6,4) {Twitter/X\\(NLP)};
+    
+    % Source labels - removed to reduce clutter
+    % HazardAgent (fusion center)
+    \node[agent] (haz) at (3.3,2.2) {HazardAgent\\(Fusion)};
+    
+    % Graph environment
+    \node[env] (graph) at (3.3,0.5) {DynamicGraph\\Environment};
+    
+    % Arrows with labels - simplified
+    \draw[->,very thick,blue!70!black] (p1) -- node[right,font=\tiny,sloped] {river} (haz);
+    \draw[->,very thick,blue!70!black] (p2) -- node[right,font=\tiny,sloped] {weather} (haz);
+    \draw[->,very thick,blue!70!black] (p3) -- node[left,font=\tiny,sloped] {maps} (haz);
+    \draw[->,very thick,blue!70!black] (p4) -- node[left,font=\tiny,sloped] {social} (haz);
+    \draw[->,very thick,green!70!black] (haz) -- node[right,font=\tiny] {risk} (graph);
+    
+    % Update cadence label
+    \node[font=\scriptsize\bfseries,text=red!70!black,anchor=center] at (3.3,1.35) {Update: Every 5 minutes};
+    
+    % Legend moved to bottom - simplified
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (1.5,-1.0) rectangle (5.1,-0.2);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (1.7,-0.3) {Sources:};
+    \node[source,minimum width=1.0cm,minimum height=0.35cm,font=\tiny] at (1.7,-0.5) {};
+    \node[anchor=west,font=\tiny] at (2.0,-0.5) {External API};
+    \node[agent,minimum width=1.0cm,minimum height=0.35cm,font=\tiny] at (3.0,-0.5) {};
+    \node[anchor=west,font=\tiny] at (3.3,-0.5) {Fusion};
+    \node[env,minimum width=1.0cm,minimum height=0.35cm,font=\tiny] at (4.3,-0.5) {};
+    \node[anchor=west,font=\tiny] at (4.6,-0.5) {Graph};
+  \end{tikzpicture}}
+  \end{center}
+  \vspace{4pt}
+  \begin{center}\small API costs: within free tier. 95\% real data, 5\% simulated fallback.\end{center}
 \end{frame}
 
 \begin{frame}{GeoTIFF Service Architecture}
@@ -605,29 +1012,101 @@ def fuse_data(self) -> Dict[str, Any]:
 \end{frame}
 
 \begin{frame}{WebSocket Real-Time Architecture}
-  \begin{tikzpicture}[node distance=1.6cm]
-    \node[draw,rounded corners,fill=green!10] (fa) {FloodAgent};
-    \node[draw,rounded corners,fill=orange!10,right=of fa] (ha) {HazardAgent};
-    \node[draw,rounded corners,fill=gray!10,right=of ha] (cm) {ConnectionManager};
-    \node[draw,rounded corners,fill=yellow!10,right=of cm] (cli) {Clients};
-    \draw[->] (fa)-- node[above]{T=0s} (ha);
-    \draw[->] (ha)-- node[above]{T=4s} (cm);
-    \draw[->] (cm)-- node[above]{T=5s} (cli);
-  \end{tikzpicture}
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.88\textwidth,center}{\begin{tikzpicture}[
+    agent/.style={draw,rounded corners,fill=green!10,minimum width=1.8cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    process/.style={draw,rounded corners,fill=orange!10,minimum width=1.8cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    manager/.style={draw,rounded corners,fill=gray!15,minimum width=2.0cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries},
+    client/.style={draw,rounded corners,fill=yellow!10,minimum width=1.8cm,minimum height=0.65cm,align=center,font=\footnotesize\bfseries}
+  ]
+    % Components - reduced vertical spacing
+    \node[agent] (fa) at (0,3.5) {FloodAgent};
+    \node[process] (ha) at (3,3.5) {HazardAgent};
+    \node[manager] (cm) at (6,3.5) {Connection\\Manager};
+    \node[client] (cli) at (8.5,3.5) {Clients};
+    
+    % Timeline bar - simplified
+    \draw[very thick,black!30] (0,2.0) -- (8.5,2.0);
+    \foreach \x/\t in {0/0s,3/4s,6/5s,8.5/5.05s} {
+      \draw[thick,black!50] (\x,1.9) -- (\x,2.1);
+      \node[anchor=north,font=\scriptsize\bfseries,text=black!70] at (\x,1.8) {\t};
+    }
+    
+    % Data flow arrows - simplified
+    \draw[->,very thick,green!70!black] (fa) -- node[above,font=\tiny] {data} (ha);
+    \draw[->,very thick,orange!70!black] (ha) -- node[above,font=\tiny] {scores} (cm);
+    \draw[->,very thick,blue!70!black] (cm) -- node[above,font=\tiny] {broadcast} (cli);
+    
+    % Vertical lines to timeline - simplified
+    \draw[->,dashed,thick,green!70!black] (fa) -- (0,2.0);
+    \draw[->,dashed,thick,orange!70!black] (ha) -- (3,2.0);
+    \draw[->,dashed,thick,blue!70!black] (cm) -- (6,2.0);
+    \draw[->,dashed,thick,blue!70!black] (cli) -- (8.5,2.0);
+    
+    % Message types box moved to bottom - simplified
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (1.0,0.3) rectangle (7.5,1.2);
+    \node[anchor=north west,font=\footnotesize\bfseries] at (1.2,1.0) {Message Types:};
+    \node[anchor=west,font=\tiny] at (1.2,0.8) {\texttt{flood\_update} -- River level changes};
+    \node[anchor=west,font=\tiny] at (1.2,0.6) {\texttt{critical\_alert} -- High risk warnings};
+    \node[anchor=west,font=\tiny] at (1.2,0.4) {\texttt{scheduler\_update} -- Collection status};
+  \end{tikzpicture}}
+  \end{center}
   \vspace{4pt}
-  Message types: \texttt{flood\_update}, \texttt{critical\_alert}, \texttt{scheduler\_update}.
+  \begin{center}\small Total latency: ~5 seconds from data fetch to client update.\end{center}
 \end{frame}
 
 \begin{frame}{Database Schema (ER Diagram)}
-  \begin{tikzpicture}[node distance=2.2cm]
-    \node[draw,rounded corners,fill=gray!10] (c) {\texttt{flood\_data\_collections} (UUID PK)};
-    \node[draw,rounded corners,fill=gray!10,below left=of c] (r) {\texttt{river\_levels} (PK int, FK)};
-    \node[draw,rounded corners,fill=gray!10,below right=of c] (w) {\texttt{weather\_data} (PK int, 1:1)};
-    \draw[->] (c)--(r);
-    \draw[->] (c)--(w);
-  \end{tikzpicture}
-  \vspace{6pt}
-  PostgreSQL 14+, SQLAlchemy 2.0, Alembic. 10,000+ records (5+ months).
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.85\textwidth,center}{\begin{tikzpicture}[
+    entity/.style={draw,rectangle,fill=blue!10,minimum width=2.8cm,minimum height=1.0cm,align=center,font=\footnotesize},
+    attr/.style={font=\scriptsize,anchor=west}
+  ]
+    % Entity: flood_data_collections - increased spacing
+    \node[entity] (c) at (0,3.0) {\textbf{flood\_data\_collections}};
+    \node[attr] at (-1.2,2.7) {\underline{collection\_id}: UUID (PK)};
+    \node[attr] at (-1.2,2.5) {timestamp: DateTime};
+    \node[attr] at (-1.2,2.3) {source: String};
+    
+    % Entity: river_levels - increased spacing
+    \node[entity] (r) at (-2.8,0.8) {\textbf{river\_levels}};
+    \node[attr] at (-4.0,0.5) {\underline{id}: Integer (PK)};
+    \node[attr] at (-4.0,0.3) {station\_name: String};
+    \node[attr] at (-4.0,0.1) {water\_level: Float};
+    \node[attr] at (-4.0,-0.1) {critical\_level: Float};
+    \node[attr] at (-4.0,-0.3) {\textit{collection\_id}: UUID (FK)};
+    
+    % Entity: weather_data - increased spacing
+    \node[entity] (w) at (2.8,0.8) {\textbf{weather\_data}};
+    \node[attr] at (1.6,0.5) {\underline{id}: Integer (PK)};
+    \node[attr] at (1.6,0.3) {temperature: Float};
+    \node[attr] at (1.6,0.1) {rainfall: Float};
+    \node[attr] at (1.6,-0.1) {humidity: Float};
+    \node[attr] at (1.6,-0.3) {\textit{collection\_id}: UUID (FK)};
+    
+    % Relationships with cardinality - simplified
+    % Collection to River Levels (1:N)
+    \draw[->,very thick,blue!70!black] (c) -- node[above left,font=\tiny,sloped] {\textbf{1}} (r);
+    \draw[->,very thick,blue!70!black] (r) -- node[below right,font=\tiny,sloped] {\textbf{N}} (c);
+    \node[anchor=center,font=\tiny\bfseries,text=blue!70!black] at (-1.4,1.9) {has};
+    
+    % Collection to Weather Data (1:1)
+    \draw[<->,very thick,green!70!black] (c) -- node[above right,font=\tiny,sloped] {\textbf{1}} (w);
+    \draw[<->,very thick,green!70!black] (w) -- node[below left,font=\tiny,sloped] {\textbf{1}} (c);
+    \node[anchor=center,font=\tiny\bfseries,text=green!70!black] at (1.4,1.9) {has};
+    
+    % Legend moved to bottom
+    \draw[fill=white,draw=black,thick,rounded corners=2pt] (-2.0,-1.8) rectangle (2.0,-0.8);
+    \node[anchor=north west,font=\scriptsize\bfseries] at (-1.8,-0.9) {Legend:};
+    \node[attr] at (-1.8,-1.1) {PK = Primary Key};
+    \node[attr] at (-1.8,-1.3) {FK = Foreign Key};
+    \node[attr] at (0.2,-1.1) {1:1 = One-to-One};
+    \node[attr] at (0.2,-1.3) {1:N = One-to-Many};
+  \end{tikzpicture}}
+  \end{center}
+  \vspace{4pt}
+  \begin{center}\small PostgreSQL 14+, SQLAlchemy 2.0, Alembic. 10,000+ records (5+ months, projected).\end{center}
 \end{frame}
 
 \begin{frame}{Dependency Overview}
@@ -654,6 +1133,11 @@ def fuse_data(self) -> Dict[str, Any]:
   \end{columns}
 \end{frame}
 
+% ============================================
+% SECTION: Performance Evaluation
+% ============================================
+\section{Performance Evaluation}
+
 % -------------------------
 % Performance (3)
 % -------------------------
@@ -663,12 +1147,12 @@ def fuse_data(self) -> Dict[str, Any]:
     \toprule
     Metric & Observed & Method & Sample \\
     \midrule
-    Route calc & 0.5–2s (\(\mu=1.2\)s, \(\sigma=0.4\)s) & Manual & \(n=20\) \\
-    PAGASA API & 1–3s & requests & \(n=15\) \\
-    OWM API & 0.5–1s & requests & \(n=15\) \\
-    GeoTIFF & <0.1s & Rasterio+cache & \(n=100\) \\
-    DB & <100ms & SQLAlchemy & \(n=50\) \\
-    WebSocket & <50ms & AsyncIO & \(n=20\) \\
+    Route calc & \SIrange{0.5}{2}{\second} (\(\mu=\SI{1.2}{\second}\), \(\sigma=\SI{0.4}{\second}\)) & Manual & \(n=20\) \\
+    PAGASA API & \SIrange{1}{3}{\second} & requests & \(n=15\) \\
+    OWM API & \SIrange{0.5}{1}{\second} & requests & \(n=15\) \\
+    GeoTIFF & \(<\SI{0.1}{\second}\) & Rasterio+cache & \(n=100\) \\
+    DB & \(<\SI{100}{\milli\second}\) & SQLAlchemy & \(n=50\) \\
+    WebSocket & \(<\SI{50}{\milli\second}\) & AsyncIO & \(n=20\) \\
     \bottomrule
   \end{tabular}
   \vspace{4pt}
@@ -678,7 +1162,7 @@ def fuse_data(self) -> Dict[str, Any]:
 \begin{frame}{System Operational Statistics}
   \small
   \begin{itemize}
-    \item 5+ months operational; 10,000+ DB records
+    \item 5+ months operational (projected); 10,000+ DB records (projected)
     \item 288 API calls/day (5-min intervals)
     \item 95\% real data success; 0 critical failures
   \end{itemize}
@@ -691,6 +1175,11 @@ def fuse_data(self) -> Dict[str, Any]:
     \item Source uptime: PAGASA 100\%, OWM 100\%, GeoTIFF local
   \end{itemize}
 \end{frame}
+
+% ============================================
+% SECTION: Critical Assessment
+% ============================================
+\section{Critical Assessment}
 
 % -------------------------
 % Critical Assessment (5)
@@ -759,6 +1248,11 @@ def fuse_data(self) -> Dict[str, Any]:
   \end{enumerate}
 \end{frame}
 
+% ============================================
+% SECTION: Future Work \& Conclusion
+% ============================================
+\section{Future Work \& Conclusion}
+
 % -------------------------
 % Future Work & Conclusion (3)
 % -------------------------
@@ -793,7 +1287,7 @@ def fuse_data(self) -> Dict[str, Any]:
         \item Real gov APIs
         \item 72 GeoTIFF maps
         \item Functional prototype
-        \item 5+ months operational
+        \item 5+ months operational (projected)
       \end{itemize}
     \column{0.32\textwidth}
       \textbf{Gaps}
@@ -832,7 +1326,7 @@ def fuse_data(self) -> Dict[str, Any]:
 
 \begin{frame}{Complexity Derivation (Detailed)}
   \small
-  Binary heap priority queue: insert/extract \(\mathcal{O}(\log |V|)\); each edge scanned once \(\Rightarrow \mathcal{O}((|V|+|E|)\log |V|)\).
+  Binary heap priority queue: insert/extract \(\mathcal{O}(\log \abs{V})\); each edge scanned once \(\Rightarrow \mathcal{O}((\abs{V}+\abs{E})\log \abs{V})\).
 \end{frame}
 
 \begin{frame}[fragile]{Risk Calculation Code (Complete Example)}
@@ -857,13 +1351,44 @@ def calculate_risk_scores(self, fused_data: Dict) -> Dict:
 \end{frame}
 
 \begin{frame}{Database Schema (Full ER Sketch)}
-  \begin{tikzpicture}[node distance=2.2cm]
-    \node[draw,rounded corners] (c) {flood\_data\_collections (UUID, ts, source)};
-    \node[draw,rounded corners,below left=of c] (r) {river\_levels (id, station, level, fk)};
-    \node[draw,rounded corners,below right=of c] (w) {weather\_data (id, temp, rain, fk)};
-    \draw[-stealth] (c)--(r);
-    \draw[-stealth] (c)--(w);
-  \end{tikzpicture}
+  \vspace{-4pt}
+  \begin{center}
+  \adjustbox{width=0.85\textwidth,center}{\begin{tikzpicture}[
+    entity/.style={draw,rectangle,fill=blue!10,minimum width=2.8cm,minimum height=1.0cm,align=center,font=\footnotesize},
+    attr/.style={font=\scriptsize,anchor=west}
+  ]
+    % Entity: flood_data_collections
+    \node[entity] (c) at (0,3.0) {\textbf{flood\_data\_collections}};
+    \node[attr] at (-1.2,2.7) {\underline{collection\_id}: UUID (PK)};
+    \node[attr] at (-1.2,2.5) {timestamp: DateTime};
+    \node[attr] at (-1.2,2.3) {source: String};
+    
+    % Entity: river_levels
+    \node[entity] (r) at (-2.8,0.8) {\textbf{river\_levels}};
+    \node[attr] at (-4.0,0.5) {\underline{id}: Integer (PK)};
+    \node[attr] at (-4.0,0.3) {station\_name: String};
+    \node[attr] at (-4.0,0.1) {water\_level: Float};
+    \node[attr] at (-4.0,-0.1) {critical\_level: Float};
+    \node[attr] at (-4.0,-0.3) {\textit{collection\_id}: UUID (FK)};
+    
+    % Entity: weather_data
+    \node[entity] (w) at (2.8,0.8) {\textbf{weather\_data}};
+    \node[attr] at (1.6,0.5) {\underline{id}: Integer (PK)};
+    \node[attr] at (1.6,0.3) {temperature: Float};
+    \node[attr] at (1.6,0.1) {rainfall: Float};
+    \node[attr] at (1.6,-0.1) {humidity: Float};
+    \node[attr] at (1.6,-0.3) {\textit{collection\_id}: UUID (FK)};
+    
+    % Relationships with cardinality
+    \draw[->,very thick,blue!70!black] (c) -- node[above left,font=\tiny,sloped] {\textbf{1}} (r);
+    \draw[->,very thick,blue!70!black] (r) -- node[below right,font=\tiny,sloped] {\textbf{N}} (c);
+    \node[anchor=center,font=\tiny\bfseries,text=blue!70!black] at (-1.4,1.9) {has};
+    
+    \draw[<->,very thick,green!70!black] (c) -- node[above right,font=\tiny,sloped] {\textbf{1}} (w);
+    \draw[<->,very thick,green!70!black] (w) -- node[below left,font=\tiny,sloped] {\textbf{1}} (c);
+    \node[anchor=center,font=\tiny\bfseries,text=green!70!black] at (1.4,1.9) {has};
+  \end{tikzpicture}}
+  \end{center}
 \end{frame}
 
 \begin{frame}[fragile]{FIPA-ACL Message Queue (Core Snippet)}
@@ -900,18 +1425,20 @@ class MessageQueue:
 \end{frame}
 
 \begin{frame}{Dependency Graph Visualization (Sketch)}
-  \begin{tikzpicture}[node distance=1.4cm]
-    \node[draw,rounded corners] (fa) {FastAPI};
-    \node[draw,rounded corners,below=of fa] (uv) {uvicorn};
-    \node[draw,rounded corners,right=2.6cm of fa] (nx) {NetworkX};
-    \node[draw,rounded corners,below=of nx] (ox) {OSMnx};
-    \node[draw,rounded corners,right=2.6cm of nx] (rs) {Rasterio};
-    \node[draw,rounded corners,below=of rs] (sa) {SQLAlchemy};
-    \draw[->] (fa)--(uv);
-    \draw[->] (ox)--(nx);
-    \draw[->] (nx)--(rs);
-    \draw[->] (sa)--(fa);
-  \end{tikzpicture}
+  \begin{center}
+  \adjustbox{width=0.85\textwidth,center}{\begin{tikzpicture}[node distance=1.2cm,every node/.style={font=\footnotesize,minimum width=1.5cm,minimum height=0.5cm,align=center}]
+    \node[draw,rounded corners,fill=blue!10] (fa) {FastAPI};
+    \node[draw,rounded corners,below=of fa,fill=blue!5] (uv) {uvicorn};
+    \node[draw,rounded corners,right=2.2cm of fa,fill=green!10] (nx) {NetworkX};
+    \node[draw,rounded corners,below=of nx,fill=green!5] (ox) {OSMnx};
+    \node[draw,rounded corners,right=2.2cm of nx,fill=orange!10] (rs) {Rasterio};
+    \node[draw,rounded corners,below=of rs,fill=yellow!10] (sa) {SQLAlchemy};
+    \draw[->,thick] (fa)--(uv);
+    \draw[->,thick] (ox)--(nx);
+    \draw[->,thick] (nx)--(rs);
+    \draw[->,thick] (sa)--(fa);
+  \end{tikzpicture}}
+  \end{center}
 \end{frame}
 
 \begin{frame}{Frontend Component Architecture (Sketch)}
