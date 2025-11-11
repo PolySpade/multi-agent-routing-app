@@ -20,9 +20,12 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
 
 # GeoTIFF service import
 try:
@@ -61,7 +64,11 @@ class HazardAgent(BaseAgent):
         >>> agent.update_risk_scores()
     """
 
-    def __init__(self, agent_id: str, environment):
+    def __init__(
+        self,
+        agent_id: str,
+        environment: "DynamicGraphEnvironment"
+    ) -> None:
         """
         Initialize the HazardAgent.
 
@@ -172,7 +179,7 @@ class HazardAgent(BaseAgent):
 
         # Trigger risk calculation and graph update after receiving flood data
         logger.info(f"{self.agent_id} triggering hazard processing after flood data update")
-        self.process_hazard_data()
+        self.process_and_update()
 
     def process_scout_data(self, scout_reports: List[Dict[str, Any]]) -> None:
         """

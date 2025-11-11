@@ -140,11 +140,11 @@ class FloodDataScheduler:
                 duration_seconds=duration_seconds,
             )
 
-            logger.info(f"💾 Data saved to database: collection_id={collection.id}")
+            logger.info(f"[DB] Data saved to database: collection_id={collection.id}")
             return collection
 
         except Exception as e:
-            logger.error(f"❌ Database save error: {e}")
+            logger.error(f"[ERROR] Database save error: {e}")
             return None
         finally:
             db.close()
@@ -164,9 +164,9 @@ class FloodDataScheduler:
                 error_message=error_message,
                 data_source=data_source,
             )
-            logger.info(f"💾 Failed collection saved: collection_id={collection.id}")
+            logger.info(f"[DB] Failed collection saved: collection_id={collection.id}")
         except Exception as e:
-            logger.error(f"❌ Failed to save error record: {e}")
+            logger.error(f"[ERROR] Failed to save error record: {e}")
         finally:
             db.close()
 
@@ -203,7 +203,7 @@ class FloodDataScheduler:
                     self.stats["data_points_collected"] += len(data)
 
                     logger.info(
-                        f"✅ Scheduled collection successful: {len(data)} data points "
+                        f"[OK] Scheduled collection successful: {len(data)} data points "
                         f"in {duration:.2f}s"
                     )
 
@@ -225,7 +225,7 @@ class FloodDataScheduler:
 
                 else:
                     self.stats["failed_runs"] += 1
-                    logger.warning("⚠️ Scheduled collection returned no data")
+                    logger.warning("[WARN] Scheduled collection returned no data")
                     # Save failed collection
                     await asyncio.to_thread(
                         self._save_failed_collection,
@@ -236,7 +236,7 @@ class FloodDataScheduler:
                 self.stats["failed_runs"] += 1
                 self.stats["last_error"] = str(e)
                 self.stats["last_run_time"] = datetime.now()
-                logger.error(f"❌ Scheduled collection error: {e}")
+                logger.error(f"[ERROR] Scheduled collection error: {e}")
                 # Save failed collection
                 await asyncio.to_thread(
                     self._save_failed_collection,
@@ -263,7 +263,7 @@ class FloodDataScheduler:
         self.is_running = True
         self.task = asyncio.create_task(self._collection_loop())
         logger.info(
-            f"✅ FloodDataScheduler started (interval={self.interval_seconds}s)"
+            f"[OK] FloodDataScheduler started (interval={self.interval_seconds}s)"
         )
 
     async def stop(self):
@@ -288,7 +288,7 @@ class FloodDataScheduler:
                 logger.warning("Scheduler stop timed out, cancelling task")
                 self.task.cancel()
 
-        logger.info("✅ FloodDataScheduler stopped")
+        logger.info("[OK] FloodDataScheduler stopped")
 
     def get_status(self) -> Dict[str, Any]:
         """

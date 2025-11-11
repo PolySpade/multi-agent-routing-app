@@ -21,10 +21,15 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
 import logging
 from datetime import datetime
 import uuid
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
+    from .routing_agent import RoutingAgent
+    from .hazard_agent import HazardAgent
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,11 @@ class EvacuationManagerAgent(BaseAgent):
         >>> route = manager.handle_route_request((14.65, 121.10), (14.66, 121.11))
     """
 
-    def __init__(self, agent_id: str, environment):
+    def __init__(
+        self,
+        agent_id: str,
+        environment: "DynamicGraphEnvironment"
+    ) -> None:
         """
         Initialize the EvacuationManagerAgent.
 
@@ -68,8 +77,8 @@ class EvacuationManagerAgent(BaseAgent):
         super().__init__(agent_id, environment)
 
         # Agent references (set after initialization)
-        self.routing_agent = None
-        self.hazard_agent = None
+        self.routing_agent: Optional["RoutingAgent"] = None
+        self.hazard_agent: Optional["HazardAgent"] = None
 
         # Request and feedback tracking
         self.route_history: List[Dict[str, Any]] = []

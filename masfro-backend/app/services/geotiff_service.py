@@ -23,6 +23,13 @@ import logging
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
 import numpy as np
+
+# Configure GDAL environment variables BEFORE importing rasterio
+# These settings handle non-standard GeoTIFF coordinate reference systems
+os.environ['GTIFF_SRS_SOURCE'] = 'EPSG'  # Use official EPSG parameters over GeoTIFF keys
+os.environ['GTIFF_HONOUR_NEGATIVE_SCALEY'] = 'YES'  # Handle negative ScaleY values correctly
+os.environ['CPL_LOG'] = '/dev/null'  # Suppress GDAL C-level log messages
+
 import rasterio
 from rasterio.transform import rowcol
 from functools import lru_cache

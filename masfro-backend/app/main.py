@@ -45,12 +45,12 @@ from app.services.flood_data_scheduler import FloodDataScheduler, set_scheduler,
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Logging configuration
+from app.core.logging_config import setup_logging, get_logger
+
+# Initialize structured logging (will be called again in startup event for safety)
+setup_logging()
+logger = get_logger(__name__)
 
 
 # --- Utility Functions ---
@@ -429,21 +429,28 @@ logger.info("MAS-FRO system initialized successfully")
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on application startup."""
+    # Initialize logging system (ensure logs directory exists)
+    setup_logging()
+    logger.info("="*60)
+    logger.info("MAS-FRO Backend Starting Up")
+    logger.info("="*60)
+    logger.info("Structured logging initialized - logs written to logs/masfro.log")
+    
     # Check database connection
     logger.info("Checking database connection...")
     if check_connection():
-        logger.info("✅ Database connection successful")
+        logger.info("Database connection successful")
         # Initialize database tables (if not exist)
         init_db()
     else:
-        logger.error("❌ Database connection failed - historical data storage disabled")
+        logger.error("Database connection failed - historical data storage disabled")
 
     # Start scheduler
     logger.info("Starting background scheduler...")
     scheduler = get_scheduler()
     if scheduler:
         await scheduler.start()
-        logger.info("✅ Automated flood data collection started (every 5 minutes)")
+        logger.info("Automated flood data collection started (every 5 minutes)")
     else:
         logger.warning("Scheduler not initialized")
 
@@ -451,11 +458,15 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop background tasks on application shutdown."""
+    logger.info("="*60)
+    logger.info("MAS-FRO Backend Shutting Down")
+    logger.info("="*60)
     logger.info("Stopping background scheduler...")
     scheduler = get_scheduler()
     if scheduler:
         await scheduler.stop()
-        logger.info("✅ Scheduler stopped gracefully")
+        logger.info("Scheduler stopped gracefully")
+    logger.info("MAS-FRO backend shutdown complete")
 
 
 # --- 4. API Endpoints ---

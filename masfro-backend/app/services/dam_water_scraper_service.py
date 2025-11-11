@@ -19,6 +19,7 @@ import numpy as np
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from io import StringIO
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ def scrape_and_process():
             
             # Step 3: Use Pandas to read the table HTML
             # We use header=1 to grab the *second* row of the header (with Hr, Amount, etc.)
-            df_list = pd.read_html(str(dam_table), header=1)
+            # Wrap HTML string in StringIO to avoid FutureWarning
+            df_list = pd.read_html(StringIO(str(dam_table)), header=1)
             df = df_list[0]
             
             # Step 4: Process the messy DataFrame into clean JSON

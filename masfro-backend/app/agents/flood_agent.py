@@ -19,13 +19,17 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
 import logging
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import sys
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
+    from .hazard_agent import HazardAgent
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -75,11 +79,11 @@ class FloodAgent(BaseAgent):
     def __init__(
         self,
         agent_id: str,
-        environment,
-        hazard_agent=None,
+        environment: "DynamicGraphEnvironment",
+        hazard_agent: Optional["HazardAgent"] = None,
         use_simulated: bool = False,
         use_real_apis: bool = True
-    ):
+    ) -> None:
         """
         Initialize the FloodAgent.
 
@@ -200,7 +204,7 @@ class FloodAgent(BaseAgent):
                     if river_data:
                         combined_data.update(river_data)
                         logger.info(
-                            f"✅ Collected REAL river data: {len(river_data)} stations"
+                            f"[OK] Collected REAL river data: {len(river_data)} stations"
                         )
                 except Exception as e:
                     logger.error(f"Failed to fetch real river data: {e}")
@@ -213,7 +217,7 @@ class FloodAgent(BaseAgent):
                         location = weather_data.get("location", "Marikina")
                         combined_data[f"{location}_weather"] = weather_data
                         logger.info(
-                            f"✅ Collected REAL weather data for {location}"
+                            f"[OK] Collected REAL weather data for {location}"
                         )
                 except Exception as e:
                     logger.error(f"Failed to fetch real weather data: {e}")
@@ -227,7 +231,7 @@ class FloodAgent(BaseAgent):
                         for dam_name, dam_info in dam_data.items():
                             combined_data[dam_name] = dam_info
                         logger.info(
-                            f"✅ Collected REAL dam data: {len(dam_data)} dams"
+                            f"[OK] Collected REAL dam data: {len(dam_data)} dams"
                         )
                 except Exception as e:
                     logger.error(f"Failed to fetch real dam data: {e}")
@@ -248,11 +252,11 @@ class FloodAgent(BaseAgent):
         # ========== FORWARD TO HAZARD AGENT ==========
         if combined_data:
             logger.info(
-                f"📤 Forwarding {len(combined_data)} data points to HazardAgent"
+                f"[SEND] Forwarding {len(combined_data)} data points to HazardAgent"
             )
             self.send_to_hazard_agent(combined_data)
         else:
-            logger.warning("⚠️ No data collected from any source!")
+            logger.warning("[WARN] No data collected from any source!")
 
         self.last_update = datetime.now()
         return combined_data

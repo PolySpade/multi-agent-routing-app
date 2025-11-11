@@ -10,11 +10,14 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
 import pandas as pd
 import os
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +46,10 @@ class RoutingAgent(BaseAgent):
     def __init__(
         self,
         agent_id: str,
-        environment,
+        environment: "DynamicGraphEnvironment",
         risk_weight: float = 0.6,
         distance_weight: float = 0.4
-    ):
+    ) -> None:
         """
         Initialize the RoutingAgent.
 

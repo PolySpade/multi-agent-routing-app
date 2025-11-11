@@ -73,9 +73,9 @@ def init_db():
 
     try:
         Base.metadata.create_all(bind=engine)
-        logger.info("✅ Database tables created successfully")
+        logger.info("[OK] Database tables created successfully")
     except Exception as e:
-        logger.error(f"❌ Error creating database tables: {e}")
+        logger.error(f"[ERROR] Error creating database tables: {e}")
         raise
 
 
@@ -89,8 +89,8 @@ def check_connection() -> bool:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        logger.info("✅ Database connection successful")
+        logger.info("[OK] Database connection successful")
         return True
     except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
+        logger.error(f"[ERROR] Database connection failed: {e}")
         return False
