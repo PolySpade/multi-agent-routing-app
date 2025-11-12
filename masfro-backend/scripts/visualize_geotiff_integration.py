@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Visualize GeoTIFF Integration with Graph Weights
+Comprehensive GeoTIFF Integration Visualizer with Animated GIFs
 
-This script demonstrates and verifies that:
-1. GeoTIFF flood data is properly loaded
-2. Flood depths are mapped to road network edges
-3. Edge risk scores and weights are updated correctly
-4. Visual comparison of graph before/after GEOTIFF integration
+This script:
+1. Tests ALL 72 GeoTIFF files (4 return periods × 18 time steps)
+2. Creates dramatic visualizations with enhanced color scheme
+3. Generates animated GIFs showing flood progression over time
+4. Outputs individual frames and summary statistics
 
 Output:
-- Console statistics showing risk score distribution
-- Side-by-side visualization of road network (clean vs flooded)
-- Sample edge weight comparisons
+- 4 animated GIFs (one per return period: rr01, rr02, rr03, rr04)
+- 72 individual frame images
+- Console statistics for each scenario
+- Comprehensive summary report
 """
 
 import sys
@@ -25,109 +26,79 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 from typing import Dict, Tuple, List
+from PIL import Image
+from datetime import datetime
 
 from app.environment.graph_manager import DynamicGraphEnvironment
 from app.agents.hazard_agent import HazardAgent
 from app.services.geotiff_service import get_geotiff_service
 
 
-class GeoTIFFIntegrationVisualizer:
-    """Visualizes GeoTIFF integration with road network graph."""
+class GeoTIFFAnimatedVisualizer:
+    """Create animated visualizations of GeoTIFF flood progression."""
 
     def __init__(self):
         """Initialize visualizer with graph and agents."""
-        print("="*80)
-        print("GEOTIFF INTEGRATION VERIFICATION & VISUALIZATION")
-        print("="*80)
+        print("="*80, flush=True)
+        print("COMPREHENSIVE GEOTIFF INTEGRATION VISUALIZER", flush=True)
+        print("Creating Animated GIFs for All Return Periods", flush=True)
+        print("="*80, flush=True)
 
         # Initialize environment and graph
-        print("\n[STEP 1] Initializing road network graph...")
+        print("\n[INIT] Loading road network graph...", flush=True)
         self.env = DynamicGraphEnvironment()
         if self.env.graph is None:
             raise RuntimeError("Failed to load graph!")
 
-        print(f"  Graph loaded: {self.env.graph.number_of_nodes()} nodes, {self.env.graph.number_of_edges()} edges")
+        print(f"  [OK] Graph loaded: {self.env.graph.number_of_nodes()} nodes, "
+              f"{self.env.graph.number_of_edges()} edges", flush=True)
 
         # Initialize GeoTIFF service
-        print("\n[STEP 2] Initializing GeoTIFF service...")
-        try:
-            self.geotiff_service = get_geotiff_service()
-            print(f"  GeoTIFF service initialized")
-            print(f"  Available return periods: {self.geotiff_service.return_periods}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize GeoTIFF service: {e}")
+        print("\n[INIT] Initializing GeoTIFF service...")
+        self.geotiff_service = get_geotiff_service()
+        print(f"  [OK] GeoTIFF service ready")
+        print(f"  [OK] Return periods: {', '.join(self.geotiff_service.return_periods)}")
 
         # Initialize HazardAgent
-        print("\n[STEP 3] Initializing HazardAgent...")
+        print("\n[INIT] Initializing HazardAgent...")
         self.hazard_agent = HazardAgent(
-            agent_id="hazard_viz",
+            agent_id="hazard_animator",
             environment=self.env
         )
-        print(f"  HazardAgent initialized")
+        print(f"  [OK] HazardAgent ready")
 
-    def capture_edge_weights_snapshot(self) -> Dict[Tuple, float]:
-        """Capture current edge risk scores for comparison."""
-        snapshot = {}
-        for u, v, key, data in self.env.graph.edges(keys=True, data=True):
-            risk_score = data.get('risk_score', 0.0)
-            snapshot[(u, v, key)] = risk_score
-        return snapshot
+        # Output directory
+        self.output_dir = Path(__file__).parent.parent / "outputs" / "geotiff_animations"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"\n[INIT] Output directory: {self.output_dir}")
 
-    def compare_snapshots(
-        self,
-        before: Dict[Tuple, float],
-        after: Dict[Tuple, float]
-    ) -> Dict[str, any]:
-        """Compare edge risk scores before and after GEOTIFF loading."""
-        changed_edges = []
-        unchanged_count = 0
+    def get_dramatic_color(self, risk: float) -> str:
+        """
+        Map risk score to DRAMATIC color scheme.
+        Moderate and higher risks use red tones for visual impact.
 
-        for edge_id, before_risk in before.items():
-            after_risk = after.get(edge_id, 0.0)
-            if abs(after_risk - before_risk) > 0.001:  # Changed
-                changed_edges.append({
-                    'edge': edge_id,
-                    'before': before_risk,
-                    'after': after_risk,
-                    'delta': after_risk - before_risk
-                })
-            else:
-                unchanged_count += 1
+        Args:
+            risk: Risk score (0.0 - 1.0)
 
-        return {
-            'total_edges': len(before),
-            'changed': len(changed_edges),
-            'unchanged': unchanged_count,
-            'changed_edges': changed_edges
-        }
+        Returns:
+            Hex color string
+        """
+        if risk < 0.001:
+            return '#2ECC71'  # Emerald green (safe - no flood)
+        elif risk < 0.2:
+            return '#A8E6CF'  # Light green (minimal risk)
+        elif risk < 0.4:
+            return '#FFD700'  # Gold (low risk)
+        elif risk < 0.6:
+            # DRAMATIC: Moderate is now RED/ORANGE instead of yellow
+            return '#FF6B35'  # Bright red-orange (moderate - DRAMATIC!)
+        elif risk < 0.8:
+            return '#E63946'  # Crimson red (high risk)
+        else:
+            return '#990000'  # Dark red/maroon (extreme risk)
 
-    def get_risk_distribution(self) -> Dict[str, int]:
-        """Get distribution of risk scores across edges."""
-        distribution = {
-            'safe (0.0-0.2)': 0,
-            'low (0.2-0.4)': 0,
-            'moderate (0.4-0.6)': 0,
-            'high (0.6-0.8)': 0,
-            'extreme (0.8-1.0)': 0
-        }
-
-        for u, v, key, data in self.env.graph.edges(keys=True, data=True):
-            risk = data.get('risk_score', 0.0)
-            if risk < 0.2:
-                distribution['safe (0.0-0.2)'] += 1
-            elif risk < 0.4:
-                distribution['low (0.2-0.4)'] += 1
-            elif risk < 0.6:
-                distribution['moderate (0.4-0.6)'] += 1
-            elif risk < 0.8:
-                distribution['high (0.6-0.8)'] += 1
-            else:
-                distribution['extreme (0.8-1.0)'] += 1
-
-        return distribution
-
-    def get_edge_coordinates(self) -> List[Tuple]:
-        """Extract edge coordinates for plotting."""
+    def get_edge_coordinates(self) -> Tuple[List[Tuple], List[float]]:
+        """Extract edge coordinates and risk scores for plotting."""
         edges_coords = []
         edges_risks = []
 
@@ -143,202 +114,293 @@ class GeoTIFFIntegrationVisualizer:
 
         return edges_coords, edges_risks
 
-    def visualize_comparison(
-        self,
-        before_coords: List[Tuple],
-        before_risks: List[float],
-        after_coords: List[Tuple],
-        after_risks: List[float],
-        scenario_name: str,
-        output_path: str
-    ):
-        """Create side-by-side visualization of graph before/after GEOTIFF."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-
-        # Define color mapping function
-        def get_color(risk: float):
-            """Map risk score to color (green -> yellow -> red)."""
-            if risk < 0.2:
-                return '#00ff00'  # Green (safe)
-            elif risk < 0.4:
-                return '#90ff00'  # Yellow-green (low)
-            elif risk < 0.6:
-                return '#ffff00'  # Yellow (moderate)
-            elif risk < 0.8:
-                return '#ff9000'  # Orange (high)
-            else:
-                return '#ff0000'  # Red (extreme)
-
-        # BEFORE plot (should be all green - risk_score=0.0)
-        ax1.set_title("BEFORE GeoTIFF Load\n(All edges safe - risk_score=0.0)",
-                     fontsize=12, fontweight='bold')
-        for edge, risk in zip(before_coords, before_risks):
-            (x1, y1), (x2, y2) = edge
-            color = get_color(risk)
-            ax1.plot([x1, x2], [y1, y2], color=color, linewidth=0.5, alpha=0.7)
-
-        ax1.set_xlabel('Longitude')
-        ax1.set_ylabel('Latitude')
-        ax1.grid(True, alpha=0.3)
-
-        # AFTER plot (colored by risk from GEOTIFF)
-        ax2.set_title(f"AFTER GeoTIFF Load\n({scenario_name})",
-                     fontsize=12, fontweight='bold')
-        for edge, risk in zip(after_coords, after_risks):
-            (x1, y1), (x2, y2) = edge
-            color = get_color(risk)
-            ax2.plot([x1, x2], [y1, y2], color=color, linewidth=0.5, alpha=0.7)
-
-        ax2.set_xlabel('Longitude')
-        ax2.set_ylabel('Latitude')
-        ax2.grid(True, alpha=0.3)
-
-        # Add legend
-        legend_elements = [
-            mpatches.Patch(color='#00ff00', label='Safe (0.0-0.2)'),
-            mpatches.Patch(color='#90ff00', label='Low (0.2-0.4)'),
-            mpatches.Patch(color='#ffff00', label='Moderate (0.4-0.6)'),
-            mpatches.Patch(color='#ff9000', label='High (0.6-0.8)'),
-            mpatches.Patch(color='#ff0000', label='Extreme (0.8-1.0)')
-        ]
-        fig.legend(handles=legend_elements, loc='lower center',
-                  ncol=5, bbox_to_anchor=(0.5, -0.05))
-
-        plt.suptitle("GeoTIFF Integration: Edge Risk Score Mapping",
-                    fontsize=14, fontweight='bold', y=0.98)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
-
-        # Save
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"\n[VISUALIZATION] Saved to: {output_path}")
-        plt.close()
-
-    def run_test(self, return_period: str = "rr01", time_step: int = 10):
-        """Run complete GEOTIFF integration test with visualization."""
-
-        print(f"\n[STEP 4] Capturing BEFORE snapshot (clean graph)...")
-        before_snapshot = self.capture_edge_weights_snapshot()
-        before_coords, before_risks = self.get_edge_coordinates()
-        before_dist = self.get_risk_distribution()
-
-        print(f"  BEFORE - Risk Distribution:")
-        for category, count in before_dist.items():
-            print(f"    {category}: {count} edges")
-
-        print(f"\n[STEP 5] Loading GeoTIFF flood data ({return_period}, time_step={time_step})...")
-
-        # Configure flood scenario
-        self.hazard_agent.set_flood_scenario(
-            return_period=return_period,
-            time_step=time_step
-        )
-
-        # Calculate risk scores (this queries GEOTIFF and updates graph)
-        print(f"\n[STEP 6] Calculating risk scores from GeoTIFF data...")
-
-        # Prepare minimal fused data (for this test, we focus on GEOTIFF only)
-        # In production, this would come from FloodAgent and ScoutAgent
-        fused_data = {
-            "system_wide": {
-                "risk_level": 0.0,  # No additional environmental risk for this test
-                "source": "test"
-            }
+    def get_risk_statistics(self) -> Dict[str, any]:
+        """Get comprehensive risk statistics."""
+        risks = []
+        distribution = {
+            'safe (0.0)': 0,
+            'minimal (0.0-0.2)': 0,
+            'low (0.2-0.4)': 0,
+            'moderate (0.4-0.6)': 0,
+            'high (0.6-0.8)': 0,
+            'extreme (0.8-1.0)': 0
         }
 
-        risk_scores = self.hazard_agent.calculate_risk_scores(fused_data)
+        for u, v, key, data in self.env.graph.edges(keys=True, data=True):
+            risk = data.get('risk_score', 0.0)
+            risks.append(risk)
 
-        if not risk_scores:
-            print("  [WARNING] No risk scores calculated!")
-            return
+            if risk < 0.001:
+                distribution['safe (0.0)'] += 1
+            elif risk < 0.2:
+                distribution['minimal (0.0-0.2)'] += 1
+            elif risk < 0.4:
+                distribution['low (0.2-0.4)'] += 1
+            elif risk < 0.6:
+                distribution['moderate (0.4-0.6)'] += 1
+            elif risk < 0.8:
+                distribution['high (0.6-0.8)'] += 1
+            else:
+                distribution['extreme (0.8-1.0)'] += 1
 
-        print(f"  Calculated risk scores for {len(risk_scores)} edges")
+        return {
+            'distribution': distribution,
+            'min': min(risks) if risks else 0.0,
+            'max': max(risks) if risks else 0.0,
+            'mean': np.mean(risks) if risks else 0.0,
+            'median': np.median(risks) if risks else 0.0,
+            'total_edges': len(risks),
+            'flooded_edges': sum(1 for r in risks if r > 0.001)
+        }
 
-        # Update environment with risk scores
-        print(f"\n[STEP 7] Updating graph edge weights...")
-        self.hazard_agent.update_environment(risk_scores)
+    def create_frame(
+        self,
+        coords: List[Tuple],
+        risks: List[float],
+        return_period: str,
+        time_step: int,
+        stats: Dict[str, any],
+        output_path: Path
+    ):
+        """
+        Create a single visualization frame.
 
-        # Capture AFTER snapshot
-        print(f"\n[STEP 8] Capturing AFTER snapshot (with flood data)...")
-        after_snapshot = self.capture_edge_weights_snapshot()
-        after_coords, after_risks = self.get_edge_coordinates()
-        after_dist = self.get_risk_distribution()
+        Args:
+            coords: Edge coordinates
+            risks: Edge risk scores
+            return_period: Return period (rr01, rr02, etc.)
+            time_step: Time step (1-18)
+            stats: Risk statistics
+            output_path: Output file path
+        """
+        fig, ax = plt.subplots(figsize=(14, 10))
 
-        print(f"  AFTER - Risk Distribution:")
-        for category, count in after_dist.items():
-            print(f"    {category}: {count} edges")
+        # Plot edges colored by risk
+        for edge, risk in zip(coords, risks):
+            (x1, y1), (x2, y2) = edge
+            color = self.get_dramatic_color(risk)
+            # Make flooded edges thicker and more visible
+            linewidth = 1.2 if risk > 0.001 else 0.4
+            alpha = 0.9 if risk > 0.001 else 0.3
+            ax.plot([x1, x2], [y1, y2], color=color, linewidth=linewidth, alpha=alpha)
 
-        # Compare snapshots
-        print(f"\n[STEP 9] Comparing BEFORE vs AFTER...")
-        comparison = self.compare_snapshots(before_snapshot, after_snapshot)
+        # Title with scenario info
+        rp_names = {
+            'rr01': '2-Year Flood',
+            'rr02': '5-Year Flood',
+            'rr03': 'Higher Return Period',
+            'rr04': '10-Year Flood'
+        }
+        title = f"{rp_names.get(return_period, return_period.upper())} - Hour {time_step}/18"
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
 
-        print(f"\n  Total edges: {comparison['total_edges']}")
-        print(f"  Changed edges: {comparison['changed']} ({comparison['changed']/comparison['total_edges']*100:.1f}%)")
-        print(f"  Unchanged edges: {comparison['unchanged']} ({comparison['unchanged']/comparison['total_edges']*100:.1f}%)")
-
-        # Show sample changed edges
-        if comparison['changed'] > 0:
-            print(f"\n  Sample changed edges (first 10):")
-            for i, edge_info in enumerate(comparison['changed_edges'][:10]):
-                u, v, key = edge_info['edge']
-                print(f"    Edge ({u}, {v}, {key}): {edge_info['before']:.3f} -> {edge_info['after']:.3f} (delta: +{edge_info['delta']:.3f})")
-
-        # Verify integration worked
-        print(f"\n[STEP 10] Verification...")
-        if comparison['changed'] > 0:
-            print(f"  [SUCCESS] GeoTIFF data successfully integrated into graph!")
-            print(f"  [SUCCESS] Edge weights updated based on flood depths!")
-
-            # Calculate statistics
-            risks = [edge_info['after'] for edge_info in comparison['changed_edges']]
-            print(f"\n  Risk Statistics:")
-            print(f"    Min risk: {min(risks):.3f}")
-            print(f"    Max risk: {max(risks):.3f}")
-            print(f"    Mean risk: {np.mean(risks):.3f}")
-            print(f"    Median risk: {np.median(risks):.3f}")
-        else:
-            print(f"  [WARNING] No edges changed! GeoTIFF may not have flood data for this area.")
-
-        # Create visualization
-        print(f"\n[STEP 11] Creating visualization...")
-        output_dir = Path(__file__).parent.parent / "outputs" / "geotiff_tests"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"geotiff_integration_{return_period}_t{time_step}.png"
-
-        self.visualize_comparison(
-            before_coords=before_coords,
-            before_risks=before_risks,
-            after_coords=after_coords,
-            after_risks=after_risks,
-            scenario_name=f"{return_period.upper()} Time Step {time_step}",
-            output_path=str(output_path)
+        # Add statistics text box
+        stats_text = (
+            f"Flooded Edges: {stats['flooded_edges']:,} / {stats['total_edges']:,} "
+            f"({stats['flooded_edges']/stats['total_edges']*100:.1f}%)\n"
+            f"Max Risk: {stats['max']:.3f} | Mean Risk: {stats['mean']:.3f}"
+        )
+        ax.text(
+            0.02, 0.98, stats_text,
+            transform=ax.transAxes,
+            fontsize=11,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='black')
         )
 
+        ax.set_xlabel('Longitude', fontsize=12)
+        ax.set_ylabel('Latitude', fontsize=12)
+        ax.grid(True, alpha=0.2, linestyle='--')
+
+        # Enhanced legend with dramatic colors
+        legend_elements = [
+            mpatches.Patch(color='#2ECC71', label='Safe (No Flood)'),
+            mpatches.Patch(color='#A8E6CF', label='Minimal (0.0-0.2)'),
+            mpatches.Patch(color='#FFD700', label='Low (0.2-0.4)'),
+            mpatches.Patch(color='#FF6B35', label='MODERATE (0.4-0.6)'),
+            mpatches.Patch(color='#E63946', label='HIGH (0.6-0.8)'),
+            mpatches.Patch(color='#990000', label='EXTREME (0.8-1.0)')
+        ]
+        ax.legend(
+            handles=legend_elements,
+            loc='upper right',
+            fontsize=10,
+            framealpha=0.95,
+            edgecolor='black'
+        )
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=120, bbox_inches='tight', facecolor='white')
+        plt.close()
+
+    def process_return_period(self, return_period: str) -> List[Path]:
+        """
+        Process all time steps for a single return period.
+
+        Args:
+            return_period: Return period (rr01, rr02, rr03, rr04)
+
+        Returns:
+            List of frame file paths
+        """
+        print(f"\n{'='*80}")
+        print(f"PROCESSING: {return_period.upper()}")
+        print(f"{'='*80}")
+
+        frame_paths = []
+
+        for time_step in range(1, 19):  # 1-18
+            print(f"\n[{return_period.upper()}] Time Step {time_step}/18...")
+
+            # Reset graph to clean state
+            self.env._load_graph_from_file()
+
+            # Configure flood scenario
+            self.hazard_agent.set_flood_scenario(
+                return_period=return_period,
+                time_step=time_step
+            )
+
+            # Calculate risk scores
+            fused_data = {
+                "system_wide": {
+                    "risk_level": 0.0,
+                    "source": "animation_test"
+                }
+            }
+
+            risk_scores = self.hazard_agent.calculate_risk_scores(fused_data)
+
+            if risk_scores:
+                print(f"  [OK] Calculated {len(risk_scores)} risk scores")
+                # Update graph
+                self.hazard_agent.update_environment(risk_scores)
+            else:
+                print(f"  [WARNING] No risk scores calculated")
+
+            # Get edge data
+            coords, risks = self.get_edge_coordinates()
+
+            # Get statistics
+            stats = self.get_risk_statistics()
+
+            print(f"  [OK] Flooded: {stats['flooded_edges']}/{stats['total_edges']} edges "
+                  f"({stats['flooded_edges']/stats['total_edges']*100:.1f}%)")
+            print(f"  [OK] Risk range: {stats['min']:.3f} - {stats['max']:.3f} "
+                  f"(mean: {stats['mean']:.3f})")
+
+            # Create frame
+            frame_path = self.output_dir / f"{return_period}_step_{time_step:02d}.png"
+            self.create_frame(
+                coords=coords,
+                risks=risks,
+                return_period=return_period,
+                time_step=time_step,
+                stats=stats,
+                output_path=frame_path
+            )
+
+            frame_paths.append(frame_path)
+            print(f"  [OK] Frame saved: {frame_path.name}")
+
+        return frame_paths
+
+    def create_gif(self, frame_paths: List[Path], output_path: Path, duration: int = 500):
+        """
+        Create animated GIF from frames.
+
+        Args:
+            frame_paths: List of frame image paths
+            output_path: Output GIF path
+            duration: Duration per frame in milliseconds
+        """
+        print(f"\n[GIF] Creating animation: {output_path.name}")
+
+        # Load all frames
+        frames = []
+        for frame_path in frame_paths:
+            frame = Image.open(frame_path)
+            frames.append(frame)
+
+        # Save as animated GIF
+        frames[0].save(
+            output_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=duration,
+            loop=0,  # Infinite loop
+            optimize=False  # Keep quality high
+        )
+
+        print(f"  [OK] GIF created: {output_path}")
+        print(f"  [OK] Frames: {len(frames)}, Duration: {duration}ms per frame")
+
+        # Calculate file size
+        file_size_mb = output_path.stat().st_size / (1024 * 1024)
+        print(f"  [OK] File size: {file_size_mb:.2f} MB")
+
+    def run_comprehensive_test(self):
+        """Run comprehensive test of all TIFF files and create GIFs."""
+
         print("\n" + "="*80)
-        print("TEST COMPLETE")
+        print("STARTING COMPREHENSIVE GEOTIFF TEST")
+        print(f"Total scenarios to process: 72 (4 return periods × 18 time steps)")
+        print("="*80)
+
+        start_time = datetime.now()
+        all_results = {}
+
+        # Process each return period
+        for return_period in self.geotiff_service.return_periods:
+
+            # Process all time steps and get frame paths
+            frame_paths = self.process_return_period(return_period)
+
+            # Create animated GIF
+            gif_path = self.output_dir / f"flood_animation_{return_period}.gif"
+            self.create_gif(frame_paths, gif_path, duration=400)  # 400ms = 0.4s per frame
+
+            all_results[return_period] = {
+                'frames': len(frame_paths),
+                'gif_path': gif_path
+            }
+
+        # Final summary
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        print("\n" + "="*80)
+        print("COMPREHENSIVE TEST COMPLETE!")
+        print("="*80)
+        print(f"\n[TIME] Total processing time: {duration:.1f} seconds")
+        print(f"\n[SUMMARY]:")
+        print(f"  - Total scenarios tested: 72")
+        print(f"  - Total frames created: {sum(r['frames'] for r in all_results.values())}")
+        print(f"  - Animated GIFs created: {len(all_results)}")
+
+        print(f"\n[ANIMATED GIFS]:")
+        for rp, result in all_results.items():
+            print(f"  - {rp.upper()}: {result['gif_path'].name} ({result['frames']} frames)")
+
+        print(f"\n[OUTPUT] All files saved to: {self.output_dir}")
+
+        print("\n" + "="*80)
+        print("VISUALIZATION COMPLETE")
         print("="*80)
 
 
 def main():
-    """Run GeoTIFF integration visualization test."""
+    """Run comprehensive GeoTIFF visualization with animations."""
     try:
-        visualizer = GeoTIFFIntegrationVisualizer()
-
-        # Test with different scenarios
-        print("\n\nRunning Test 1: RR01 (1-year return) Time Step 10...")
-        visualizer.run_test(return_period="rr01", time_step=10)
-
-        print("\n\nRunning Test 2: RR04 (10-year return) Time Step 18...")
-        # Reset graph for second test
-        visualizer.env._load_graph_from_file()
-        visualizer.run_test(return_period="rr04", time_step=18)
+        visualizer = GeoTIFFAnimatedVisualizer()
+        visualizer.run_comprehensive_test()
+        return 0
 
     except Exception as e:
-        print(f"\n[ERROR] Test failed: {e}")
+        print(f"\n[ERROR] Visualization failed: {e}")
         import traceback
         traceback.print_exc()
         return 1
-
-    return 0
 
 
 if __name__ == "__main__":
