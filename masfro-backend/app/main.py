@@ -674,6 +674,151 @@ async def trigger_flood_data_collection():
             detail=f"Error collecting flood data: {str(e)}"
         )
 
+@app.post("/api/admin/geotiff/enable", tags=["Admin"])
+async def enable_geotiff_simulation():
+    """
+    Enable GeoTIFF flood simulation in HazardAgent.
+
+    When enabled, risk calculations will include spatial flood depth data
+    from GeoTIFF files (50% weight).
+    """
+    logger.info("GeoTIFF simulation enable request received")
+
+    try:
+        hazard_agent.enable_geotiff()
+
+        return {
+            "status": "success",
+            "message": "GeoTIFF flood simulation enabled",
+            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
+            "return_period": hazard_agent.return_period,
+            "time_step": hazard_agent.time_step
+        }
+
+    except Exception as e:
+        logger.error(f"Error enabling GeoTIFF: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error enabling GeoTIFF simulation: {str(e)}"
+        )
+
+@app.post("/api/admin/geotiff/disable", tags=["Admin"])
+async def disable_geotiff_simulation():
+    """
+    Disable GeoTIFF flood simulation in HazardAgent.
+
+    When disabled, risk calculations will only use FloodAgent (PAGASA + OpenWeatherMap)
+    and ScoutAgent data (50% environmental weight).
+    """
+    logger.info("GeoTIFF simulation disable request received")
+
+    try:
+        hazard_agent.disable_geotiff()
+
+        return {
+            "status": "success",
+            "message": "GeoTIFF flood simulation disabled",
+            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
+            "note": "Risk calculation now uses only FloodAgent and ScoutAgent data"
+        }
+
+    except Exception as e:
+        logger.error(f"Error disabling GeoTIFF: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error disabling GeoTIFF simulation: {str(e)}"
+        )
+
+@app.get("/api/admin/geotiff/status", tags=["Admin"])
+async def get_geotiff_status():
+    """
+    Get current GeoTIFF simulation status and configuration.
+
+    Returns information about whether GeoTIFF is enabled, current scenario,
+    and flood prediction parameters.
+    """
+    try:
+        return {
+            "status": "success",
+            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
+            "geotiff_service_available": hazard_agent.geotiff_service is not None,
+            "current_scenario": {
+                "return_period": hazard_agent.return_period,
+                "time_step": hazard_agent.time_step,
+                "description": {
+                    "rr01": "2-year flood",
+                    "rr02": "5-year flood",
+                    "rr03": "10-year flood",
+                    "rr04": "25-year flood"
+                }.get(hazard_agent.return_period, "unknown")
+            },
+            "risk_weights": hazard_agent.risk_weights
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting GeoTIFF status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting GeoTIFF status: {str(e)}"
+        )
+
+@app.post("/api/admin/geotiff/set-scenario", tags=["Admin"])
+async def set_flood_scenario(
+    return_period: str,
+    time_step: int
+):
+    """
+    Set the flood scenario for GeoTIFF simulation.
+
+    Args:
+        return_period: Return period (rr01, rr02, rr03, rr04)
+            - rr01: 2-year flood
+            - rr02: 5-year flood
+            - rr03: 10-year flood
+            - rr04: 25-year flood
+        time_step: Time step in hours (1-18)
+
+    Example:
+        POST /api/admin/geotiff/set-scenario?return_period=rr04&time_step=18
+    """
+    logger.info(f"Flood scenario change request: {return_period}, step {time_step}")
+
+    try:
+        # Set the scenario
+        hazard_agent.set_flood_scenario(return_period, time_step)
+
+        # Trigger immediate update to apply new scenario
+        data = flood_agent.collect_and_forward_data()
+
+        return {
+            "status": "success",
+            "message": f"Flood scenario updated to {return_period} step {time_step}",
+            "scenario": {
+                "return_period": hazard_agent.return_period,
+                "time_step": hazard_agent.time_step,
+                "description": {
+                    "rr01": "2-year flood",
+                    "rr02": "5-year flood",
+                    "rr03": "10-year flood",
+                    "rr04": "25-year flood"
+                }.get(return_period, "unknown")
+            },
+            "update_triggered": True,
+            "locations_updated": len(data) if data else 0
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error setting flood scenario: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error setting flood scenario: {str(e)}"
+        )
+
 @app.websocket("/ws/route-updates")
 async def websocket_route_updates(websocket: WebSocket):
     """

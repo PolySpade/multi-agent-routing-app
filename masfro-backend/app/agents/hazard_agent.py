@@ -67,7 +67,8 @@ class HazardAgent(BaseAgent):
     def __init__(
         self,
         agent_id: str,
-        environment: "DynamicGraphEnvironment"
+        environment: "DynamicGraphEnvironment",
+        enable_geotiff: bool = False
     ) -> None:
         """
         Initialize the HazardAgent.
@@ -75,6 +76,7 @@ class HazardAgent(BaseAgent):
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance for graph updates
+            enable_geotiff: Enable GeoTIFF flood simulation (default: True)
         """
         super().__init__(agent_id, environment)
 
@@ -89,13 +91,21 @@ class HazardAgent(BaseAgent):
             "historical": 0.2  # Historical flood data weight
         }
 
+        # GeoTIFF simulation control flag
+        self.geotiff_enabled = enable_geotiff
+
         # GeoTIFF service for flood depth queries
-        try:
-            self.geotiff_service = get_geotiff_service()
-            logger.info(f"{self.agent_id} initialized GeoTIFFService")
-        except Exception as e:
-            logger.error(f"Failed to initialize GeoTIFFService: {e}")
+        if self.geotiff_enabled:
+            try:
+                self.geotiff_service = get_geotiff_service()
+                logger.info(f"{self.agent_id} initialized GeoTIFFService (ENABLED)")
+            except Exception as e:
+                logger.error(f"Failed to initialize GeoTIFFService: {e}")
+                self.geotiff_service = None
+                self.geotiff_enabled = False
+        else:
             self.geotiff_service = None
+            logger.info(f"{self.agent_id} GeoTIFF integration DISABLED")
 
         # Flood prediction configuration (default: rr01, time_step 1)
         self.return_period = "rr01"  # Default return period
@@ -106,7 +116,8 @@ class HazardAgent(BaseAgent):
 
         logger.info(
             f"{self.agent_id} initialized with risk weights: {self.risk_weights}, "
-            f"return_period: {self.return_period}, time_step: {self.time_step}"
+            f"return_period: {self.return_period}, time_step: {self.time_step}, "
+            f"geotiff_enabled: {self.geotiff_enabled}"
         )
 
     def step(self):
@@ -352,6 +363,11 @@ class HazardAgent(BaseAgent):
             Dict mapping edge tuples to flood depths in meters
                 Format: {(u, v, key): depth, ...}
         """
+        # Check if GeoTIFF is enabled
+        if not self.geotiff_enabled:
+            logger.info("GeoTIFF integration disabled - skipping flood depth queries")
+            return {}
+
         if not self.geotiff_service or not self.environment or not self.environment.graph:
             logger.warning("GeoTIFF service or graph not available")
             return {}
@@ -420,6 +436,60 @@ class HazardAgent(BaseAgent):
             f"{self.agent_id} flood scenario updated: "
             f"return_period={return_period}, time_step={time_step}"
         )
+
+    def enable_geotiff(self) -> None:
+        """
+        Enable GeoTIFF flood simulation.
+
+        If GeoTIFF service was not initialized, attempts to initialize it.
+
+        Example:
+            >>> hazard_agent.enable_geotiff()
+        """
+        if self.geotiff_enabled:
+            logger.info(f"{self.agent_id} GeoTIFF already enabled")
+            return
+
+        # Try to initialize service if not available
+        if not self.geotiff_service:
+            try:
+                self.geotiff_service = get_geotiff_service()
+                logger.info(f"{self.agent_id} GeoTIFFService initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize GeoTIFFService: {e}")
+                return
+
+        self.geotiff_enabled = True
+        logger.info(f"{self.agent_id} GeoTIFF flood simulation ENABLED")
+
+    def disable_geotiff(self) -> None:
+        """
+        Disable GeoTIFF flood simulation.
+
+        When disabled, risk calculation will only use FloodAgent and ScoutAgent data.
+
+        Example:
+            >>> hazard_agent.disable_geotiff()
+        """
+        if not self.geotiff_enabled:
+            logger.info(f"{self.agent_id} GeoTIFF already disabled")
+            return
+
+        self.geotiff_enabled = False
+        logger.info(f"{self.agent_id} GeoTIFF flood simulation DISABLED")
+
+    def is_geotiff_enabled(self) -> bool:
+        """
+        Check if GeoTIFF flood simulation is currently enabled.
+
+        Returns:
+            True if enabled, False otherwise
+
+        Example:
+            >>> if hazard_agent.is_geotiff_enabled():
+            ...     print("GeoTIFF simulation active")
+        """
+        return self.geotiff_enabled
 
     def calculate_risk_scores(self, fused_data: Dict[str, Any]) -> Dict[Tuple, float]:
         """
