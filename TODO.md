@@ -1,7 +1,7 @@
 # MAS-FRO Project TODO List
 
-**Last Updated:** November 9, 2025
-**Project Progress:** 85% Complete (Phases 1-6 done, Phase 7 pending)
+**Last Updated:** November 12, 2025
+**Project Progress:** 90% Complete (Phases 1-7 done, enhancements pending)
 
 ---
 
@@ -97,41 +97,70 @@
 - [x] All 72 GeoTIFF files accessible (4 return periods × 18 time steps)
 - [x] End-to-end testing verified
 
+### Phase 7: Agent-GeoTIFF Integration (100%)
+- [x] Map flood depths from GeoTIFF to graph edges
+- [x] Integrate GeoTIFF data with HazardAgent risk calculation
+- [x] Update RoutingAgent to use GeoTIFF flood data
+- [x] Automatic graph weight updates (every 5 minutes via scheduler)
+- [x] GeoTIFF querying in HazardAgent (get_flood_depth_at_edge, get_edge_flood_depths)
+- [x] Risk score calculation from flood depths (depth-to-risk mapping)
+- [x] Graph environment updates with risk scores (update_edge_risk)
+- [x] Risk-aware A* routing using updated graph weights
+
+**Implementation Details:**
+- HazardAgent queries GeoTIFF for all 20,124 edges
+- Flood depth → risk score mapping:
+  - 0.0-0.3m → 0.0-0.3 risk (low)
+  - 0.3-0.6m → 0.3-0.6 risk (moderate)
+  - 0.6-1.0m → 0.6-0.8 risk (high)
+  - >1.0m → 0.8-1.0 risk (critical)
+- Graph weights updated automatically when FloodAgent triggers (every 5 min)
+- Risk-aware A* uses graph edge `risk_score` attribute for pathfinding
+
+**Current Configuration:**
+- Default scenario: rr01 (2-year return period), time_step 1
+- Graph weights update every 5 minutes using configured scenario
+- `set_flood_scenario()` method available but not exposed via API
+
 ---
 
 ## 🚧 In Progress
 
-### Phase 7: Agent-GeoTIFF Integration (0%)
-- [ ] Map flood depths to graph nodes
-- [ ] Integrate GeoTIFF data with HazardAgent risk calculation
-- [ ] Update RoutingAgent to use GeoTIFF flood data
+### Phase 7.5: Flood Scenario API Enhancement (0%)
+- [ ] Add API endpoint to change flood scenario (POST /api/hazard/scenario)
+- [ ] Sync frontend flood map selection with backend routing
+- [ ] Trigger immediate graph weight update on scenario change
+- [ ] Add scenario change WebSocket broadcast
 
 ---
 
 ## 📋 Next Priorities
 
-### Phase 7: Agent-GeoTIFF Integration (Est: 6-8 hours)
+### Phase 7.5: Flood Scenario API Enhancement (Est: 2-3 hours)
 
-**Priority: HIGH**
-**Goal:** Connect GeoTIFF flood depth data to HazardAgent and RoutingAgent
+**Priority: MEDIUM-HIGH**
+**Goal:** Allow frontend to control which flood scenario is used for routing
 
 **Tasks:**
-- [ ] Map flood depths from GeoTIFF to graph nodes
-- [ ] Update HazardAgent to query GeoTIFF flood depths
-- [ ] Integrate flood depth into risk score calculation
-- [ ] Update RoutingAgent to use real-time flood data from GeoTIFF
-- [ ] Add time-based flood prediction (use time steps)
-- [ ] Test routing with different return periods
+- [ ] Add POST /api/hazard/scenario endpoint to update return_period and time_step
+- [ ] Call hazard_agent.set_flood_scenario() from API endpoint
+- [ ] Trigger immediate process_and_update() to recalculate graph weights
+- [ ] Broadcast scenario change via WebSocket to connected clients
+- [ ] Update frontend to call API when user changes flood map selection
 
 **Files to Modify:**
-- `masfro-backend/app/agents/hazard_agent.py`
-- `masfro-backend/app/agents/routing_agent.py`
-- `masfro-backend/app/services/geotiff_service.py`
+- `masfro-backend/app/main.py` (add new endpoint)
+- `masfro-frontend/src/components/MapboxMap.js` (call API on slider/selector change)
 
 **Expected Outcome:**
-- Routes avoid flooded areas based on GeoTIFF data
-- Risk scores reflect actual flood depths
-- Time-aware routing (predict floods based on time step)
+- Frontend flood map visualization syncs with backend routing calculations
+- Changing return period or time step updates graph weights immediately
+- Routes reflect the selected flood scenario in real-time
+
+**Current Limitation:**
+- Frontend can visualize any flood map (e.g., rr04/step18)
+- Backend routing always uses default (rr01/step1)
+- No sync between visualization and routing logic
 
 ---
 
@@ -292,7 +321,7 @@
 
 ## 📊 Progress Tracking
 
-### Overall Project Status: 85%
+### Overall Project Status: 90%
 
 **Completed Phases:**
 - ✅ Phase 1: Foundation (100%)
@@ -302,45 +331,45 @@
 - ✅ Phase 4: WebSocket Broadcasting (100%)
 - ✅ Phase 5: Database Integration (100%)
 - ✅ Phase 6: GeoTIFF Integration (100%)
+- ✅ Phase 7: Agent-GeoTIFF Integration (100%)
 
 **Upcoming Phases:**
-- ⏳ Phase 7: Agent-GeoTIFF Integration (0%)
+- ⏳ Phase 7.5: Flood Scenario API Enhancement (0%)
 
 **Time Estimates:**
-- Phase 7: 6-8 hours
+- Phase 7.5: 2-3 hours
 - Testing: 8-10 hours
 - Monitoring: 4-6 hours
-- **Total Remaining:** 18-24 hours
+- **Total Remaining:** 14-19 hours
 
 ---
 
-## 🎯 Current Sprint (Week of Nov 9, 2025)
+## 🎯 Current Sprint (Week of Nov 12, 2025)
 
 ### This Week's Goals:
 
-**Priority 1: Phase 5 Database Integration** ✅ COMPLETED
-- [x] PostgreSQL installation and configuration
-- [x] Schema design and migrations
-- [x] Basic CRUD endpoints
-- [x] Store scheduler data
-- [x] End-to-end testing
+**Priority 1: Phase 7 Agent-GeoTIFF Integration** ✅ COMPLETED
+- [x] Map flood depths to graph edges (20,124 edges)
+- [x] Integrate with HazardAgent risk calculation
+- [x] Update RoutingAgent to use GeoTIFF data
+- [x] Automatic graph weight updates every 5 minutes
+- [x] Depth-to-risk score mapping implemented
 
-**Priority 2: Phase 6 GeoTIFF Integration** ✅ COMPLETED
-- [x] Created GeoTIFFService with lazy loading
-- [x] GeoTIFF API endpoints (4 endpoints)
-- [x] Frontend return period selector
-- [x] Frontend integration with MapboxMap
-- [x] All 72 GeoTIFF files accessible
+**Priority 2: Phase 7.5 Flood Scenario API** ⬅️ NEXT PHASE
+- [ ] Add POST /api/hazard/scenario endpoint
+- [ ] Sync frontend flood map selection with routing
+- [ ] Trigger immediate graph weight update on scenario change
+- [ ] WebSocket broadcast for scenario changes
 
-**Priority 3: Phase 7 Agent-GeoTIFF Integration** ⬅️ NEXT PHASE
-- [ ] Map flood depths to graph nodes
-- [ ] Integrate with HazardAgent risk calculation
-- [ ] Update RoutingAgent to use GeoTIFF data
+**Priority 3: Testing**
+- [ ] HazardAgent comprehensive test suite
+- [ ] RoutingAgent pathfinding tests
+- [ ] End-to-end routing integration tests
 
 **Priority 4: Documentation**
-- [ ] Update README with Phases 5-6 completion
+- [ ] Update README with Phase 7 completion
+- [ ] Document flood scenario configuration
 - [ ] Create deployment guide
-- [ ] Document GeoTIFF API endpoints
 
 ---
 
@@ -394,11 +423,20 @@
 
 ---
 
-**Next Action:** Begin Agent-GeoTIFF Integration (Phase 7) - Connect flood depths to routing agents
+**Next Action:** Implement Flood Scenario API (Phase 7.5) - Sync frontend visualization with backend routing
 
-**Estimated Completion:** Phase 7 in 3-4 days with current pace
+**Estimated Completion:** Phase 7.5 in 1-2 days with current pace
 
 **Recent Accomplishments:**
+
+✅ **Phase 7 Agent-GeoTIFF Integration completed** (Nov 12, 2025)
+- GeoTIFF flood depths integrated with HazardAgent risk calculation
+- Automatic graph weight updates every 5 minutes via scheduler
+- All 20,124 edges queried for flood depths from GeoTIFF
+- Depth-to-risk score mapping (0.0-1.0 scale)
+- Risk-aware A* routing using updated graph weights
+- FloodAgent → HazardAgent → GraphEnvironment data flow
+- Default scenario: rr01 (2-year return period), time_step 1
 
 ✅ **Phase 6 GeoTIFF Integration completed** (Nov 9, 2025)
 - GeoTIFFService with lazy loading and LRU caching (maxsize=32)

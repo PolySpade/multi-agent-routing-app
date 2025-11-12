@@ -39,10 +39,10 @@ class DynamicGraphEnvironment:
             # --- Pre-processing Steps ---
             print("Pre-processing graph (adding/resetting risk and weight attributes)...")
             for u, v, data in self.graph.edges(data=True):
-                data['risk_score'] = 1.0
+                data['risk_score'] = 0.0  # Start with safe roads (0.0), flood data will increase risk
                 if 'length' not in data:
                     data['length'] = 1.0 # Should exist, but good to be safe
-                data['weight'] = data['length'] * data['risk_score']
+                data['weight'] = data['length'] * (1.0 + data['risk_score'])  # Base distance + risk penalty
 
             print("Graph pre-processing complete.")
 
@@ -56,7 +56,7 @@ class DynamicGraphEnvironment:
         try:
             edge_data = self.graph.edges[u, v, key]
             edge_data['risk_score'] = risk_factor
-            edge_data['weight'] = edge_data['length'] * risk_factor
+            edge_data['weight'] = edge_data['length'] * (1.0 + risk_factor)  # Base distance + risk penalty
         except KeyError:
             print(f"Warning: Edge ({u}, {v}, {key}) not found in graph.")
 
