@@ -44,9 +44,20 @@ class GeoTIFFService:
     Features:
     - Lazy loading of GeoTIFF files
     - Caching for performance
-    - Query flood depth at coordinates
+    - Query flood depth at coordinates with manual coordinate mapping
     - Get flood map bounds and metadata
+
+    Note:
+    The TIFF files have embedded coordinate metadata that doesn't match
+    the actual geographic area. This service uses manual coordinate mapping
+    aligned with the frontend implementation.
     """
+
+    # Manual coordinate configuration (aligned with frontend)
+    # These coordinates define where the TIFF actually represents
+    MANUAL_CENTER_LAT = 14.6456
+    MANUAL_CENTER_LON = 121.10305
+    MANUAL_BASE_COVERAGE = 0.06  # Base coverage in degrees (~6.6km) - MUST MATCH FRONTEND!
 
     def __init__(self, data_dir: str = "app/data/timed_floodmaps"):
         """
@@ -71,6 +82,10 @@ class GeoTIFFService:
         logger.info(
             f"GeoTIFFService initialized: {len(self.return_periods)} return periods, "
             f"{len(self.time_steps)} time steps"
+        )
+        logger.info(
+            f"Using manual coordinate mapping: center=({self.MANUAL_CENTER_LAT}, "
+            f"{self.MANUAL_CENTER_LON})"
         )
 
     def _get_file_path(self, return_period: str, time_step: int) -> Path:
@@ -173,6 +188,85 @@ class GeoTIFFService:
             logger.error(f"Error loading GeoTIFF {file_path}: {e}")
             raise
 
+    def _calculate_manual_bounds(self, tiff_width: int, tiff_height: int) -> Dict[str, float]:
+        """
+        Calculate manual geographic bounds for TIFF based on center point and aspect ratio.
+
+        This matches the frontend implementation's coordinate mapping.
+
+        Args:
+            tiff_width: TIFF image width in pixels
+            tiff_height: TIFF image height in pixels
+
+        Returns:
+            Dict with 'min_lon', 'max_lon', 'min_lat', 'max_lat' bounds
+        """
+        tiff_aspect_ratio = tiff_width / tiff_height
+
+        # Calculate coverage based on aspect ratio (same logic as frontend)
+        if tiff_aspect_ratio > 1:
+            coverage_width = self.MANUAL_BASE_COVERAGE
+            coverage_height = self.MANUAL_BASE_COVERAGE / tiff_aspect_ratio
+        else:
+            coverage_height = self.MANUAL_BASE_COVERAGE * 1.5
+            coverage_width = coverage_height * tiff_aspect_ratio
+
+        # Calculate bounds from center and coverage
+        min_lon = self.MANUAL_CENTER_LON - (coverage_width / 2)
+        max_lon = self.MANUAL_CENTER_LON + (coverage_width / 2)
+        min_lat = self.MANUAL_CENTER_LAT - (coverage_height / 2)
+        max_lat = self.MANUAL_CENTER_LAT + (coverage_height / 2)
+
+        return {
+            'min_lon': min_lon,
+            'max_lon': max_lon,
+            'min_lat': min_lat,
+            'max_lat': max_lat,
+            'coverage_width': coverage_width,
+            'coverage_height': coverage_height
+        }
+
+    def _lonlat_to_pixel(
+        self,
+        lon: float,
+        lat: float,
+        bounds: Dict[str, float],
+        width: int,
+        height: int
+    ) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Convert lon/lat to pixel coordinates using manual bounds.
+
+        Args:
+            lon: Longitude in degrees
+            lat: Latitude in degrees
+            bounds: Manual geographic bounds
+            width: TIFF width in pixels
+            height: TIFF height in pixels
+
+        Returns:
+            Tuple of (row, col) or (None, None) if out of bounds
+        """
+        # Check if point is within bounds
+        if not (bounds['min_lon'] <= lon <= bounds['max_lon'] and
+                bounds['min_lat'] <= lat <= bounds['max_lat']):
+            return None, None
+
+        # Convert to normalized coordinates [0, 1]
+        norm_x = (lon - bounds['min_lon']) / (bounds['max_lon'] - bounds['min_lon'])
+        norm_y = (lat - bounds['min_lat']) / (bounds['max_lat'] - bounds['min_lat'])
+
+        # Convert to pixel coordinates
+        # Note: Y is inverted (0 at top, increases downward)
+        col = int(norm_x * width)
+        row = int((1.0 - norm_y) * height)
+
+        # Clamp to valid range
+        col = max(0, min(width - 1, col))
+        row = max(0, min(height - 1, row))
+
+        return row, col
+
     def get_flood_depth_at_point(
         self,
         lon: float,
@@ -181,7 +275,10 @@ class GeoTIFFService:
         time_step: int = 1
     ) -> Optional[float]:
         """
-        Get flood depth at a specific coordinate.
+        Get flood depth at a specific coordinate using manual coordinate mapping.
+
+        This method uses manual geographic bounds instead of the TIFF's embedded
+        coordinate metadata, which doesn't align with the actual area.
 
         Args:
             lon: Longitude (in degrees)
@@ -192,27 +289,28 @@ class GeoTIFFService:
         Returns:
             Flood depth in meters, or None if outside bounds or NaN
         """
-        file_path = self._get_file_path(return_period, time_step)
-
         try:
-            with rasterio.open(file_path) as src:
-                # Convert WGS84 (lon, lat) to Web Mercator (x, y)
-                from pyproj import Transformer
-                transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-                x, y = transformer.transform(lon, lat)
+            # Load TIFF data
+            data, metadata = self.load_flood_map(return_period, time_step)
+            height, width = data.shape
 
-                # Convert coordinates to row, col
-                row, col = rowcol(src.transform, x, y)
+            # Calculate manual bounds
+            bounds = self._calculate_manual_bounds(width, height)
 
-                # Check if within bounds
-                if 0 <= row < src.height and 0 <= col < src.width:
-                    depth = src.read(1)[row, col]
-                    return float(depth) if not np.isnan(depth) else None
-                else:
-                    return None
+            # Convert lon/lat to pixel coordinates
+            row, col = self._lonlat_to_pixel(lon, lat, bounds, width, height)
+
+            if row is None or col is None:
+                return None
+
+            # Get flood depth at pixel
+            depth = data[row, col]
+
+            # Return depth if valid
+            return float(depth) if not np.isnan(depth) else None
 
         except Exception as e:
-            logger.error(f"Error querying flood depth: {e}")
+            logger.error(f"Error querying flood depth at ({lat}, {lon}): {e}")
             return None
 
     def get_flood_map_as_geojson(
