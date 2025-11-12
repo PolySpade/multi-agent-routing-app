@@ -118,7 +118,7 @@ def risk_aware_astar(
     end: Any,
     risk_weight: float = 0.5,
     distance_weight: float = 0.5,
-    max_risk_threshold: float = 0.9
+    max_risk_threshold: float = 0.2 #modify to make it more sensitive
 ) -> Optional[List[Any]]:
     """
     Find the safest path using risk-aware A* algorithm.

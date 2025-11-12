@@ -65,3 +65,6 @@ After your review, explain the following back to me in a clear, structured respo
     Key Dependencies: Any crucial external libraries it relies on.
 
     Key Configuration: Any important configuration files or environment variables.
+
+Bashing:
+Never use .venvScriptspython.exe:, this program utilizes uv to manage the virtual environment, to activate simply .venv\Scripts\activate. To Run python files, uv run <filename.py>
