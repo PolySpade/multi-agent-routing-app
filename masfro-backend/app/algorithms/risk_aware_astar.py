@@ -175,32 +175,53 @@ def risk_aware_astar(
     # Create heuristic function
     heuristic = create_heuristic(graph, end)
 
+    # Track weight function calls for debugging
+    blocked_edges_count = [0]  # Use list to allow modification in nested function
+
     # Define weight function that combines distance and risk
     def weight_function(u, v, edge_data):
         """
         Calculate edge weight considering both distance and risk.
 
+        For MultiDiGraph, we need to find the best (lowest risk) edge among parallel edges.
+
         Args:
             u: Source node
             v: Target node
-            edge_data: Dict of edge attributes
+            edge_data: Dict of edge attributes (may not have risk_score for MultiDiGraph!)
 
         Returns:
             Combined weight (distance + risk cost) or inf if impassable
         """
-        # Get edge attributes
-        length = edge_data.get('length', 1.0)
-        risk_score = edge_data.get('risk_score', 1.0)
+        # For MultiDiGraph, access edge data directly from graph
+        # Find the edge with lowest risk among all parallel edges between u and v
+        best_length = 1.0
+        best_risk = 1.0
+
+        if v in graph[u]:
+            # Get all parallel edges between u and v
+            for key, data in graph[u][v].items():
+                edge_length = data.get('length', 1.0)
+                edge_risk = data.get('risk_score', 0.0)
+
+                # Choose edge with lowest risk (or shortest if risks are equal)
+                if edge_risk < best_risk or (edge_risk == best_risk and edge_length < best_length):
+                    best_length = edge_length
+                    best_risk = edge_risk
+
+        length = best_length
+        risk_score = best_risk
 
         # Check if road is impassable
         if risk_score >= max_risk_threshold:
-            logger.debug(f"Edge ({u}, {v}) impassable (risk={risk_score:.2f})")
+            blocked_edges_count[0] += 1
+            if blocked_edges_count[0] <= 10:  # Log first 10 blocked edges
+                print(f"  [A*] BLOCKING edge ({u}, {v}): risk={risk_score:.3f} >= {max_risk_threshold}")
             return float('inf')
 
         # Calculate combined cost: distance + risk penalty
         distance_cost = length * distance_weight
         risk_cost = length * risk_score * risk_weight
-
         total_cost = distance_cost + risk_cost
 
         return total_cost
@@ -215,11 +236,17 @@ def risk_aware_astar(
             weight=weight_function
         )
 
-        logger.info(f"Path found with {len(path)} nodes")
+        logger.info(
+            f"Path found with {len(path)} nodes. "
+            f"Blocked {blocked_edges_count[0]} edges during search."
+        )
         return path
 
     except nx.NetworkXNoPath:
-        logger.warning(f"No path exists from {start} to {end}")
+        logger.warning(
+            f"No path exists from {start} to {end}. "
+            f"Blocked {blocked_edges_count[0]} edges."
+        )
         return None
     except Exception as e:
         logger.error(f"Error in A* pathfinding: {e}")

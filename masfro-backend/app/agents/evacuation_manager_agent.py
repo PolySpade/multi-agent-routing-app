@@ -187,7 +187,6 @@ class EvacuationManagerAgent(BaseAgent):
 
         try:
             # Request route from RoutingAgent
-            # TODO: Implement actual agent communication via ACL
             route = self._request_route_from_agent(start, end, preferences)
 
             # Add to history
@@ -288,24 +287,39 @@ class EvacuationManagerAgent(BaseAgent):
             f"{feedback.get('type')}"
         )
 
-        # TODO: Implement ACL message passing
-        # Example:
-        # message = create_inform_message(
-        #     sender=self.agent_id,
-        #     receiver=self.hazard_agent.agent_id,
-        #     info_type="user_feedback",
-        #     data=feedback
-        # )
-        # message_queue.send_message(message)
-
-        # Placeholder: Convert feedback to format HazardAgent expects
+        # Convert feedback to format HazardAgent expects (scout data format)
         scout_data_format = {
             "location": feedback.get("location"),
             "severity": feedback.get("data", {}).get("severity", 0.5),
             "report_type": feedback.get("type"),
             "confidence": 0.7,  # User feedback has moderate confidence
-            "timestamp": feedback.get("timestamp")
+            "timestamp": feedback.get("timestamp"),
+            "source": "user_feedback",
+            "feedback_id": feedback.get("feedback_id")
         }
+
+        # Option 1: Direct method call (synchronous, for same-process agents)
+        # This is the practical approach for the current implementation
+        try:
+            if hasattr(self.hazard_agent, 'process_scout_data'):
+                self.hazard_agent.process_scout_data([scout_data_format])
+                logger.info(f"Feedback forwarded successfully to {self.hazard_agent.agent_id}")
+        except Exception as e:
+            logger.error(f"Failed to forward feedback to HazardAgent: {e}")
+
+        # Option 2: ACL message passing (for distributed systems)
+        # Uncomment below when MessageQueue is integrated into the agent framework
+        # from ..communication.acl_protocol import create_inform_message
+        # from ..communication.message_queue import MessageQueue
+        # 
+        # message_queue = MessageQueue()
+        # message = create_inform_message(
+        #     sender=self.agent_id,
+        #     receiver=self.hazard_agent.agent_id,
+        #     info_type="user_feedback",
+        #     data=scout_data_format
+        # )
+        # message_queue.send_message(message)
 
         # self.hazard_agent.process_scout_data([scout_data_format])
 
@@ -328,23 +342,36 @@ class EvacuationManagerAgent(BaseAgent):
                     "distance": float,  # meters
                     "capacity": int,
                     "type": str,  # "school", "gymnasium", etc.
-                    "contact": str
+                    "contact": str,
+                    "route": Dict  # Route information to the center
                 }
         """
         logger.info(f"{self.agent_id} finding evacuation center near {location}")
 
-        # TODO: Implement actual evacuation center lookup
-        # This would query the RoutingAgent's evacuation center database
+        if not self.routing_agent:
+            logger.error("RoutingAgent not configured")
+            return None
 
-        # Placeholder response
-        return {
-            "name": "Marikina Elementary School",
-            "location": (14.6507, 121.1029),
-            "distance": 500.0,
-            "capacity": 200,
-            "type": "school",
-            "contact": "+63-2-8941-6754"
-        }
+        try:
+            # Call RoutingAgent's find_nearest_evacuation_center method
+            result = self.routing_agent.find_nearest_evacuation_center(
+                location=location,
+                max_centers=5
+            )
+
+            if result:
+                logger.info(
+                    f"Found evacuation center: {result.get('name')} "
+                    f"at distance {result.get('distance', 0):.0f}m"
+                )
+                return result
+            else:
+                logger.warning("No evacuation centers found")
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to find evacuation center: {e}")
+            return None
 
     def get_route_statistics(self) -> Dict[str, Any]:
         """
@@ -389,19 +416,22 @@ class EvacuationManagerAgent(BaseAgent):
         Returns:
             Route information dict
         """
-        # TODO: Implement actual ACL communication with RoutingAgent
+        if not self.routing_agent:
+            raise ValueError("RoutingAgent not configured")
 
-        # Placeholder: Direct method call
-        # path = self.routing_agent.find_safest_route(start, end)
+        # Direct method call to RoutingAgent's calculate_route
+        # In a fully distributed system, this could use ACL messages via message queue
+        route_result = self.routing_agent.calculate_route(start, end, preferences)
 
-        # For now, return a simulated route
+        # Format response to match expected structure
         return {
             "route_id": str(uuid.uuid4()),
-            "path": [start, end],  # Simplified
-            "distance": 1500.0,
-            "estimated_time": 10.0,
-            "risk_level": 0.3,
-            "warnings": ["Minor flooding reported on J.P. Rizal Avenue"],
+            "path": route_result.get("path", []),
+            "distance": route_result.get("distance", 0.0),
+            "estimated_time": route_result.get("estimated_time", 0.0),
+            "risk_level": route_result.get("risk_level", 0.0),
+            "max_risk": route_result.get("max_risk", 0.0),
+            "warnings": route_result.get("warnings", []),
             "timestamp": datetime.now()
         }
 

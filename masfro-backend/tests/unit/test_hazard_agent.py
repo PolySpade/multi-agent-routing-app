@@ -23,9 +23,14 @@ import sys
 import os
 
 # Add app directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from agents.hazard_agent import HazardAgent
+# Mock the logging_config import before importing agents
+import logging
+sys.modules['app.core.logging_config'] = Mock()
+sys.modules['app.core.logging_config'].get_logger = Mock(return_value=logging.getLogger())
+
+from app.agents.hazard_agent import HazardAgent
 
 
 class TestHazardAgentInitialization:
@@ -36,7 +41,7 @@ class TestHazardAgentInitialization:
         mock_env = Mock()
         mock_geotiff = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
             agent = HazardAgent("test_agent", mock_env)
 
             assert agent.agent_id == "test_agent"
@@ -56,7 +61,7 @@ class TestHazardAgentInitialization:
         """Test initialization when GeoTIFF service fails."""
         mock_env = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service', side_effect=Exception("Service unavailable")):
+        with patch('app.agents.hazard_agent.get_geotiff_service', side_effect=Exception("Service unavailable")):
             agent = HazardAgent("test_agent", mock_env)
 
             assert agent.agent_id == "test_agent"
@@ -69,7 +74,7 @@ class TestFloodScenarioConfiguration:
     def test_set_flood_scenario_valid_rr01(self):
         """Test setting valid flood scenario rr01."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.set_flood_scenario("rr01", 5)
@@ -80,7 +85,7 @@ class TestFloodScenarioConfiguration:
     def test_set_flood_scenario_valid_rr04(self):
         """Test setting valid flood scenario rr04."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.set_flood_scenario("rr04", 18)
@@ -91,7 +96,7 @@ class TestFloodScenarioConfiguration:
     def test_set_flood_scenario_invalid_return_period(self):
         """Test setting invalid return period raises ValueError."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             with pytest.raises(ValueError, match="Invalid return_period"):
@@ -100,7 +105,7 @@ class TestFloodScenarioConfiguration:
     def test_set_flood_scenario_invalid_time_step_too_low(self):
         """Test setting time step below 1 raises ValueError."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             with pytest.raises(ValueError, match="Invalid time_step"):
@@ -109,7 +114,7 @@ class TestFloodScenarioConfiguration:
     def test_set_flood_scenario_invalid_time_step_too_high(self):
         """Test setting time step above 18 raises ValueError."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             with pytest.raises(ValueError, match="Invalid time_step"):
@@ -122,7 +127,7 @@ class TestDataValidation:
     def test_validate_flood_data_valid(self):
         """Test validation of valid flood data."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             valid_data = {
@@ -136,7 +141,7 @@ class TestDataValidation:
     def test_validate_flood_data_missing_location(self):
         """Test validation fails when location is missing."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -149,7 +154,7 @@ class TestDataValidation:
     def test_validate_flood_data_negative_depth(self):
         """Test validation fails for negative flood depth."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -163,7 +168,7 @@ class TestDataValidation:
     def test_validate_flood_data_excessive_depth(self):
         """Test validation fails for flood depth > 10m."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -177,7 +182,7 @@ class TestDataValidation:
     def test_validate_scout_data_valid(self):
         """Test validation of valid scout data."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             valid_data = {
@@ -192,7 +197,7 @@ class TestDataValidation:
     def test_validate_scout_data_invalid_severity(self):
         """Test validation fails for severity > 1.0."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -206,7 +211,7 @@ class TestDataValidation:
     def test_validate_scout_data_invalid_confidence(self):
         """Test validation fails for confidence > 1.0."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -225,11 +230,11 @@ class TestDataProcessing:
     def test_process_flood_data_valid(self):
         """Test processing valid flood data adds to cache."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
-            # Mock process_hazard_data to avoid triggering full workflow
-            agent.process_hazard_data = Mock()
+            # Mock process_and_update to avoid triggering full workflow
+            agent.process_and_update = Mock()
 
             flood_data = {
                 "location": "Station A",
@@ -241,11 +246,13 @@ class TestDataProcessing:
 
             assert "Station A" in agent.flood_data_cache
             assert agent.flood_data_cache["Station A"]["flood_depth"] == 2.0
+            # Verify process_and_update was called
+            agent.process_and_update.assert_called_once()
 
     def test_process_flood_data_invalid_rejected(self):
         """Test invalid flood data is rejected."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             invalid_data = {
@@ -260,7 +267,7 @@ class TestDataProcessing:
     def test_process_scout_data_valid(self):
         """Test processing valid scout reports."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             scout_reports = [
@@ -286,7 +293,7 @@ class TestDataProcessing:
     def test_process_scout_data_filters_invalid(self):
         """Test invalid scout reports are filtered out."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             scout_reports = [
@@ -314,7 +321,7 @@ class TestDataFusion:
     def test_fuse_data_flood_only(self):
         """Test data fusion with only flood data."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.flood_data_cache = {
@@ -335,7 +342,7 @@ class TestDataFusion:
     def test_fuse_data_scout_only(self):
         """Test data fusion with only scout data."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.scout_data_cache = [
@@ -356,7 +363,7 @@ class TestDataFusion:
     def test_fuse_data_combined_sources(self):
         """Test data fusion combining flood and scout data."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.flood_data_cache = {
@@ -386,7 +393,7 @@ class TestDataFusion:
     def test_fuse_data_risk_normalized(self):
         """Test fused data risk levels are normalized to 0-1."""
         mock_env = Mock()
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             # Create data that would exceed 1.0 without normalization
@@ -422,7 +429,7 @@ class TestGeoTIFFQueries:
         mock_geotiff = Mock()
         mock_geotiff.get_flood_depth_at_point = Mock(side_effect=[0.5, 0.7])
 
-        with patch('agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
             agent = HazardAgent("test_agent", mock_env)
 
             depth = agent.get_flood_depth_at_edge(1, 2)
@@ -434,7 +441,7 @@ class TestGeoTIFFQueries:
         """Test flood depth query returns None when service unavailable."""
         mock_env = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service', side_effect=Exception):
+        with patch('app.agents.hazard_agent.get_geotiff_service', side_effect=Exception):
             agent = HazardAgent("test_agent", mock_env)
 
             depth = agent.get_flood_depth_at_edge(1, 2)
@@ -455,7 +462,7 @@ class TestGeoTIFFQueries:
         mock_geotiff = Mock()
         mock_geotiff.get_flood_depth_at_point = Mock(return_value=1.2)
 
-        with patch('agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
             agent = HazardAgent("test_agent", mock_env)
 
             depth = agent.get_flood_depth_at_edge(1, 2, "rr03", 12)
@@ -491,7 +498,7 @@ class TestGeoTIFFQueries:
             side_effect=[0.5, 0.7, 0.0, 0.0, 1.5, 1.2]
         )
 
-        with patch('agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
             agent = HazardAgent("test_agent", mock_env)
 
             depths = agent.get_edge_flood_depths()
@@ -515,7 +522,7 @@ class TestRiskCalculation:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             # Mock get_edge_flood_depths to return low depth
@@ -537,7 +544,7 @@ class TestRiskCalculation:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.get_edge_flood_depths = Mock(return_value={
@@ -558,7 +565,7 @@ class TestRiskCalculation:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.get_edge_flood_depths = Mock(return_value={
@@ -579,7 +586,7 @@ class TestRiskCalculation:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.get_edge_flood_depths = Mock(return_value={
@@ -600,7 +607,7 @@ class TestRiskCalculation:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.get_edge_flood_depths = Mock(return_value={
@@ -630,7 +637,7 @@ class TestEnvironmentUpdate:
         mock_env = Mock()
         mock_env.update_edge_risk = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             risk_scores = {
@@ -647,7 +654,7 @@ class TestEnvironmentUpdate:
         mock_env = Mock()
         del mock_env.update_edge_risk  # Remove the method
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             risk_scores = {(1, 2, 0): 0.5}
@@ -663,7 +670,7 @@ class TestDataCacheManagement:
         """Test old flood data is removed from cache."""
         mock_env = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             # Add old and new data
@@ -692,7 +699,7 @@ class TestDataCacheManagement:
         """Test old scout data is removed from cache."""
         mock_env = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             old_time = datetime.now() - timedelta(hours=2)
@@ -729,7 +736,7 @@ class TestProcessAndUpdate:
 
         mock_graph.edges = Mock(return_value=[(1, 2, 0)])
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             # Setup test data
@@ -755,7 +762,7 @@ class TestProcessAndUpdate:
         """Test agent step calls process_and_update when data available."""
         mock_env = Mock()
 
-        with patch('agents.hazard_agent.get_geotiff_service'):
+        with patch('app.agents.hazard_agent.get_geotiff_service'):
             agent = HazardAgent("test_agent", mock_env)
 
             agent.process_and_update = Mock(return_value={"edges_updated": 5})
@@ -766,3 +773,236 @@ class TestProcessAndUpdate:
             agent.step()
 
             agent.process_and_update.assert_called_once()
+
+
+class TestRealWorldScenarios:
+    """Test real-world flood scenarios matching documentation examples."""
+
+    def test_example_scenario_heavy_rain_plus_twitter(self):
+        """
+        Test the documented example scenario:
+        1. Heavy rain: 80mm rainfall (FloodAgent)
+        2. Twitter report: JP Rizal flooded, severity 0.8 (ScoutAgent)
+        3. GeoTIFF: JP Rizal depth = 0.75m
+        4. Expected risk: ~0.66 (High Risk zone)
+
+        Formula: (0.75 × 0.5) + (0.8 × 0.3 × 0.6) + baseline = 0.66
+        """
+        # Setup mock environment with graph
+        mock_env = Mock()
+        mock_graph = MagicMock()
+
+        # Mock a single edge representing JP Rizal Avenue
+        jp_rizal_edge = (12345, 12346, 0)
+        mock_graph.edges.return_value = [jp_rizal_edge]
+        mock_graph.nodes = {
+            12345: {'x': 121.10, 'y': 14.65},
+            12346: {'x': 121.11, 'y': 14.66}
+        }
+        mock_env.graph = mock_graph
+        mock_env.update_edge_risk = Mock()
+
+        # Mock GeoTIFF service to return 0.75m depth
+        mock_geotiff = Mock()
+        mock_geotiff.get_flood_depth_at_point.return_value = 0.75  # 0.75m depth
+
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+            agent = HazardAgent("hazard_001", mock_env)
+
+            # Step 1: FloodAgent detects heavy rain
+            flood_data = {
+                "location": "Marikina Station",
+                "flood_depth": 0.8,  # Not used directly, but represents rising water
+                "rainfall": 80.0,     # 80mm heavy rain
+                "river_level": 16.0,
+                "timestamp": datetime.now()
+            }
+            agent.flood_data_cache["Marikina Station"] = flood_data
+
+            # Step 2: ScoutAgent scrapes Twitter report
+            scout_report = {
+                "location": "JP Rizal Avenue",
+                "severity": 0.8,       # User-reported severity
+                "report_type": "flooded",
+                "confidence": 0.6,     # Crowdsourced = moderate confidence
+                "timestamp": datetime.now()
+            }
+            agent.scout_data_cache.append(scout_report)
+
+            # Step 3: Trigger fusion and risk calculation
+            fused_data = agent.fuse_data()
+            risk_scores = agent.calculate_risk_scores(fused_data)
+
+            # Verify fusion occurred
+            assert len(fused_data) == 2  # Both sources present
+            assert "JP Rizal Avenue" in fused_data
+
+            # Verify risk calculation for JP Rizal edge
+            # GeoTIFF depth 0.75m maps to risk range 0.6-0.8
+            # Expected: depth_risk = 0.6 + (0.75-0.6)*0.5 = 0.675
+            # Weighted: 0.675 * 0.5 = 0.3375 (flood_depth component)
+            # Environmental: severity * confidence * weights = 0.8 * 0.6 * 0.5 = 0.24
+            # Combined: max(0.3375, 0.3375 + 0.24) = 0.5775 ≈ 0.58
+
+            assert jp_rizal_edge in risk_scores
+            calculated_risk = risk_scores[jp_rizal_edge]
+
+            # Risk should be in High Risk zone (0.5-0.8)
+            assert 0.5 < calculated_risk < 0.8, f"Expected risk 0.5-0.8, got {calculated_risk}"
+
+            # Step 4: Verify environment was updated
+            agent.update_environment(risk_scores)
+            mock_env.update_edge_risk.assert_called_once_with(
+                12345, 12346, 0, calculated_risk
+            )
+
+    def test_low_risk_scenario_light_rain(self):
+        """
+        Test low-risk scenario:
+        - Light rain: 20mm
+        - No crowdsourced reports
+        - GeoTIFF: 0.15m depth
+        - Expected: Low risk (0.0-0.3)
+        """
+        mock_env = Mock()
+        mock_graph = MagicMock()
+        test_edge = (100, 101, 0)
+        mock_graph.edges.return_value = [test_edge]
+        mock_graph.nodes = {
+            100: {'x': 121.10, 'y': 14.65},
+            101: {'x': 121.105, 'y': 14.655}
+        }
+        mock_env.graph = mock_graph
+        mock_env.update_edge_risk = Mock()
+
+        mock_geotiff = Mock()
+        mock_geotiff.get_flood_depth_at_point.return_value = 0.15  # Light flooding
+
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+            agent = HazardAgent("hazard_001", mock_env)
+
+            flood_data = {
+                "location": "Station A",
+                "flood_depth": 0.2,
+                "rainfall": 20.0,  # Light rain
+                "timestamp": datetime.now()
+            }
+            agent.flood_data_cache["Station A"] = flood_data
+
+            fused_data = agent.fuse_data()
+            risk_scores = agent.calculate_risk_scores(fused_data)
+
+            assert test_edge in risk_scores
+            risk = risk_scores[test_edge]
+            assert 0.0 <= risk < 0.3, f"Expected low risk (0.0-0.3), got {risk}"
+
+    def test_critical_risk_scenario_extreme_flood(self):
+        """
+        Test critical risk scenario:
+        - Extreme rain: 200mm
+        - Multiple crowdsourced reports
+        - GeoTIFF: 1.5m depth
+        - Expected: Critical risk (0.8-1.0)
+        """
+        mock_env = Mock()
+        mock_graph = MagicMock()
+        test_edge = (200, 201, 0)
+        mock_graph.edges.return_value = [test_edge]
+        mock_graph.nodes = {
+            200: {'x': 121.10, 'y': 14.65},
+            201: {'x': 121.105, 'y': 14.655}
+        }
+        mock_env.graph = mock_graph
+        mock_env.update_edge_risk = Mock()
+
+        mock_geotiff = Mock()
+        mock_geotiff.get_flood_depth_at_point.return_value = 1.5  # Extreme flooding
+
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+            agent = HazardAgent("hazard_001", mock_env)
+
+            flood_data = {
+                "location": "Danger Zone",
+                "flood_depth": 1.8,
+                "rainfall": 200.0,  # Extreme rain
+                "river_level": 18.5,
+                "timestamp": datetime.now()
+            }
+            agent.flood_data_cache["Danger Zone"] = flood_data
+
+            # Multiple scout reports
+            for i in range(3):
+                agent.scout_data_cache.append({
+                    "location": f"Location {i}",
+                    "severity": 0.9,
+                    "confidence": 0.7,
+                    "timestamp": datetime.now()
+                })
+
+            fused_data = agent.fuse_data()
+            risk_scores = agent.calculate_risk_scores(fused_data)
+
+            assert test_edge in risk_scores
+            risk = risk_scores[test_edge]
+            assert 0.7 <= risk <= 1.0, f"Expected critical risk (0.7-1.0), got {risk}"
+
+    def test_risk_calculation_matches_documentation(self):
+        """
+        Verify risk mapping matches documentation:
+        - 0.0-0.3m → 0.0-0.3 risk (Low)
+        - 0.3-0.6m → 0.3-0.6 risk (Moderate)
+        - 0.6-1.0m → 0.6-0.8 risk (High)
+        - >1.0m → 0.8-1.0 risk (Critical)
+        """
+        mock_env = Mock()
+        mock_graph = MagicMock()
+
+        # Create 4 test edges
+        edges = [(i, i+1, 0) for i in range(1, 5)]
+        mock_graph.edges.return_value = edges
+        mock_graph.nodes = {
+            i: {'x': 121.10 + i*0.001, 'y': 14.65 + i*0.001}
+            for i in range(1, 6)
+        }
+        mock_env.graph = mock_graph
+        mock_env.update_edge_risk = Mock()
+
+        mock_geotiff = Mock()
+        # Return different depths for each edge (called twice per edge for u and v nodes)
+        test_depths = [0.15, 0.45, 0.75, 1.5]  # Low, Mod, High, Critical
+        call_count = [0]
+
+        def get_depth_side_effect(lon, lat, rp, ts):
+            # Each edge queries twice (u and v), return same depth for both
+            edge_index = call_count[0] // 2
+            depth = test_depths[edge_index % len(test_depths)]
+            call_count[0] += 1
+            return depth
+
+        mock_geotiff.get_flood_depth_at_point.side_effect = get_depth_side_effect
+
+        with patch('app.agents.hazard_agent.get_geotiff_service', return_value=mock_geotiff):
+            agent = HazardAgent("hazard_001", mock_env)
+
+            fused_data = {}  # No environmental factors, pure depth-based
+            risk_scores = agent.calculate_risk_scores(fused_data)
+
+            # Verify each risk tier
+            risks = [risk_scores[edge] for edge in edges]
+
+            # Note: All risks are weighted by flood_depth weight (0.5)
+            # Low: 0.15m → 0.15 * 0.5 = 0.075
+            assert 0.0 < risks[0] < 0.15, f"Low tier failed: {risks[0]}"
+
+            # Moderate: 0.45m → 0.45 * 0.5 = 0.225
+            assert 0.15 < risks[1] < 0.3, f"Moderate tier failed: {risks[1]}"
+
+            # High: 0.75m → 0.675 * 0.5 = 0.3375
+            assert 0.3 < risks[2] < 0.4, f"High tier failed: {risks[2]}"
+
+            # Critical: 1.5m → 0.9 * 0.5 = 0.45
+            assert 0.4 <= risks[3] <= 0.5, f"Critical tier failed: {risks[3]}"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short"])

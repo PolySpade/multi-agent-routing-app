@@ -38,13 +38,27 @@ class DynamicGraphEnvironment:
 
             # --- Pre-processing Steps ---
             print("Pre-processing graph (adding/resetting risk and weight attributes)...")
-            for u, v, data in self.graph.edges(data=True):
-                data['risk_score'] = 0.0  # Start with safe roads (0.0), flood data will increase risk
-                if 'length' not in data:
-                    data['length'] = 1.0 # Should exist, but good to be safe
-                data['weight'] = data['length'] * (1.0 + data['risk_score'])  # Base distance + risk penalty
+            for u, v, key in self.graph.edges(keys=True):
+                # Access edge data directly to ensure modifications persist
+                edge_data = self.graph[u][v][key]
+                edge_data['risk_score'] = 0.0  # Start with safe roads (0.0), flood data will increase risk
+                if 'length' not in edge_data:
+                    edge_data['length'] = 1.0 # Should exist, but good to be safe
+                edge_data['weight'] = edge_data['length'] * (1.0 + edge_data['risk_score'])  # Base distance + risk penalty
 
-            print("Graph pre-processing complete.")
+            # Verify preprocessing worked
+            sample_count = 0
+            verified_count = 0
+            for u, v, key in list(self.graph.edges(keys=True))[:5]:
+                edge_data = self.graph[u][v][key]
+                has_risk = 'risk_score' in edge_data
+                if has_risk:
+                    verified_count += 1
+                sample_count += 1
+                if sample_count <= 3:
+                    print(f"  Sample edge ({u},{v},{key}): risk_score={'YES' if has_risk else 'MISSING'}")
+
+            print(f"Graph pre-processing complete. Verified {verified_count}/{sample_count} sample edges have risk_score.")
 
         except Exception as e:
             print(f"\n❌ An error occurred while loading or processing the graph file: {e}")
