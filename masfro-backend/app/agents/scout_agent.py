@@ -7,6 +7,7 @@ import pickle
 import hashlib
 import csv
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from selenium import webdriver
@@ -51,7 +52,9 @@ class ScoutAgent(BaseAgent):
         agent_id: str,
         environment: "DynamicGraphEnvironment",
         credentials: Optional["TwitterCredentials"] = None,
-        hazard_agent: Optional["HazardAgent"] = None
+        hazard_agent: Optional["HazardAgent"] = None,
+        simulation_mode: bool = False,
+        simulation_scenario: int = 1
     ) -> None:
         """
         Initialize ScoutAgent for crowdsourced flood data collection.
@@ -60,7 +63,7 @@ class ScoutAgent(BaseAgent):
         - Fragile and prone to breaking when Twitter/X updates their UI
         - Slow and resource-intensive
         - Security risk if credentials are used
-        
+
         RECOMMENDED: Migrate to Twitter API v2 instead.
 
         Args:
@@ -68,9 +71,11 @@ class ScoutAgent(BaseAgent):
             environment: Reference to the DynamicGraphEnvironment instance
             credentials: Optional TwitterCredentials for authentication (NOT RECOMMENDED)
             hazard_agent: Optional reference to HazardAgent for data forwarding
+            simulation_mode: If True, uses synthetic data instead of scraping (default: False)
+            simulation_scenario: Which scenario to load (1-3) when in simulation mode
         """
         super().__init__(agent_id, environment)
-        
+
         # Store credentials object (not individual fields) - only if provided
         self._credentials = credentials
         if credentials and (credentials.twitter_email or credentials.twitter_password):
@@ -78,9 +83,16 @@ class ScoutAgent(BaseAgent):
                 "ScoutAgent initialized with plain-text credentials. "
                 "This is a SECURITY RISK. Consider using Twitter API v2 instead."
             )
-        
+
         self.driver = None
         self.hazard_agent = hazard_agent
+
+        # Simulation mode settings
+        self.simulation_mode = simulation_mode
+        self.simulation_scenario = simulation_scenario
+        self.simulation_tweets = []
+        self.simulation_index = 0
+        self.simulation_batch_size = 10  # Default batch size
 
         # Initialize NLP processor
         try:
@@ -115,10 +127,15 @@ class ScoutAgent(BaseAgent):
         self.session_file = os.path.join(data_directory, "twitter_session.pkl")
         
         self.master_tweets = {}
-        
-        self.logger.info(f"ScoutAgent '{self.agent_id}' initialized")
-        self.logger.debug(f"Master tweet file path: {self.master_file}")
-        self.logger.debug(f"Session file path: {self.session_file}")
+
+        # Log initialization
+        mode_str = "SIMULATION MODE" if self.simulation_mode else "SCRAPING MODE"
+        self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in {mode_str}")
+        if self.simulation_mode:
+            self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+        else:
+            self.logger.debug(f"  Master tweet file path: {self.master_file}")
+            self.logger.debug(f"  Session file path: {self.session_file}")
 
     def set_hazard_agent(self, hazard_agent) -> None:
         """
@@ -132,27 +149,36 @@ class ScoutAgent(BaseAgent):
 
     def setup(self) -> bool:
         """
-        Initializes the Selenium WebDriver and logs into X.com.
-        This should be called once before the agent starts its monitoring cycle.
+        Initializes the agent for operation.
+        - In scraping mode: Sets up Selenium WebDriver and logs into X.com
+        - In simulation mode: Loads synthetic data from file
 
         Returns:
-            bool: True if setup and login were successful, False otherwise.
+            bool: True if setup was successful, False otherwise.
         """
-        self.logger.info(f"{self.agent_id} setting up WebDriver and logging in")
-        self.driver = self._login_to_twitter()
-        if self.driver:
-            self.master_tweets = self._load_master_tweets()
-            self.logger.info(f"{self.agent_id} setup completed successfully")
-            return True
-        self.logger.error(f"{self.agent_id} setup failed - could not login")
-        return False
+        if self.simulation_mode:
+            # Simulation mode: Load synthetic data
+            self.logger.info(f"{self.agent_id} loading synthetic data")
+            return self._load_simulation_data()
+        else:
+            # Scraping mode: Login to Twitter
+            self.logger.info(f"{self.agent_id} setting up WebDriver and logging in")
+            self.driver = self._login_to_twitter()
+            if self.driver:
+                self.master_tweets = self._load_master_tweets()
+                self.logger.info(f"{self.agent_id} setup completed successfully")
+                return True
+            self.logger.error(f"{self.agent_id} setup failed - could not login")
+            return False
 
 
     def step(self) -> list:
         """
-        Performs one cycle of the agent's primary task: searching for,
-        extracting, and processing new tweets. This method is designed to be
-        called repeatedly by the main simulation loop.
+        Performs one cycle of the agent's primary task.
+        - In scraping mode: Searches for, extracts, and processes new tweets
+        - In simulation mode: Returns the next batch of synthetic tweets
+
+        This method is designed to be called repeatedly by the main simulation loop.
 
         Returns:
             list: A list of newly found tweet dictionaries.
@@ -161,16 +187,24 @@ class ScoutAgent(BaseAgent):
             f"{self.agent_id} performing step at {datetime.now().strftime('%H:%M:%S')}"
         )
 
-        # 1. Search for recent tweets
-        raw_tweets = self._search_tweets()
+        if self.simulation_mode:
+            # Simulation mode: Get next batch of tweets
+            raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+        else:
+            # Scraping mode: Search Twitter
+            raw_tweets = self._search_tweets()
 
-        # 2. Add new tweets to our master list and get only the new ones back
-        newly_added_tweets = self._add_new_tweets_to_master(raw_tweets)
+        if not self.simulation_mode:
+            # In scraping mode, track which tweets are new
+            newly_added_tweets = self._add_new_tweets_to_master(raw_tweets)
+        else:
+            # In simulation mode, all tweets are "new"
+            newly_added_tweets = raw_tweets
 
         if newly_added_tweets:
             self.logger.info(f"{self.agent_id} found {len(newly_added_tweets)} new tweets")
 
-            # 3. Process tweets with NLP and forward to HazardAgent
+            # Process tweets with NLP and forward to HazardAgent
             self._process_and_forward_tweets(newly_added_tweets)
         else:
             self.logger.debug(f"{self.agent_id} no new tweets found in this step")
@@ -309,7 +343,108 @@ class ScoutAgent(BaseAgent):
         if self.driver:
             self.driver.quit()
             self.logger.info(f"{self.agent_id} WebDriver closed")
-        self._export_master_tweets_to_csv()
+
+        if not self.simulation_mode:
+            self._export_master_tweets_to_csv()
+
+    # --- SIMULATION MODE METHODS ---
+
+    def _load_simulation_data(self) -> bool:
+        """
+        Load synthetic tweet data for simulation mode.
+
+        Returns:
+            bool: True if data loaded successfully, False otherwise
+        """
+        try:
+            # Build path to synthetic data file
+            data_dir = Path(__file__).parent.parent / "data" / "synthetic"
+            tweet_file = data_dir / f"scout_tweets_{self.simulation_scenario}.json"
+
+            if not tweet_file.exists():
+                self.logger.error(
+                    f"Simulation data file not found: {tweet_file}\n"
+                    f"Run 'scripts/generate_scout_synthetic_data.py' to create synthetic data"
+                )
+                return False
+
+            # Load tweets from file
+            with open(tweet_file, 'r', encoding='utf-8') as f:
+                tweets_data = json.load(f)
+
+            # Convert dict to list if necessary
+            if isinstance(tweets_data, dict):
+                self.simulation_tweets = list(tweets_data.values())
+            else:
+                self.simulation_tweets = tweets_data
+
+            self.simulation_index = 0
+            self.logger.info(
+                f"{self.agent_id} loaded {len(self.simulation_tweets)} synthetic tweets "
+                f"from scenario {self.simulation_scenario}"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"{self.agent_id} error loading simulation data: {e}")
+            return False
+
+    def _get_simulation_tweets(self, batch_size: int = 10) -> list:
+        """
+        Get the next batch of simulation tweets.
+
+        Args:
+            batch_size: Number of tweets to return per step (default: 10)
+
+        Returns:
+            list: Next batch of tweet dictionaries
+        """
+        if not self.simulation_tweets:
+            self.logger.warning(f"{self.agent_id} no simulation data loaded")
+            return []
+
+        # Check if we've reached the end
+        if self.simulation_index >= len(self.simulation_tweets):
+            self.logger.info(
+                f"{self.agent_id} reached end of simulation data "
+                f"({self.simulation_index}/{len(self.simulation_tweets)} tweets processed)"
+            )
+            return []
+
+        # Get next batch
+        start_idx = self.simulation_index
+        end_idx = min(start_idx + batch_size, len(self.simulation_tweets))
+        batch = self.simulation_tweets[start_idx:end_idx]
+
+        self.simulation_index = end_idx
+
+        self.logger.debug(
+            f"{self.agent_id} returning simulation batch: "
+            f"tweets {start_idx+1}-{end_idx} of {len(self.simulation_tweets)}"
+        )
+
+        return batch
+
+    def reset_simulation(self) -> None:
+        """
+        Reset simulation to the beginning.
+        Useful for running multiple simulation cycles.
+        """
+        self.simulation_index = 0
+        self.logger.info(f"{self.agent_id} simulation reset to beginning")
+
+    def set_batch_size(self, batch_size: int) -> None:
+        """
+        Set the batch size for simulation mode.
+
+        Args:
+            batch_size: Number of tweets to return per step
+        """
+        if batch_size < 1:
+            raise ValueError("Batch size must be at least 1")
+
+        self.simulation_batch_size = batch_size
+        self.logger.info(f"{self.agent_id} batch size set to {batch_size}")
 
     # --- PRIVATE HELPER METHODS (from your original script) ---
     # The following methods are encapsulated within the agent class.
