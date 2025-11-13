@@ -23,6 +23,7 @@ from .base_agent import BaseAgent
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
 from datetime import datetime
+from app.core.timezone_utils import get_philippine_time
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -130,7 +131,7 @@ class HazardAgent(BaseAgent):
         3. Calculates risk scores
         4. Updates the graph environment
         """
-        logger.debug(f"{self.agent_id} performing step at {datetime.now()}")
+        logger.debug(f"{self.agent_id} performing step at {get_philippine_time()}")
 
         # Process cached data and update risk scores
         if self.flood_data_cache or self.scout_data_cache:
@@ -157,7 +158,7 @@ class HazardAgent(BaseAgent):
         return {
             "locations_processed": len(fused_data),
             "edges_updated": len(risk_scores),
-            "timestamp": datetime.now()
+            "timestamp": get_philippine_time()
         }
 
     def process_flood_data(self, flood_data: Dict[str, Any]) -> None:
@@ -646,7 +647,7 @@ class HazardAgent(BaseAgent):
         Args:
             max_age_seconds: Maximum age of data to keep (default: 1 hour)
         """
-        current_time = datetime.now()
+        current_time = get_philippine_time()
 
         # Clear old flood data
         locations_to_remove = []

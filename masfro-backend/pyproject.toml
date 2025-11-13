@@ -27,6 +27,7 @@ dependencies = [
     "numpy>=2.2.6",
     "pyproj>=3.7.1",
     "lxml>=6.0.2",
+    "rich>=14.2.0",
 ]
 
 [dependency-groups]

@@ -119,24 +119,30 @@ class ConnectionManager:
 
     def __init__(self):
         """Initialize connection manager."""
+        import threading
         self.active_connections: Set[WebSocket] = set()
+        self._lock = threading.Lock()  # Thread safety for connection set
         self.last_flood_state: Optional[Dict[str, Any]] = None
         self.critical_stations: Set[str] = set()  # Track critical river stations
 
     async def connect(self, websocket: WebSocket):
         """Accept new WebSocket connection."""
         await websocket.accept()
-        self.active_connections.add(websocket)
+        with self._lock:
+            self.active_connections.add(websocket)
+            count = len(self.active_connections)
         logger.info(
-            f"WebSocket connected. Total connections: {len(self.active_connections)}"
+            f"WebSocket connected. Total connections: {count}"
         )
 
     def disconnect(self, websocket: WebSocket):
         """Remove WebSocket connection."""
-        self.active_connections.discard(websocket)
+        with self._lock:
+            self.active_connections.discard(websocket)
+            count = len(self.active_connections)
         logger.info(
             f"WebSocket disconnected. "
-            f"Total connections: {len(self.active_connections)}"
+            f"Total connections: {count}"
         )
 
     async def broadcast(self, message: dict):
@@ -145,6 +151,8 @@ class ConnectionManager:
 
         Uses custom JSON encoder to handle datetime objects.
         """
+        from starlette.websockets import WebSocketDisconnect
+        
         disconnected = set()
 
         # Serialize message with custom encoder for datetime handling
@@ -163,17 +171,25 @@ class ConnectionManager:
                     logger.error(f"Field '{key}' caused error: {field_error}, value type: {type(value)}")
             raise  # Re-raise to prevent sending bad data
 
-        for connection in self.active_connections:
+        # Create a copy of connections to avoid modification during iteration
+        with self._lock:
+            connections_copy = list(self.active_connections)
+        
+        for connection in connections_copy:
             try:
-                logger.debug(f"Attempting send_text with string of length: {len(json_str)}, type: {type(json_str)}")
-                logger.debug(f"First 100 chars: {json_str[:100]}")
+                # Check if connection is still in active set (might be removed by another thread)
+                with self._lock:
+                    if connection not in self.active_connections:
+                        continue
+                    
                 await connection.send_text(json_str)
                 logger.debug("send_text successful")
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected during broadcast")
+                disconnected.add(connection)
             except Exception as e:
-                logger.error(f"Error sending to WebSocket: {e}")
-                logger.error(f"Exception type: {type(e).__name__}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
+                # Handle any connection errors gracefully
+                logger.warning(f"Failed to send to WebSocket: {type(e).__name__}: {e}")
                 disconnected.add(connection)
 
         # Clean up disconnected clients
