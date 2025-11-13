@@ -24,6 +24,7 @@ from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
 from datetime import datetime
 from app.core.timezone_utils import get_philippine_time
+import math
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -33,6 +34,12 @@ try:
     from services.geotiff_service import get_geotiff_service
 except ImportError:
     from app.services.geotiff_service import get_geotiff_service
+
+# LocationGeocoder import
+try:
+    from app.ml_models.location_geocoder import LocationGeocoder
+except ImportError:
+    LocationGeocoder = None
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +121,18 @@ class HazardAgent(BaseAgent):
 
         # ML model placeholder (to be integrated later)
         self.flood_predictor = None
+
+        # Initialize LocationGeocoder for coordinate-based risk updates
+        try:
+            if LocationGeocoder:
+                self.geocoder = LocationGeocoder()
+                logger.info(f"{self.agent_id} LocationGeocoder initialized")
+            else:
+                self.geocoder = None
+                logger.warning(f"{self.agent_id} LocationGeocoder not available")
+        except Exception as e:
+            logger.error(f"Failed to initialize LocationGeocoder: {e}")
+            self.geocoder = None
 
         logger.info(
             f"{self.agent_id} initialized with risk weights: {self.risk_weights}, "
@@ -592,6 +611,280 @@ class HazardAgent(BaseAgent):
                 logger.error(f"Failed to update edge ({u}, {v}, {key}): {e}")
 
         logger.info(f"Updated {len(risk_scores)} edges in the environment")
+
+    def get_nearest_node(self, lat: float, lon: float) -> Optional[int]:
+        """
+        Find the nearest graph node to a coordinate.
+
+        Args:
+            lat: Latitude
+            lon: Longitude
+
+        Returns:
+            Node ID of nearest node, or None if graph not available
+
+        Example:
+            >>> node_id = hazard_agent.get_nearest_node(14.6507, 121.1009)
+        """
+        if not self.environment or not self.environment.graph:
+            return None
+
+        try:
+            # Use OSMnx to find nearest node
+            import osmnx as ox
+            nearest_node = ox.distance.nearest_nodes(
+                self.environment.graph,
+                lon,  # OSMnx uses (lon, lat) order
+                lat
+            )
+            return nearest_node
+        except Exception as e:
+            logger.error(f"Error finding nearest node to ({lat}, {lon}): {e}")
+            return None
+
+    def calculate_distance(
+        self,
+        lat1: float,
+        lon1: float,
+        lat2: float,
+        lon2: float
+    ) -> float:
+        """
+        Calculate distance between two coordinates in meters using Haversine formula.
+
+        Args:
+            lat1: Latitude of point 1
+            lon1: Longitude of point 1
+            lat2: Latitude of point 2
+            lon2: Longitude of point 2
+
+        Returns:
+            Distance in meters
+
+        Example:
+            >>> distance = hazard_agent.calculate_distance(14.65, 121.10, 14.66, 121.11)
+        """
+        # Earth radius in meters
+        R = 6371000
+
+        # Convert to radians
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lon = math.radians(lon2 - lon1)
+
+        # Haversine formula
+        a = (math.sin(delta_lat / 2) ** 2 +
+             math.cos(lat1_rad) * math.cos(lat2_rad) *
+             math.sin(delta_lon / 2) ** 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = R * c
+        return distance
+
+    def get_nodes_within_radius(
+        self,
+        lat: float,
+        lon: float,
+        radius_m: float = 500
+    ) -> List[int]:
+        """
+        Find all graph nodes within radius of a point.
+
+        Args:
+            lat: Center latitude
+            lon: Center longitude
+            radius_m: Radius in meters (default: 500m)
+
+        Returns:
+            List of node IDs within radius
+
+        Example:
+            >>> nearby_nodes = hazard_agent.get_nodes_within_radius(14.65, 121.10, 1000)
+        """
+        if not self.environment or not self.environment.graph:
+            return []
+
+        nearby_nodes = []
+
+        try:
+            for node in self.environment.graph.nodes():
+                node_data = self.environment.graph.nodes[node]
+                node_lat = float(node_data.get('y', 0))
+                node_lon = float(node_data.get('x', 0))
+
+                distance = self.calculate_distance(lat, lon, node_lat, node_lon)
+
+                if distance <= radius_m:
+                    nearby_nodes.append(node)
+
+        except Exception as e:
+            logger.error(f"Error finding nodes within radius: {e}")
+
+        return nearby_nodes
+
+    def update_node_risk(
+        self,
+        node_id: int,
+        risk_level: float,
+        source: str = "scout"
+    ) -> None:
+        """
+        Update risk for all edges connected to a node.
+
+        Args:
+            node_id: Node ID
+            risk_level: Risk level (0-1)
+            source: Data source identifier
+
+        Example:
+            >>> hazard_agent.update_node_risk(12345, 0.8, "scout_twitter")
+        """
+        if not self.environment or not self.environment.graph:
+            return
+
+        try:
+            # Get all edges connected to this node
+            edges_updated = 0
+
+            for u, v, key in self.environment.graph.edges(node_id, keys=True):
+                self.environment.update_edge_risk(u, v, key, risk_level)
+                edges_updated += 1
+
+            # Also check incoming edges
+            for u, v, key in self.environment.graph.in_edges(node_id, keys=True):
+                self.environment.update_edge_risk(u, v, key, risk_level)
+                edges_updated += 1
+
+            logger.debug(
+                f"Updated {edges_updated} edges connected to node {node_id} "
+                f"with risk {risk_level:.2f} (source: {source})"
+            )
+
+        except Exception as e:
+            logger.error(f"Error updating node risk for node {node_id}: {e}")
+
+    def process_scout_data_with_coordinates(
+        self,
+        scout_reports: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Process crowdsourced data with coordinate-based risk updates.
+
+        Enhanced version of process_scout_data that handles geographic coordinates
+        and propagates risk spatially across the graph.
+
+        Args:
+            scout_reports: List of crowdsourced reports with coordinates
+                Expected format:
+                [
+                    {
+                        "location": str,
+                        "coordinates": {"lat": float, "lon": float},
+                        "severity": float,  # 0-1 scale
+                        "report_type": str,
+                        "confidence": float,
+                        "timestamp": datetime
+                    },
+                    ...
+                ]
+
+        Example:
+            >>> reports = [{
+            ...     "location": "Nangka",
+            ...     "coordinates": {"lat": 14.6507, "lon": 121.1009},
+            ...     "severity": 0.8,
+            ...     "confidence": 0.9
+            ... }]
+            >>> hazard_agent.process_scout_data_with_coordinates(reports)
+        """
+        logger.info(
+            f"{self.agent_id} processing {len(scout_reports)} scout reports "
+            f"with coordinate-based risk updates"
+        )
+
+        reports_processed = 0
+        nodes_updated = 0
+
+        for report in scout_reports:
+            try:
+                # Validate report
+                if not self._validate_scout_data(report):
+                    logger.warning(f"Invalid scout report: {report}")
+                    continue
+
+                # Add to cache for data fusion
+                self.scout_data_cache.append(report)
+
+                # Check if report has coordinates
+                coords = report.get('coordinates')
+                if not coords or not isinstance(coords, dict):
+                    # No coordinates - use legacy processing
+                    continue
+
+                lat = coords.get('lat')
+                lon = coords.get('lon')
+
+                if lat is None or lon is None:
+                    continue
+
+                # Extract severity and confidence
+                severity = report.get('severity', 0.0)
+                confidence = report.get('confidence', 0.5)
+
+                # Calculate actual risk level
+                risk_level = severity * confidence
+
+                # Find nearest graph node
+                nearest_node = self.get_nearest_node(lat, lon)
+
+                if nearest_node is None:
+                    logger.warning(
+                        f"Could not find nearest node for location {report.get('location')} "
+                        f"at ({lat}, {lon})"
+                    )
+                    continue
+
+                # Update risk at the nearest node
+                self.update_node_risk(nearest_node, risk_level, source="scout_direct")
+                nodes_updated += 1
+
+                # Propagate risk to nearby nodes (spatial diffusion)
+                # Risk decays with distance
+                radius_m = 500  # 500 meter radius
+                nearby_nodes = self.get_nodes_within_radius(lat, lon, radius_m)
+
+                for node in nearby_nodes:
+                    if node == nearest_node:
+                        continue  # Already updated
+
+                    # Get node coordinates
+                    node_data = self.environment.graph.nodes[node]
+                    node_lat = float(node_data.get('y', 0))
+                    node_lon = float(node_data.get('x', 0))
+
+                    # Calculate distance
+                    distance = self.calculate_distance(lat, lon, node_lat, node_lon)
+
+                    # Apply distance decay: risk decreases linearly with distance
+                    decay_factor = 1.0 - (distance / radius_m)
+                    decayed_risk = risk_level * decay_factor
+
+                    # Only update if decayed risk is significant
+                    if decayed_risk > 0.05:
+                        self.update_node_risk(node, decayed_risk, source="scout_propagated")
+                        nodes_updated += 1
+
+                reports_processed += 1
+
+            except Exception as e:
+                logger.error(f"Error processing scout report: {e}", exc_info=True)
+                continue
+
+        logger.info(
+            f"Processed {reports_processed}/{len(scout_reports)} scout reports, "
+            f"updated {nodes_updated} graph nodes with coordinate-based risk"
+        )
 
     def _validate_flood_data(self, flood_data: Dict[str, Any]) -> bool:
         """

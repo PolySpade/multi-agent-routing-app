@@ -92,6 +92,17 @@ class ScoutAgent(BaseAgent):
                 f"{self.agent_id} failed to initialize NLP processor: {e}"
             )
             self.nlp_processor = None
+
+        # Initialize LocationGeocoder for coordinate extraction
+        try:
+            from ..ml_models.location_geocoder import LocationGeocoder
+            self.geocoder = LocationGeocoder()
+            self.logger.info(f"{self.agent_id} initialized with LocationGeocoder")
+        except Exception as e:
+            self.logger.warning(
+                f"{self.agent_id} failed to initialize LocationGeocoder: {e}"
+            )
+            self.geocoder = None
         
         # --- CENTRALIZED FILE PATHS ---
         # Define the path to the data directory relative to the project root.
@@ -181,6 +192,76 @@ class ScoutAgent(BaseAgent):
             logger.warning(f"{self.agent_id} has no HazardAgent reference, data not forwarded")
             return
 
+        if not self.geocoder:
+            logger.warning(f"{self.agent_id} has no LocationGeocoder, using old method")
+            self._process_and_forward_tweets_without_coordinates(tweets)
+            return
+
+        processed_reports = []
+        skipped_no_coordinates = 0
+
+        for tweet in tweets:
+            try:
+                # Extract flood info using NLP
+                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+
+                # Enhance with coordinates using geocoder
+                enhanced_info = self.geocoder.geocode_nlp_result(flood_info)
+
+                # Only process flood-related reports with coordinates
+                if enhanced_info['is_flood_related'] and enhanced_info.get('has_coordinates'):
+                    # Create scout report for HazardAgent with coordinates
+                    report = {
+                        "location": enhanced_info['location'] or "Marikina",
+                        "coordinates": enhanced_info['coordinates'],  # NEW: Critical field
+                        "severity": enhanced_info['severity'],
+                        "report_type": enhanced_info['report_type'],
+                        "confidence": enhanced_info['confidence'],
+                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
+                        "source": "twitter",
+                        "source_url": tweet.get('url', ''),
+                        "username": tweet.get('username', ''),
+                        "text": tweet['text']
+                    }
+
+                    processed_reports.append(report)
+                    logger.debug(
+                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
+                        f"{enhanced_info['location']} ({enhanced_info['coordinates']['lat']:.4f}, "
+                        f"{enhanced_info['coordinates']['lon']:.4f}) - severity {enhanced_info['severity']:.2f}"
+                    )
+                elif enhanced_info['is_flood_related'] and not enhanced_info.get('has_coordinates'):
+                    skipped_no_coordinates += 1
+                    logger.debug(
+                        f"{self.agent_id} skipped flood-related tweet without coordinates: "
+                        f"location '{enhanced_info.get('location')}'"
+                    )
+
+            except Exception as e:
+                logger.error(f"{self.agent_id} error processing tweet: {e}")
+                continue
+
+        # Forward all processed reports to HazardAgent using coordinate-based method
+        if processed_reports:
+            logger.info(
+                f"{self.agent_id} forwarding {len(processed_reports)} "
+                f"flood reports with coordinates to HazardAgent "
+                f"(skipped {skipped_no_coordinates} without coordinates)"
+            )
+            self.hazard_agent.process_scout_data_with_coordinates(processed_reports)
+        elif skipped_no_coordinates > 0:
+            logger.warning(
+                f"{self.agent_id} all {skipped_no_coordinates} flood-related tweets "
+                f"lacked coordinates and were skipped"
+            )
+
+    def _process_and_forward_tweets_without_coordinates(self, tweets: list) -> None:
+        """
+        Fallback method for processing tweets without geocoder (legacy).
+
+        Args:
+            tweets: List of tweet dictionaries to process
+        """
         processed_reports = []
 
         for tweet in tweets:
@@ -189,9 +270,9 @@ class ScoutAgent(BaseAgent):
                 flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
 
                 if flood_info['is_flood_related']:
-                    # Create scout report for HazardAgent
+                    # Create scout report for HazardAgent (without coordinates)
                     report = {
-                        "location": flood_info['location'] or "Marikina",  # Default to Marikina
+                        "location": flood_info['location'] or "Marikina",
                         "severity": flood_info['severity'],
                         "report_type": flood_info['report_type'],
                         "confidence": flood_info['confidence'],
@@ -212,11 +293,11 @@ class ScoutAgent(BaseAgent):
                 logger.error(f"{self.agent_id} error processing tweet: {e}")
                 continue
 
-        # Forward all processed reports to HazardAgent
+        # Forward using legacy method without coordinates
         if processed_reports:
             logger.info(
                 f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports to HazardAgent"
+                f"flood reports to HazardAgent (legacy mode without coordinates)"
             )
             self.hazard_agent.process_scout_data(processed_reports)
 
