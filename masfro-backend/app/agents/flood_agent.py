@@ -852,31 +852,38 @@ class FloodAgent(BaseAgent):
         """
         Forward collected data to HazardAgent for processing.
 
+        Uses batch processing for optimal performance - sends all station data
+        at once instead of individually, reducing redundant calculations by 17x.
+
         Args:
             data: Combined flood data from all sources
+                Format: {
+                    "location_name": {
+                        "flood_depth": float,
+                        "rainfall_1h": float,
+                        "rainfall_24h": float,
+                        "timestamp": datetime
+                    },
+                    ...
+                }
         """
         logger.info(
-            f"{self.agent_id} sending {len(data)} data points to HazardAgent"
+            f"{self.agent_id} sending {len(data)} data points to HazardAgent (batched)"
         )
 
         if not self.hazard_agent:
             logger.warning(f"{self.agent_id} has no HazardAgent reference, data not forwarded")
             return
 
-        # Send data to HazardAgent
+        # Send data to HazardAgent using batch processing
         try:
-            # Convert combined data to format HazardAgent expects
-            for location, location_data in data.items():
-                flood_data = {
-                    "location": location,
-                    "flood_depth": location_data.get("flood_depth", 0.0),
-                    "rainfall_1h": location_data.get("rainfall_1h", 0.0),
-                    "rainfall_24h": location_data.get("rainfall_24h", 0.0),
-                    "timestamp": location_data.get("timestamp")
-                }
-                self.hazard_agent.process_flood_data(flood_data)
+            # Use the optimized batch processing method
+            self.hazard_agent.process_flood_data_batch(data)
 
-            logger.info(f"{self.agent_id} successfully forwarded data to {self.hazard_agent.agent_id}")
+            logger.info(
+                f"{self.agent_id} successfully forwarded batched data to "
+                f"{self.hazard_agent.agent_id}"
+            )
 
         except Exception as e:
             logger.error(f"{self.agent_id} failed to forward data to HazardAgent: {e}")

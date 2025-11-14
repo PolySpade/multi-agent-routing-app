@@ -208,9 +208,78 @@ class HazardAgent(BaseAgent):
 
         logger.debug(f"Flood data cached for location: {location}")
 
-        # Trigger risk calculation and graph update after receiving flood data
-        logger.info(f"{self.agent_id} triggering hazard processing after flood data update")
-        self.process_and_update()
+        # Note: No immediate processing triggered. Use process_flood_data_batch()
+        # for optimal performance, or call process_and_update() manually when ready.
+
+    def process_flood_data_batch(self, data: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Process multiple flood data points in batch (optimized).
+
+        This method is more efficient than calling process_flood_data() multiple
+        times, as it updates the cache for all locations first, then triggers
+        risk calculation only once.
+
+        Args:
+            data: Dict mapping locations to flood data
+                Expected format:
+                {
+                    "IPO": {
+                        "flood_depth": float,
+                        "rainfall_1h": float,
+                        "rainfall_24h": float,
+                        "timestamp": datetime
+                    },
+                    "LA MESA": {...},
+                    ...
+                }
+
+        Example:
+            >>> batch_data = {
+            ...     "IPO": {"flood_depth": 1.5, "timestamp": datetime.now()},
+            ...     "LA MESA": {"flood_depth": 2.0, "timestamp": datetime.now()}
+            ... }
+            >>> hazard_agent.process_flood_data_batch(batch_data)
+        """
+        logger.info(
+            f"{self.agent_id} received batched flood data for {len(data)} locations"
+        )
+
+        valid_count = 0
+        invalid_count = 0
+
+        # Update cache for all locations
+        for location, location_data in data.items():
+            flood_data = {
+                "location": location,
+                "flood_depth": location_data.get("flood_depth", 0.0),
+                "rainfall_1h": location_data.get("rainfall_1h", 0.0),
+                "rainfall_24h": location_data.get("rainfall_24h", 0.0),
+                "timestamp": location_data.get("timestamp")
+            }
+
+            # Validate data before caching
+            if self._validate_flood_data(flood_data):
+                self.flood_data_cache[location] = flood_data
+                valid_count += 1
+            else:
+                logger.warning(f"Invalid flood data for location: {location}")
+                invalid_count += 1
+
+        logger.info(
+            f"{self.agent_id} cached {valid_count} valid data points "
+            f"({invalid_count} invalid)"
+        )
+
+        # Trigger processing ONCE after all data cached
+        if valid_count > 0:
+            logger.info(
+                f"{self.agent_id} triggering hazard processing after batch update"
+            )
+            self.process_and_update()
+        else:
+            logger.warning(
+                f"{self.agent_id} no valid data to process in batch"
+            )
 
     def process_scout_data(self, scout_reports: List[Dict[str, Any]]) -> None:
         """
@@ -583,7 +652,7 @@ class HazardAgent(BaseAgent):
             crit_risk = sum(1 for r in risk_scores.values() if r >= 0.8)
 
             logger.info(
-                f"Calculated risk scores for {len(risk_scores)} edges using GeoTIFF data. "
+                f"Calculated risk scores for {len(risk_scores)} edges. "
                 f"Distribution: low={low_risk}, moderate={mod_risk}, high={high_risk}, critical={crit_risk}"
             )
         else:
