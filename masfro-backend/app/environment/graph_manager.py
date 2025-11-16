@@ -42,9 +42,11 @@ class DynamicGraphEnvironment:
                 # Access edge data directly to ensure modifications persist
                 edge_data = self.graph[u][v][key]
                 edge_data['risk_score'] = 0.0  # Start with safe roads (0.0), flood data will increase risk
+                edge_data['traffic_factor'] = 0.0  # Start with free-flow traffic
                 if 'length' not in edge_data:
                     edge_data['length'] = 1.0 # Should exist, but good to be safe
-                edge_data['weight'] = edge_data['length'] * (1.0 + edge_data['risk_score'])  # Base distance + risk penalty
+                # Enhanced weight calculation with traffic
+                edge_data['weight'] = edge_data['length'] * (1.0 + edge_data['risk_score']) * (1.0 + edge_data['traffic_factor'])
 
             # Verify preprocessing worked
             sample_count = 0
@@ -64,13 +66,29 @@ class DynamicGraphEnvironment:
             print(f"\n❌ An error occurred while loading or processing the graph file: {e}")
             self.graph = None
 
-    # (The update_edge_risk and get_graph methods remain exactly the same as before)
     def update_edge_risk(self, u, v, key, risk_factor: float):
-        if self.graph is None: return
+        """Update edge risk score and recalculate weight."""
+        if self.graph is None:
+            return
         try:
             edge_data = self.graph.edges[u, v, key]
             edge_data['risk_score'] = risk_factor
-            edge_data['weight'] = edge_data['length'] * (1.0 + risk_factor)  # Base distance + risk penalty
+            # Recalculate weight with both risk and traffic
+            traffic_factor = edge_data.get('traffic_factor', 0.0)
+            edge_data['weight'] = edge_data['length'] * (1.0 + risk_factor) * (1.0 + traffic_factor)
+        except KeyError:
+            print(f"Warning: Edge ({u}, {v}, {key}) not found in graph.")
+
+    def update_edge_traffic(self, u, v, key, traffic_factor: float):
+        """Update edge traffic factor and recalculate weight."""
+        if self.graph is None:
+            return
+        try:
+            edge_data = self.graph.edges[u, v, key]
+            edge_data['traffic_factor'] = traffic_factor
+            # Recalculate weight with both risk and traffic
+            risk_score = edge_data.get('risk_score', 0.0)
+            edge_data['weight'] = edge_data['length'] * (1.0 + risk_score) * (1.0 + traffic_factor)
         except KeyError:
             print(f"Warning: Edge ({u}, {v}, {key}) not found in graph.")
 
