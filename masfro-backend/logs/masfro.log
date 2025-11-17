@@ -15611,3 +15611,490 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2025-11-17 22:41:03 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
 2025-11-17 22:41:04 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
 2025-11-17 22:41:08 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 35
+2025-11-17 22:44:42 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:44:42 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:44:42 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:44:42 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:44:42 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:44:43 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:44:43 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:44:43 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:44:43 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:44:43 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:44:43 - app.main - INFO - get_route:532 - Route request: (14.6330712, 121.0991601) -> (14.6508826, 121.1209165)
+2025-11-17 22:44:43 - app.agents.routing_agent - INFO - calculate_route:120 - routing_agent_001 calculating route: (14.6330712, 121.0991601) -> (14.6508826, 121.1209165)
+2025-11-17 22:44:43 - app.algorithms.risk_aware_astar - INFO - risk_aware_astar:164 - Computing risk-aware A* path from 1300400339 to 13154554899 (risk_weight=0.6, distance_weight=0.4)
+2025-11-17 22:44:43 - app.algorithms.risk_aware_astar - INFO - risk_aware_astar:239 - Path found with 157 nodes. Blocked 0 edges during search.
+2025-11-17 22:44:43 - app.agents.routing_agent - INFO - calculate_route:173 - routing_agent_001 route calculated: distance=4470m, risk=0.00
+2025-11-17 22:44:43 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:44:44 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:44:47 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:44:47 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:44:49 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:44:51 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:44:52 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:44:52 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:44:52 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:44:52 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:44:52 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:44:52 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:44:52 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:44:52 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 20124 edges. Distribution: low=20124, moderate=0, high=0, critical=0
+2025-11-17 22:44:53 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 20124 edges in the environment
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 9.60s
+2025-11-17 22:44:53 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 821ea736-6857-49cb-a5fe-92038b0bf914 with 13 river stations
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=821ea736-6857-49cb-a5fe-92038b0bf914
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:44:53 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:44:53 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:44:53 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-17 22:44:53 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:44:53 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-17 22:44:53 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 11.38s
+2025-11-17 22:44:53 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 08b6c46a-81f8-4122-bb38-db9b758f4731 with 13 river stations
+2025-11-17 22:44:53 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=08b6c46a-81f8-4122-bb38-db9b758f4731
+2025-11-17 22:44:53 - app.main - DEBUG - broadcast:164 - Successfully serialized message of type: flood_update
+2025-11-17 22:44:53 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:53 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:53 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:53 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:44:54 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 34
+2025-11-17 22:44:54 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 33
+2025-11-17 22:44:54 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 32
+2025-11-17 22:44:54 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 31
+2025-11-17 22:44:54 - app.main - INFO - broadcast_flood_update:231 - Broadcasted flood update to 31 clients
+2025-11-17 22:44:54 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:44:54 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:47:45 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 32
+2025-11-17 22:47:45 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 33
+2025-11-17 22:47:46 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 34
+2025-11-17 22:47:46 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:47:46 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:47:47 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:47:48 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 35
+2025-11-17 22:47:49 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 36
+2025-11-17 22:47:49 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:47:49 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:47:49 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:47:50 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 37
+2025-11-17 22:47:50 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 38
+2025-11-17 22:47:54 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 39
+2025-11-17 22:48:23 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 40
+2025-11-17 22:48:24 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 41
+2025-11-17 22:48:24 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:48:24 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:48:25 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:48:28 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 42
+2025-11-17 22:48:28 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:48:28 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:48:28 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:48:29 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 43
+2025-11-17 22:48:31 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 44
+2025-11-17 22:48:31 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 45
+2025-11-17 22:48:31 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:48:31 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:48:32 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:48:36 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 46
+2025-11-17 22:49:53 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:49:53 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:49:53 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:49:53 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:49:53 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:49:53 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:49:54 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:49:54 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:49:54 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:49:54 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:49:54 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:49:55 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:49:58 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:49:58 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:50:00 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:50:02 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:50:03 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:50:04 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:50:04 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:50:04 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:50:04 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:50:04 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:50:04 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:50:04 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:50:04 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:50:05 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 20124 edges. Distribution: low=20124, moderate=0, high=0, critical=0
+2025-11-17 22:50:05 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:50:05 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 20124 edges in the environment
+2025-11-17 22:50:05 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 11.98s
+2025-11-17 22:50:05 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 80c41de0-838f-4dd8-ac5f-3201e68ab76e with 13 river stations
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=80c41de0-838f-4dd8-ac5f-3201e68ab76e
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:50:05 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-17 22:50:05 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:50:05 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-17 22:50:05 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 11.37s
+2025-11-17 22:50:05 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 3da0969c-b7ff-4191-be9c-c925a9c38035 with 13 river stations
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=3da0969c-b7ff-4191-be9c-c925a9c38035
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:164 - Successfully serialized message of type: flood_update
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:50:05 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 45
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 44
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 43
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 42
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 41
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 40
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 39
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 38
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 37
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 36
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 35
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 34
+2025-11-17 22:50:05 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 33
+2025-11-17 22:50:05 - app.main - INFO - broadcast_flood_update:231 - Broadcasted flood update to 33 clients
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:50:05 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:53:45 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 34
+2025-11-17 22:53:45 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 35
+2025-11-17 22:53:47 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 36
+2025-11-17 22:53:47 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 37
+2025-11-17 22:53:48 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:53:49 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:53:50 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:53:51 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 38
+2025-11-17 22:53:51 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 39
+2025-11-17 22:53:53 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 40
+2025-11-17 22:54:01 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 41
+2025-11-17 22:54:01 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 42
+2025-11-17 22:54:07 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 43
+2025-11-17 22:54:07 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 44
+2025-11-17 22:54:09 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:54:10 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:54:10 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:54:11 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 45
+2025-11-17 22:54:12 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 46
+2025-11-17 22:54:13 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:54:13 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:54:13 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:54:17 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 47
+2025-11-17 22:54:20 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 48
+2025-11-17 22:54:20 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 49
+2025-11-17 22:54:20 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 50
+2025-11-17 22:54:22 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:54:22 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:54:22 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:54:25 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 51
+2025-11-17 22:55:05 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:55:05 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:55:05 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:55:05 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:55:05 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:55:05 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 22:55:05 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 22:55:05 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 22:55:05 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 22:55:05 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 22:55:07 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:55:07 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 22:55:09 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:55:09 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 22:55:11 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 22:55:13 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 22:55:14 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:55:14 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:55:14 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:55:14 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 22:55:14 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 22:55:14 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 22:55:14 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 22:55:14 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 22:55:15 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 20124 edges. Distribution: low=20124, moderate=0, high=0, critical=0
+2025-11-17 22:55:15 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:55:15 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-17 22:55:15 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 22:55:15 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 20124 edges in the environment
+2025-11-17 22:55:15 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 9.88s
+2025-11-17 22:55:15 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-17 22:55:15 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 9.70s
+2025-11-17 22:55:15 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 69c752bd-d928-4b0f-869b-fb9c8fced304 with 13 river stations
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=69c752bd-d928-4b0f-869b-fb9c8fced304
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:164 - Successfully serialized message of type: flood_update
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.database.repository - INFO - create_collection:104 - Saved flood data collection f308d18f-d3b9-4586-bbd6-aa888d6dc736 with 13 river stations
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=f308d18f-d3b9-4586-bbd6-aa888d6dc736
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - DEBUG - broadcast:189 - send_text successful
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - broadcast:191 - WebSocket disconnected during broadcast
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 50
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 49
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 48
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 47
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 46
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 45
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 44
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 43
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 42
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 41
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 40
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 39
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 38
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 37
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 36
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 35
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 34
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 33
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 32
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 31
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 30
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 29
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 28
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 27
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 26
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 25
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 24
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 23
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 22
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 21
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 20
+2025-11-17 22:55:15 - app.main - INFO - disconnect:146 - WebSocket disconnected. Total connections: 19
+2025-11-17 22:55:15 - app.main - INFO - broadcast_flood_update:231 - Broadcasted flood update to 19 clients
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 22:55:15 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 22:55:24 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 20
+2025-11-17 22:55:24 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 21
+2025-11-17 22:55:24 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 22
+2025-11-17 22:55:26 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-17 22:55:26 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-17 22:55:27 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-17 22:55:29 - app.main - INFO - connect:137 - WebSocket connected. Total connections: 23
