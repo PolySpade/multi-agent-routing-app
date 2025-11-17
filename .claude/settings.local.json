@@ -41,7 +41,9 @@
       "WebSearch",
       "Bash(findstr:*)",
       "Bash(netstat:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(timeout:*)",
+      "mcp__playwright__browser_wait_for"
     ],
     "deny": []
   }

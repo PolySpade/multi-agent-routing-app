@@ -46,12 +46,12 @@ export default function Home() {
   // Dynamically import the MapboxMap component with SSR turned off
   const MapboxMap = useMemo(() => dynamic(() => import('@/components/MapboxMap'), { 
     loading: () => (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
         height: '100%',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #248ea8 0%, #1a6b7f 100%)',
         color: 'white',
         fontSize: '18px'
       }}>
@@ -236,16 +236,16 @@ export default function Home() {
         transition: 'grid-template-columns 0.4s ease',
         minHeight: '100vh',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        background: 'linear-gradient(135deg, #0f172a, #312e81)'
+        background: 'linear-gradient(135deg, #1a1f2e, #0f1419)'
       }}>
         <aside style={{
           overflow: 'hidden',
           opacity: isPanelCollapsed ? 0 : 1,
           transition: 'opacity 0.3s ease',
-          background: 'linear-gradient(160deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)',
-          borderRight: isPanelCollapsed ? 'none' : '1px solid rgba(226, 232, 240, 0.25)',
+          background: 'linear-gradient(160deg, rgba(36, 142, 168, 0.95) 0%, rgba(26, 107, 127, 0.95) 100%)',
+          borderRight: isPanelCollapsed ? 'none' : '1px solid rgba(36, 142, 168, 0.3)',
           color: 'white',
-          boxShadow: isPanelCollapsed ? 'none' : '2px 0 18px rgba(15, 23, 42, 0.45)'
+          boxShadow: isPanelCollapsed ? 'none' : '2px 0 18px rgba(36, 142, 168, 0.35)'
         }}>
           <div style={{
             display: 'flex',
@@ -260,12 +260,13 @@ export default function Home() {
                   <div>
                     <h1 style={{
                       margin: '0',
-                      fontSize: '2.25rem',
-                      fontWeight: 700,
-                      background: 'linear-gradient(45deg, #ffffff, #e2e8f0)',
+                      fontSize: '2.5rem',
+                      fontWeight: 800,
+                      background: 'linear-gradient(135deg, #ffffff, #e2e8f0)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text'
+                      backgroundClip: 'text',
+                      letterSpacing: '0.02em'
                     }}>
                       MAS-FRO
                     </h1>
@@ -281,17 +282,27 @@ export default function Home() {
                     </p>
                   </div>
                   <Link href="/dashboard" style={{
-                    background: 'rgba(15, 23, 42, 0.25)',
-                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(255, 255, 255, 0.15)',
+                    border: '1px solid rgba(255,255,255,0.3)',
                     color: 'white',
                     borderRadius: '999px',
-                    padding: '0.4rem 0.9rem',
+                    padding: '0.5rem 1.1rem',
                     textDecoration: 'none',
-                    fontSize: '0.8rem',
+                    fontSize: '0.85rem',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.4rem',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    fontWeight: 600,
+                    backdropFilter: 'blur(8px)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                    e.currentTarget.style.transform = 'translateY(0)';
                   }}>
                     Dashboard
                     <span aria-hidden="true">📊</span>
@@ -328,13 +339,15 @@ export default function Home() {
 
             {!isPanelCollapsed && (
               <section style={{
-                background: 'rgba(255,255,255,0.12)',
-                borderRadius: '18px',
-                padding: '1.5rem',
-                boxShadow: '0 10px 35px rgba(15, 23, 42, 0.25)',
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '20px',
+                padding: '1.75rem',
+                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.2)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '1.25rem'
+                gap: '1.25rem',
+                border: '1px solid rgba(255,255,255,0.15)',
+                backdropFilter: 'blur(10px)'
               }}>
                 <div>
                   <h3 style={{
@@ -390,10 +403,12 @@ export default function Home() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '1.25rem',
-                background: 'rgba(15, 23, 42, 0.25)',
-                borderRadius: '18px',
-                padding: '1.5rem',
-                border: '1px solid rgba(255,255,255,0.15)'
+                background: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: '20px',
+                padding: '1.75rem',
+                border: '1px solid rgba(255,255,255,0.15)',
+                boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)',
+                backdropFilter: 'blur(10px)'
               }}>
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button
@@ -408,12 +423,12 @@ export default function Home() {
                       fontSize: '0.9rem',
                       fontWeight: 600,
                       background: selectionMode === 'start'
-                        ? 'linear-gradient(135deg, rgba(34,197,94,0.7), rgba(22,163,74,0.9))'
+                        ? 'linear-gradient(135deg, #248ea8, #1a6b7f)'
                         : startPoint
-                          ? 'rgba(34, 197, 94, 0.25)'
-                          : 'rgba(59, 130, 246, 0.45)',
+                          ? 'rgba(36, 142, 168, 0.4)'
+                          : 'rgba(36, 142, 168, 0.25)',
                       color: 'white',
-                      boxShadow: selectionMode === 'start' ? '0 6px 15px rgba(34,197,94,0.3)' : 'none',
+                      boxShadow: selectionMode === 'start' ? '0 6px 15px rgba(36, 142, 168, 0.4)' : 'none',
                       transition: 'all 0.3s ease'
                     }}
                   >
@@ -431,12 +446,12 @@ export default function Home() {
                       fontSize: '0.9rem',
                       fontWeight: 600,
                       background: selectionMode === 'end'
-                        ? 'linear-gradient(135deg, rgba(244,63,94,0.78), rgba(220,38,38,0.9))'
+                        ? 'linear-gradient(135deg, #e15c45, #c94a37)'
                         : endPoint
-                          ? 'rgba(244, 63, 94, 0.25)'
-                          : (!startPoint ? 'rgba(148,163,184,0.35)' : 'rgba(244, 114, 182, 0.35)'),
+                          ? 'rgba(225, 92, 69, 0.4)'
+                          : (!startPoint ? 'rgba(148,163,184,0.35)' : 'rgba(225, 92, 69, 0.25)'),
                       color: 'white',
-                      boxShadow: selectionMode === 'end' ? '0 6px 15px rgba(244,63,94,0.3)' : 'none',
+                      boxShadow: selectionMode === 'end' ? '0 6px 15px rgba(225, 92, 69, 0.4)' : 'none',
                       transition: 'all 0.3s ease'
                     }}
                   >
@@ -450,8 +465,8 @@ export default function Home() {
                     borderRadius: '10px',
                     fontSize: '0.9rem',
                     textAlign: 'center',
-                    border: '1px solid rgba(34,197,94,0.35)',
-                    background: 'rgba(34, 197, 94, 0.18)'
+                    border: '1px solid rgba(36, 142, 168, 0.5)',
+                    background: 'rgba(36, 142, 168, 0.25)'
                   }}>
                     {selectionMode === 'start' ? '🖱️ Click the map to set your start point.' : '🖱️ Click the map to set your destination.'}
                   </div>
@@ -465,8 +480,9 @@ export default function Home() {
                   <div style={{
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    background: startPoint ? 'rgba(34,197,94,0.2)' : 'rgba(148,163,184,0.2)',
-                    backdropFilter: 'blur(6px)'
+                    background: startPoint ? 'rgba(36, 142, 168, 0.3)' : 'rgba(148,163,184,0.2)',
+                    backdropFilter: 'blur(6px)',
+                    border: startPoint ? '1px solid rgba(36, 142, 168, 0.5)' : '1px solid transparent'
                   }}>
                     <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05rem', opacity: 0.7 }}>Start</div>
                     <div style={{ fontFamily: 'monospace', fontSize: '0.95rem', marginTop: '0.4rem' }}>
@@ -476,8 +492,9 @@ export default function Home() {
                   <div style={{
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    background: endPoint ? 'rgba(244,63,94,0.2)' : 'rgba(148,163,184,0.2)',
-                    backdropFilter: 'blur(6px)'
+                    background: endPoint ? 'rgba(225, 92, 69, 0.3)' : 'rgba(148,163,184,0.2)',
+                    backdropFilter: 'blur(6px)',
+                    border: endPoint ? '1px solid rgba(225, 92, 69, 0.5)' : '1px solid transparent'
                   }}>
                     <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05rem', opacity: 0.7 }}>Destination</div>
                     <div style={{ fontFamily: 'monospace', fontSize: '0.95rem', marginTop: '0.4rem' }}>
@@ -492,14 +509,24 @@ export default function Home() {
                     style={{
                       flex: 1,
                       minWidth: '140px',
-                      padding: '0.65rem',
-                      borderRadius: '10px',
+                      padding: '0.75rem',
+                      borderRadius: '12px',
                       border: '1px solid rgba(255,255,255,0.3)',
-                      background: 'rgba(255,255,255,0.18)',
+                      background: 'rgba(255,255,255,0.15)',
                       color: 'white',
                       cursor: 'pointer',
                       fontSize: '0.85rem',
-                      fontWeight: 600
+                      fontWeight: 600,
+                      transition: 'all 0.3s ease',
+                      backdropFilter: 'blur(8px)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
+                      e.currentTarget.style.transform = 'translateY(0)';
                     }}
                   >
                     🔁 Swap Start & End
@@ -509,14 +536,26 @@ export default function Home() {
                     style={{
                       flex: 1,
                       minWidth: '140px',
-                      padding: '0.65rem',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(255,255,255,0.3)',
-                      background: 'rgba(15,23,42,0.2)',
+                      padding: '0.75rem',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(225, 92, 69, 0.4)',
+                      background: 'rgba(225, 92, 69, 0.2)',
                       color: 'white',
                       cursor: 'pointer',
                       fontSize: '0.85rem',
-                      fontWeight: 600
+                      fontWeight: 600,
+                      transition: 'all 0.3s ease',
+                      backdropFilter: 'blur(8px)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(225, 92, 69, 0.35)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(225, 92, 69, 0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(225, 92, 69, 0.2)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
                     🔄 Reset Selection
@@ -535,7 +574,7 @@ export default function Home() {
                       fontWeight: 700,
                       background: (loading || !startPoint || !endPoint)
                         ? 'rgba(226,232,240,0.3)'
-                        : 'linear-gradient(135deg, #22c55e, #16a34a)',
+                        : 'linear-gradient(135deg, #248ea8, #1a6b7f)',
                       color: 'white',
                       display: 'flex',
                       alignItems: 'center',
@@ -543,7 +582,7 @@ export default function Home() {
                       gap: '0.6rem',
                       boxShadow: (loading || !startPoint || !endPoint)
                         ? 'none'
-                        : '0 12px 28px rgba(34,197,94,0.35)'
+                        : '0 12px 28px rgba(36, 142, 168, 0.45)'
                     }}
                   >
                     {loading ? (
@@ -569,10 +608,10 @@ export default function Home() {
                 <button
                   onClick={handleOpenFeedback}
                   style={{
-                    padding: '0.95rem',
+                    padding: '1rem',
                     borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    background: 'rgba(15, 23, 42, 0.25)',
+                    border: '1px solid rgba(225, 92, 69, 0.4)',
+                    background: 'rgba(225, 92, 69, 0.15)',
                     color: 'white',
                     cursor: 'pointer',
                     fontSize: '0.95rem',
@@ -581,13 +620,18 @@ export default function Home() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.6rem',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    backdropFilter: 'blur(8px)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(15, 23, 42, 0.4)';
+                    e.currentTarget.style.background = 'rgba(225, 92, 69, 0.3)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(225, 92, 69, 0.35)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(15, 23, 42, 0.25)';
+                    e.currentTarget.style.background = 'rgba(225, 92, 69, 0.15)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
                   📝 Report Road Condition
@@ -598,10 +642,12 @@ export default function Home() {
             {!isPanelCollapsed && (
               <section style={{
                 marginTop: 'auto',
-                background: 'rgba(15, 23, 42, 0.3)',
-                borderRadius: '16px',
-                padding: '1.4rem',
-                border: '1px solid rgba(255,255,255,0.1)'
+                background: 'rgba(0, 0, 0, 0.25)',
+                borderRadius: '18px',
+                padding: '1.5rem',
+                border: '1px solid rgba(255,255,255,0.12)',
+                boxShadow: '0 6px 25px rgba(0, 0, 0, 0.2)',
+                backdropFilter: 'blur(8px)'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -621,7 +667,7 @@ export default function Home() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: isConnected ? '#22c55e' : '#94a3b8',
+                      background: isConnected ? '#248ea8' : '#94a3b8',
                       animation: isConnected ? 'pulse 2s infinite' : 'none'
                     }} />
                     {isConnected ? 'Live' : 'Offline'}
@@ -705,13 +751,14 @@ export default function Home() {
             position: 'absolute',
             top: '1.25rem',
             left: '1.25rem',
-            padding: '0.85rem 1.1rem',
-            borderRadius: '14px',
-            background: 'rgba(15, 23, 42, 0.65)',
+            padding: '1rem 1.25rem',
+            borderRadius: '16px',
+            background: 'rgba(36, 142, 168, 0.85)',
             color: 'white',
-            boxShadow: '0 12px 30px rgba(15, 23, 42, 0.35)',
-            maxWidth: '320px',
-            backdropFilter: 'blur(12px)'
+            boxShadow: '0 15px 35px rgba(36, 142, 168, 0.4)',
+            maxWidth: '340px',
+            backdropFilter: 'blur(15px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
           }}>
             <div style={{
               display: 'flex',
@@ -726,7 +773,7 @@ export default function Home() {
                 fontSize: '0.75rem',
                 padding: '0.15rem 0.5rem',
                 borderRadius: '999px',
-                background: hasRoute ? 'rgba(34,197,94,0.35)' : 'rgba(148,163,184,0.35)'
+                background: hasRoute ? 'rgba(36, 142, 168, 0.45)' : 'rgba(148,163,184,0.35)'
               }}>
                 {hasRoute ? 'Active' : 'Pending'}
               </span>

@@ -26,7 +26,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const initialZoomRef = useRef(startPoint ? 12 : 10);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [boundaryFeature, setBoundaryFeature] = useState(null);
-  const [floodTimeStep, setFloodTimeStep] = useState(1);
+  const [graphData, setGraphData] = useState(null);
+  const [floodTimeStep, setFloodTimeStep] = useState(18); //modify this to one if you wanna test everything
   const [returnPeriod, setReturnPeriod] = useState('rr01');
   const [floodEnabled, setFloodEnabled] = useState(false);
   const onMapClickRef = useRef(onMapClick);
@@ -88,103 +89,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             sampled: geojsonData.properties?.sampled
           });
 
-          // Add GeoJSON source
-          mapRef.current.addSource('graph-risk-source', {
-            type: 'geojson',
-            data: geojsonData,
-            tolerance: 0.5  // Simplify for better performance
-          });
-
-          // Find first symbol layer (labels) to insert our layer before it
-          const layers = mapRef.current.getStyle().layers;
-          let firstSymbolId;
-          for (const layer of layers) {
-            if (layer.type === 'symbol') {
-              firstSymbolId = layer.id;
-              break;
-            }
-          }
-
-          // Add the risk visualization layer
-          mapRef.current.addLayer({
-            id: 'graph-risk-edges',
-            type: 'line',
-            source: 'graph-risk-source',
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round',
-              'visibility': 'visible'  // Make sure it's visible!
-            },
-            paint: {
-              // Color based on risk score
-              'line-color': [
-                'interpolate',
-                ['linear'],
-                ['get', 'risk_score'],
-                0.0, '#248ea8',   // Yellow - safe
-                0.3, '#FFA500',   // Orange - caution
-                0.6, '#FF6347',   // Tomato - danger
-                1.0, 'rgba(110, 17, 0, 1)'    // Crimson - critical
-              ],
-              // Width based on risk score (thicker = more dangerous)
-              'line-width': [
-                'interpolate',
-                ['linear'],
-                ['get', 'risk_score'],
-                0.0, 2,
-                0.6, 3,
-                1.0, 4
-              ],
-              // Opacity
-              'line-opacity': 0.4
-            }
-          }, firstSymbolId);  // Insert before labels so text is readable
-
-          console.log('✅ Graph risk layer added successfully!');
-          console.log('📊 You should see colored roads on the map now');
-
-          // Add click handler for road details
-          mapRef.current.on('click', 'graph-risk-edges', (e) => {
-            const feature = e.features[0];
-            const props = feature.properties;
-
-            new mapboxgl.Popup()
-              .setLngLat(e.lngLat)
-              .setHTML(`
-                <div style="padding: 10px; font-family: sans-serif;">
-                  <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #333;">
-                    🛣️ Road Risk Info
-                  </h3>
-                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                    <strong>Risk Level:</strong> ${(props.risk_score * 100).toFixed(1)}%
-                  </p>
-                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                    <strong>Category:</strong>
-                    <span style="color: ${
-                      props.risk_category === 'low' ? '#4CAF50' :
-                      props.risk_category === 'medium' ? '#FF9800' :
-                      '#F44336'
-                    }; font-weight: bold;">
-                      ${props.risk_category.toUpperCase()}
-                    </span>
-                  </p>
-                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                    <strong>Road Type:</strong> ${props.highway || 'unknown'}
-                  </p>
-                </div>
-              `)
-              .addTo(mapRef.current);
-          });
-
-          // Change cursor on hover
-          mapRef.current.on('mouseenter', 'graph-risk-edges', () => {
-            mapRef.current.getCanvas().style.cursor = 'pointer';
-          });
-
-          mapRef.current.on('mouseleave', 'graph-risk-edges', () => {
-            mapRef.current.getCanvas().style.cursor = '';
-          });
-
+          // Store graph data in state to be processed when boundary is available
+          setGraphData(geojsonData);
         })
         .catch(error => {
           console.error('❌ Error loading graph risk data:', error);
@@ -192,67 +98,175 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         });
     });
 
-    // Add click handler with proper debugging
-    mapRef.current.on('click', (e) => {
-      console.log('Mapbox click event:', e.lngLat); // Debug log
-      const coords = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-      console.log('Calling onMapClick with:', coords); // Debug log
-      const clickHandler = onMapClickRef.current;
-      if (clickHandler) {
-        clickHandler(coords);
-      } else {
-        console.warn('onMapClick handler is not defined'); // Debug log
-      }
-    });
-
-    mapRef.current.on('style.load', () => {
-      if (mapRef.current.getLayer('add-3d-buildings')) return;
-      const layers = mapRef.current.getStyle()?.layers || [];
-      const labelLayer = layers.find(
-        (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
-      );
-      const labelLayerId = labelLayer?.id;
-
-      if (!labelLayerId) return;
-
-      mapRef.current.addLayer(
-        {
-          id: 'add-3d-buildings',
-          source: 'composite',
-          'source-layer': 'building',
-          filter: ['==', 'extrude', 'true'],
-          type: 'fill-extrusion',
-          minzoom: 18,
-          paint: {
-            'fill-extrusion-color': '#3951ba',
-            'fill-extrusion-height': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              15, 0,
-              15.05, ['get', 'height'],
-            ],
-            'fill-extrusion-base': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              15, 0,
-              15.05, ['get', 'min_height'],
-            ],
-            'fill-extrusion-opacity': 0.6,
-          },
-        },
-        labelLayerId
-      );
-    });
-
     return () => {
       if (mapRef.current) {
         mapRef.current.remove();
       }
-      setIsMapLoaded(false);
     };
   }, []);
+
+  // Update graph visualization when boundary or graph data changes
+  useEffect(() => {
+    if (!mapRef.current || !isMapLoaded || !graphData) return;
+
+    // Helper function: Point-in-polygon check using ray casting
+    const isPointInPolygon = (lng, lat, polygon) => {
+      if (!polygon) return true;
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+        const intersect = ((yi > lat) !== (yj > lat)) &&
+          (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+
+    // Get boundary polygon for clipping
+    let boundaryRing = null;
+    if (boundaryFeature?.geometry) {
+      const geom = boundaryFeature.geometry;
+      boundaryRing = geom.type === 'Polygon'
+        ? geom.coordinates[0]
+        : geom.coordinates[0][0];
+      console.log('🗺️ Clipping graph edges to boundary with', boundaryRing.length, 'points');
+    }
+
+    // Filter edges: keep only if BOTH endpoints are within boundary (strict clipping)
+    const filteredFeatures = graphData.features.filter(feature => {
+      if (!boundaryRing) return true; // No boundary = show all
+
+      const coords = feature.geometry.coordinates;
+      // LineString: check if both start AND end points are within boundary
+      if (coords.length >= 2) {
+        const startPoint = coords[0];
+        const endPoint = coords[coords.length - 1];
+        const startInside = isPointInPolygon(startPoint[0], startPoint[1], boundaryRing);
+        const endInside = isPointInPolygon(endPoint[0], endPoint[1], boundaryRing);
+
+        // Keep edge only if BOTH endpoints are inside boundary (stricter clipping)
+        return startInside && endInside;
+      }
+      return true;
+    });
+
+    console.log(`✂️ Filtered graph edges: ${graphData.features.length} → ${filteredFeatures.length} (removed ${graphData.features.length - filteredFeatures.length} edges outside boundary)`);
+
+    const filteredData = {
+      type: 'FeatureCollection',
+      features: filteredFeatures
+    };
+
+    // Remove existing graph layer and source if they exist
+    if (mapRef.current.getLayer('graph-risk-edges')) {
+      mapRef.current.removeLayer('graph-risk-edges');
+    }
+    if (mapRef.current.getSource('graph-risk-source')) {
+      mapRef.current.removeSource('graph-risk-source');
+    }
+
+    // Add GeoJSON source
+    mapRef.current.addSource('graph-risk-source', {
+      type: 'geojson',
+      data: filteredData,
+      tolerance: 0.5  // Simplify for better performance
+    });
+
+    // Find first symbol layer (labels) to insert our layer before it
+    const layers = mapRef.current.getStyle().layers;
+    let firstSymbolId;
+    for (const layer of layers) {
+      if (layer.type === 'symbol') {
+        firstSymbolId = layer.id;
+        break;
+      }
+    }
+
+    // Add the risk visualization layer
+    mapRef.current.addLayer({
+      id: 'graph-risk-edges',
+      type: 'line',
+      source: 'graph-risk-source',
+      layout: {
+        'line-join': 'round',
+        'line-cap': 'round',
+        'visibility': 'visible'  // Make sure it's visible!
+      },
+      paint: {
+        // Color based on risk score
+        'line-color': [
+          'interpolate',
+          ['linear'],
+          ['get', 'risk_score'],
+          0.0, '#248ea8',   // Blue - safe
+          0.3, '#FFA500',   // Orange - caution
+          0.6, '#FF6347',   // Tomato - danger
+          1.0, 'rgba(110, 17, 0, 1)'    // Dark red - critical
+        ],
+        // Width based on risk score (thicker = more dangerous)
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['get', 'risk_score'],
+          0.0, 2,
+          0.6, 3,
+          1.0, 4
+        ],
+        // Opacity
+        'line-opacity': 0.4
+      }
+    }, firstSymbolId);  // Insert before labels so text is readable
+
+    console.log('✅ Graph risk layer added successfully!');
+    console.log('📊 You should see colored roads on the map now');
+
+    // Add click handler for road details (only once)
+    if (!mapRef.current._graphClickHandlerAdded) {
+      mapRef.current.on('click', 'graph-risk-edges', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+
+        new mapboxgl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 10px; font-family: sans-serif;">
+              <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #333;">
+                🛣️ Road Risk Info
+              </h3>
+              <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                <strong>Risk Level:</strong> ${(props.risk_score * 100).toFixed(1)}%
+              </p>
+              <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                <strong>Category:</strong>
+                <span style="color: ${
+                  props.risk_category === 'low' ? '#4CAF50' :
+                  props.risk_category === 'medium' ? '#FF9800' :
+                  '#F44336'
+                }; font-weight: bold;">
+                  ${props.risk_category.toUpperCase()}
+                </span>
+              </p>
+              <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                <strong>Road Type:</strong> ${props.highway || 'unknown'}
+              </p>
+            </div>
+          `)
+          .addTo(mapRef.current);
+      });
+
+      // Change cursor on hover
+      mapRef.current.on('mouseenter', 'graph-risk-edges', () => {
+        mapRef.current.getCanvas().style.cursor = 'pointer';
+      });
+
+      mapRef.current.on('mouseleave', 'graph-risk-edges', () => {
+        mapRef.current.getCanvas().style.cursor = '';
+      });
+
+      mapRef.current._graphClickHandlerAdded = true;
+    }
+  }, [isMapLoaded, graphData, boundaryFeature]);
 
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
@@ -808,13 +822,13 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         position: 'absolute',
         top: '20px',
         right: '20px',
-        background: 'linear-gradient(160deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)',
-        backdropFilter: 'blur(10px)',
+        background: 'linear-gradient(160deg, rgba(36, 142, 168, 0.95) 0%, rgba(26, 107, 127, 0.95) 100%)',
+        backdropFilter: 'blur(12px)',
         padding: '1.25rem 1.5rem',
-        borderRadius: '12px',
-        boxShadow: '0 8px 32px rgba(15, 23, 42, 0.4)',
+        borderRadius: '14px',
+        boxShadow: '0 10px 35px rgba(36, 142, 168, 0.4)',
         zIndex: 1,
-        border: '1px solid rgba(226, 232, 240, 0.25)',
+        border: '1px solid rgba(255, 255, 255, 0.25)',
         minWidth: '240px'
       }}>
         <div style={{
@@ -903,7 +917,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             </option>
           </select>
         </div>
-
+{/* 
         <input
           type="range"
           min="1"
@@ -938,6 +952,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             {floodTimeStep} / 18
           </span>
         </div>
+ */}
+        
       </div>
 
       {/* Real-time Flood Alerts */}
