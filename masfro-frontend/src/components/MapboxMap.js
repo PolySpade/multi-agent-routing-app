@@ -844,7 +844,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       ref={mapContainerRef}
       style={{ width: '100%', height: '100%', minHeight: '100vh' }}
     >
-      <div style={{
+      {/* <div style={{
         position: 'absolute',
         top: '20px',
         right: '20px',
@@ -900,10 +900,10 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             <span style={{ fontSize: '0.9rem' }}>{floodEnabled ? '✓' : '✕'}</span>
             {floodEnabled ? 'ON' : 'OFF'}
           </button>
-        </div>
+        </div> */}
 
         {/* Return Period Selector */}
-        <div style={{ marginBottom: '0.75rem' }}>
+        {/* <div style={{ marginBottom: '0.75rem' }}>
           <label style={{
             display: 'block',
             color: 'rgba(255, 255, 255, 0.9)',
@@ -942,7 +942,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
               10-Year Flood (RR04)
             </option>
           </select>
-        </div>
+        </div> */}
 {/* 
         <input
           type="range"
@@ -980,7 +980,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         </div>
  */}
         
-      </div>
+      {/* </div> */}
 
       {/* Real-time Flood Alerts */}
       <FloodAlerts
@@ -988,6 +988,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         onClear={clearAlerts}
         isConnected={isConnected}
       />
+      
     </div>
   );
 }

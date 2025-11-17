@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import LocationSearch from '@/components/LocationSearch';
 import FeedbackForm from '@/components/FeedbackForm';
+import SimulationPanel from '@/components/SimulationPanel';
 import { findRoute } from '@/utils/routingService';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
@@ -354,6 +355,7 @@ export default function Home() {
           border-radius: 12px;
           padding: 1rem;
           border-left: 3px solid var(--primary);
+          margin-bottom: 2rem;
         }
         .status-header {
           display: flex;
@@ -640,6 +642,12 @@ export default function Home() {
           selectionMode={selectionMode}
         />
       </section>
+
+      {/* --- Simulation Panel --- */}
+      <SimulationPanel
+        isConnected={isConnected}
+        floodData={null}
+      />
 
       {/* --- Feedback Modal --- */}
       {showFeedback && (
