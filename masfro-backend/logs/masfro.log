@@ -12785,3 +12785,83 @@ Symbols not available. Dumping unresolved backtrace:
 2025-11-14 15:10:27 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=9b9f5df4-f87b-4cbb-a1d2-652f64c20657
 2025-11-14 15:10:27 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
 2025-11-14 15:10:27 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 21:24:32 - app.core.logging_config - INFO - setup_logging:101 - Logging configuration initialized
+2025-11-17 21:24:32 - app.main - INFO - <module>:393 - Initializing MAS-FRO Multi-Agent System...
+2025-11-17 21:24:33 - app.communication.message_queue - INFO - __init__:46 - MessageQueue system initialized
+2025-11-17 21:24:33 - app.agents.hazard_agent_001 - INFO - __init__:36 - Agent hazard_agent_001 created
+2025-11-17 21:24:33 - app.agents.hazard_agent - INFO - __init__:116 - hazard_agent_001 GeoTIFF integration DISABLED
+2025-11-17 21:24:33 - app.ml_models.location_geocoder - INFO - __init__:169 - LocationGeocoder initialized with 85 location mappings
+2025-11-17 21:24:33 - app.agents.hazard_agent - INFO - __init__:129 - hazard_agent_001 LocationGeocoder initialized
+2025-11-17 21:24:33 - app.agents.hazard_agent - INFO - __init__:137 - hazard_agent_001 initialized with risk weights: {'flood_depth': 0.5, 'crowdsourced': 0.3, 'historical': 0.2}, return_period: rr01, time_step: 1, geotiff_enabled: False
+2025-11-17 21:24:33 - app.agents.flood_agent_001 - INFO - __init__:36 - Agent flood_agent_001 created
+2025-11-17 21:24:33 - services.river_scraper_service - INFO - __init__:44 - RiverScraperService initialized
+2025-11-17 21:24:33 - app.agents.flood_agent - INFO - __init__:106 - flood_agent_001 initialized RiverScraperService
+2025-11-17 21:24:33 - app.agents.flood_agent - INFO - __init__:114 - flood_agent_001 initialized OpenWeatherMapService
+2025-11-17 21:24:33 - services.dam_water_scraper_service - INFO - __init__:164 - DamWaterScraperService initialized
+2025-11-17 21:24:33 - app.agents.flood_agent - INFO - __init__:125 - flood_agent_001 initialized DamWaterScraperService
+2025-11-17 21:24:33 - services.data_sources - INFO - __init__:309 - DataCollector initialized: simulated=False, pagasa=False, noah=False, mmda=False
+2025-11-17 21:24:33 - app.agents.flood_agent - INFO - __init__:153 - flood_agent_001 initialized with update interval 300s, real_apis=True, simulated=False
+2025-11-17 21:24:33 - app.agents.routing_agent_001 - INFO - __init__:36 - Agent routing_agent_001 created
+2025-11-17 21:24:33 - app.agents.routing_agent - INFO - _load_evacuation_centers:402 - Loaded 36 evacuation centers from C:\Users\minem\OneDrive\Documents\Coding Project\multi-agent-routing-app\masfro-backend\app\data\evacuation_centers.csv
+2025-11-17 21:24:33 - app.agents.routing_agent - INFO - __init__:71 - routing_agent_001 initialized with risk_weight=0.6, distance_weight=0.4, evacuation_centers=36
+2025-11-17 21:24:33 - app.agents.evac_manager_001 - INFO - __init__:36 - Agent evac_manager_001 created
+2025-11-17 21:24:33 - app.agents.evacuation_manager_agent - INFO - __init__:90 - evac_manager_001 initialized
+2025-11-17 21:24:33 - app.agents.flood_agent - INFO - set_hazard_agent:167 - flood_agent_001 linked to hazard_agent_001
+2025-11-17 21:24:33 - app.agents.evacuation_manager_agent - INFO - set_hazard_agent:126 - evac_manager_001 linked to hazard_agent_001
+2025-11-17 21:24:33 - app.agents.evacuation_manager_agent - INFO - set_routing_agent:116 - evac_manager_001 linked to routing_agent_001
+2025-11-17 21:24:33 - app.services.flood_data_scheduler - INFO - __init__:71 - FloodDataScheduler initialized with interval=300s (5.0 minutes), WebSocket broadcasting=enabled
+2025-11-17 21:24:33 - app.main - INFO - <module>:441 - MAS-FRO system initialized successfully
+2025-11-17 21:24:33 - app.core.logging_config - INFO - setup_logging:101 - Logging configuration initialized
+2025-11-17 21:24:33 - app.main - INFO - startup_event:450 - ============================================================
+2025-11-17 21:24:33 - app.main - INFO - startup_event:451 - MAS-FRO Backend Starting Up
+2025-11-17 21:24:33 - app.main - INFO - startup_event:452 - ============================================================
+2025-11-17 21:24:33 - app.main - INFO - startup_event:453 - Structured logging initialized - logs written to logs/masfro.log
+2025-11-17 21:24:33 - app.main - INFO - startup_event:456 - Checking database connection...
+2025-11-17 21:24:34 - app.database.connection - INFO - check_connection:92 - [OK] Database connection successful
+2025-11-17 21:24:34 - app.main - INFO - startup_event:458 - Database connection successful
+2025-11-17 21:24:34 - app.database.connection - INFO - init_db:76 - [OK] Database tables created successfully
+2025-11-17 21:24:34 - app.main - INFO - startup_event:465 - Starting background scheduler...
+2025-11-17 21:24:34 - app.services.flood_data_scheduler - INFO - start:265 - [OK] FloodDataScheduler started (interval=300s)
+2025-11-17 21:24:34 - app.main - INFO - startup_event:469 - Automated flood data collection started (every 5 minutes)
+2025-11-17 21:24:34 - app.services.flood_data_scheduler - INFO - _collection_loop:179 - FloodDataScheduler started
+2025-11-17 21:24:34 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-17 21:24:34 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-17 21:24:34 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-17 21:24:34 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-17 21:24:34 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-17 21:24:38 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-17 21:24:39 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-17 21:24:41 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-17 21:24:41 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-17 21:24:41 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-17 21:24:43 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-17 21:24:44 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-17 21:24:44 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-17 21:24:44 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-17 21:24:44 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-17 21:24:44 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-17 21:24:44 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-17 21:24:44 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 20124 edges. Distribution: low=20124, moderate=0, high=0, critical=0
+2025-11-17 21:24:44 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-17 21:24:44 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 20124 edges in the environment
+2025-11-17 21:24:44 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-17 21:24:44 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 10.85s
+2025-11-17 21:24:45 - app.database.repository - INFO - create_collection:104 - Saved flood data collection e999419c-94d6-4ffe-9cea-5a22e7599d4f with 13 river stations
+2025-11-17 21:24:45 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=e999419c-94d6-4ffe-9cea-5a22e7599d4f
+2025-11-17 21:24:45 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-17 21:24:45 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-17 21:25:02 - app.main - INFO - connect:134 - WebSocket connected. Total connections: 1
+2025-11-17 21:25:02 - app.main - INFO - connect:134 - WebSocket connected. Total connections: 2
+2025-11-17 21:25:02 - app.main - INFO - connect:134 - WebSocket connected. Total connections: 3
