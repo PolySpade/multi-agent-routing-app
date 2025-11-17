@@ -24,13 +24,13 @@ def download_and_save_graph():
 
         if graph.number_of_edges() > 0:
             ox.save_graphml(graph, filepath=filepath)
-            print(f"\n✅ SUCCESS: Graph downloaded and saved successfully to '{filepath}'")
+            print(f"\n SUCCESS: Graph downloaded and saved successfully to '{filepath}'")
             print(f"   The graph has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.")
         else:
-            print("\n❌ FAILURE: Download resulted in an empty graph. File not saved.")
+            print("\n FAILURE: Download resulted in an empty graph. File not saved.")
 
     except Exception as e:
-        print(f"\n❌ CRITICAL FAILURE: An error occurred during download: {e}")
+        print(f"\n CRITICAL FAILURE: An error occurred during download: {e}")
 
 if __name__ == "__main__":
     download_and_save_graph()

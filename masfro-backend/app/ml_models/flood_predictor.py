@@ -13,7 +13,7 @@ integrated into the risk scoring system by the HazardAgent.
 Author: MAS-FRO Development Team
 Date: November 2025
 """
-
+# NOT USED
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
