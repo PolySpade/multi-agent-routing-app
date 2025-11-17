@@ -28,7 +28,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const [boundaryFeature, setBoundaryFeature] = useState(null);
   const [floodTimeStep, setFloodTimeStep] = useState(1);
   const [returnPeriod, setReturnPeriod] = useState('rr01');
-  const [floodEnabled, setFloodEnabled] = useState(true);
+  const [floodEnabled, setFloodEnabled] = useState(false);
   const onMapClickRef = useRef(onMapClick);
 
   // WebSocket connection for real-time flood updates and alerts
@@ -70,6 +70,126 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     mapRef.current.on('load', () => {
       setIsMapLoaded(true);
+
+      // === GRAPH RISK LAYER - Load after map is ready ===
+      console.log('🔄 Loading graph risk visualization...');
+
+      // Fetch road risk data from backend (no sample_size = ALL edges)
+      fetch('http://localhost:8000/api/graph/edges/geojson')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(geojsonData => {
+          console.log('✅ Loaded graph data:', {
+            totalEdges: geojsonData.features.length,
+            sampled: geojsonData.properties?.sampled
+          });
+
+          // Add GeoJSON source
+          mapRef.current.addSource('graph-risk-source', {
+            type: 'geojson',
+            data: geojsonData,
+            tolerance: 0.5  // Simplify for better performance
+          });
+
+          // Find first symbol layer (labels) to insert our layer before it
+          const layers = mapRef.current.getStyle().layers;
+          let firstSymbolId;
+          for (const layer of layers) {
+            if (layer.type === 'symbol') {
+              firstSymbolId = layer.id;
+              break;
+            }
+          }
+
+          // Add the risk visualization layer
+          mapRef.current.addLayer({
+            id: 'graph-risk-edges',
+            type: 'line',
+            source: 'graph-risk-source',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round',
+              'visibility': 'visible'  // Make sure it's visible!
+            },
+            paint: {
+              // Color based on risk score
+              'line-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'risk_score'],
+                0.0, '#248ea8',   // Yellow - safe
+                0.3, '#FFA500',   // Orange - caution
+                0.6, '#FF6347',   // Tomato - danger
+                1.0, 'rgba(110, 17, 0, 1)'    // Crimson - critical
+              ],
+              // Width based on risk score (thicker = more dangerous)
+              'line-width': [
+                'interpolate',
+                ['linear'],
+                ['get', 'risk_score'],
+                0.0, 2,
+                0.6, 3,
+                1.0, 4
+              ],
+              // Opacity
+              'line-opacity': 0.4
+            }
+          }, firstSymbolId);  // Insert before labels so text is readable
+
+          console.log('✅ Graph risk layer added successfully!');
+          console.log('📊 You should see colored roads on the map now');
+
+          // Add click handler for road details
+          mapRef.current.on('click', 'graph-risk-edges', (e) => {
+            const feature = e.features[0];
+            const props = feature.properties;
+
+            new mapboxgl.Popup()
+              .setLngLat(e.lngLat)
+              .setHTML(`
+                <div style="padding: 10px; font-family: sans-serif;">
+                  <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #333;">
+                    🛣️ Road Risk Info
+                  </h3>
+                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                    <strong>Risk Level:</strong> ${(props.risk_score * 100).toFixed(1)}%
+                  </p>
+                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                    <strong>Category:</strong>
+                    <span style="color: ${
+                      props.risk_category === 'low' ? '#4CAF50' :
+                      props.risk_category === 'medium' ? '#FF9800' :
+                      '#F44336'
+                    }; font-weight: bold;">
+                      ${props.risk_category.toUpperCase()}
+                    </span>
+                  </p>
+                  <p style="margin: 4px 0; font-size: 12px; color: #666;">
+                    <strong>Road Type:</strong> ${props.highway || 'unknown'}
+                  </p>
+                </div>
+              `)
+              .addTo(mapRef.current);
+          });
+
+          // Change cursor on hover
+          mapRef.current.on('mouseenter', 'graph-risk-edges', () => {
+            mapRef.current.getCanvas().style.cursor = 'pointer';
+          });
+
+          mapRef.current.on('mouseleave', 'graph-risk-edges', () => {
+            mapRef.current.getCanvas().style.cursor = '';
+          });
+
+        })
+        .catch(error => {
+          console.error('❌ Error loading graph risk data:', error);
+          console.error('Make sure backend is running: uvicorn app.main:app --reload');
+        });
     });
 
     // Add click handler with proper debugging

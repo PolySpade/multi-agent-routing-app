@@ -1,0 +1,103 @@
+{
+  "simulation_metadata": {
+    "scenario_id": 1,
+    "scenario_name": "Heavy Flooding - Typhoon Scenario",
+    "start_time": "2025-11-17T21:47:35.410997",
+    "end_time": "2025-11-17T21:47:39.082080",
+    "duration_seconds": 3.671083
+  },
+  "flood_data_summary": {
+    "severity": "critical",
+    "overall_risk": "critical",
+    "flood_probability": 0.98,
+    "affected_areas": [
+      "Nangka",
+      "Sto. Niño",
+      "Tumana",
+      "Concepcion",
+      "Malanday"
+    ]
+  },
+  "scout_data_summary": {
+    "total_reports": 100,
+    "georeferenced_reports": 0
+  },
+  "hazard_fusion_summary": {
+    "timestamp": "2025-11-17T21:47:35.422514",
+    "flood_risk_level": "critical",
+    "scout_reports_processed": 0,
+    "affected_nodes": 0,
+    "graph_updated": true
+  },
+  "routing_summary": {
+    "routes_calculated": 3,
+    "routes": [
+      {
+        "route_name": "Evacuation from Nangka to Safe Zone",
+        "description": "Evacuate from high-risk area to evacuation center",
+        "origin": [
+          14.6507,
+          121.1009
+        ],
+        "destination": [
+          14.635,
+          121.115
+        ],
+        "status": "calculated",
+        "timestamp": "2025-11-17T21:47:39.081080"
+      },
+      {
+        "route_name": "Emergency Response to Sto. Niño",
+        "description": "Emergency services route to critical flood area",
+        "origin": [
+          14.64,
+          121.12
+        ],
+        "destination": [
+          14.6553,
+          121.0967
+        ],
+        "status": "calculated",
+        "timestamp": "2025-11-17T21:47:39.082080"
+      },
+      {
+        "route_name": "Cross-City Safe Passage",
+        "description": "Safe route across city avoiding flood zones",
+        "origin": [
+          14.6789,
+          121.11
+        ],
+        "destination": [
+          14.6175,
+          121.0842
+        ],
+        "status": "calculated",
+        "timestamp": "2025-11-17T21:47:39.082080"
+      }
+    ]
+  },
+  "graph_analysis": {
+    "before_injection": {
+      "total_edges": 20124,
+      "avg_risk_score": 0.0,
+      "high_risk_edges": 0,
+      "medium_risk_edges": 0,
+      "low_risk_edges": 20124
+    },
+    "after_injection": {
+      "total_edges": 20124,
+      "avg_risk_score": 0.0,
+      "high_risk_edges": 0,
+      "medium_risk_edges": 0,
+      "low_risk_edges": 20124
+    },
+    "changes": {
+      "avg_risk_delta": 0.0,
+      "high_risk_increase": 0
+    }
+  },
+  "visualizations": {
+    "graph_before_after": "C:\\Users\\minem\\OneDrive\\Documents\\Coding Project\\multi-agent-routing-app\\masfro-backend\\outputs\\visualizations\\graph_before_after_scenario_1_20251117_214737.png",
+    "risk_distribution": "C:\\Users\\minem\\OneDrive\\Documents\\Coding Project\\multi-agent-routing-app\\masfro-backend\\outputs\\visualizations\\risk_distribution_scenario_1_20251117_214738.png"
+  }
+}

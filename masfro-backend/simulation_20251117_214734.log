@@ -1,0 +1,60 @@
+2025-11-17 21:47:34,313 - __main__ - INFO - Initializing Simulation Runner for Scenario 1
+2025-11-17 21:47:34,314 - __main__ - INFO - Loaded flood scenario: Heavy Flooding - Typhoon Scenario (Severity: critical)
+2025-11-17 21:47:34,315 - __main__ - INFO - Loaded 100 scout tweets
+2025-11-17 21:47:34,315 - __main__ - INFO - Initializing graph environment...
+2025-11-17 21:47:35,397 - __main__ - INFO - Initializing agents...
+2025-11-17 21:47:35,403 - app.agents.flood_sim - INFO - Agent flood_sim created
+2025-11-17 21:47:35,403 - app.agents.flood_agent - INFO - flood_sim real APIs disabled
+2025-11-17 21:47:35,403 - services.data_sources - INFO - DataCollector initialized: simulated=True, pagasa=False, noah=False, mmda=False
+2025-11-17 21:47:35,403 - app.agents.flood_agent - INFO - flood_sim initialized with update interval 300s, real_apis=False, simulated=True
+2025-11-17 21:47:35,404 - app.agents.scout_sim - INFO - Agent scout_sim created
+2025-11-17 21:47:35,405 - app.ml_models.nlp_processor - INFO - NLPProcessor v2.0 initialized with comprehensive Marikina data
+2025-11-17 21:47:35,405 - app.ml_models.nlp_processor - INFO -   - 85 known locations loaded
+2025-11-17 21:47:35,406 - app.ml_models.nlp_processor - INFO -   - 83 flood keywords
+2025-11-17 21:47:35,406 - app.ml_models.nlp_processor - INFO -   - 67 severity indicators
+2025-11-17 21:47:35,406 - app.agents.scout_sim - INFO - scout_sim initialized with NLP processor
+2025-11-17 21:47:35,406 - app.ml_models.location_geocoder - INFO - LocationGeocoder initialized with 85 location mappings
+2025-11-17 21:47:35,406 - app.agents.scout_sim - INFO - scout_sim initialized with LocationGeocoder
+2025-11-17 21:47:35,406 - app.agents.scout_sim - INFO - ScoutAgent 'scout_sim' initialized in SCRAPING MODE
+2025-11-17 21:47:35,406 - app.agents.hazard_sim - INFO - Agent hazard_sim created
+2025-11-17 21:47:35,407 - app.agents.hazard_agent - INFO - hazard_sim GeoTIFF integration DISABLED
+2025-11-17 21:47:35,407 - app.ml_models.location_geocoder - INFO - LocationGeocoder initialized with 85 location mappings
+2025-11-17 21:47:35,407 - app.agents.hazard_agent - INFO - hazard_sim LocationGeocoder initialized
+2025-11-17 21:47:35,407 - app.agents.hazard_agent - INFO - hazard_sim initialized with risk weights: {'flood_depth': 0.5, 'crowdsourced': 0.3, 'historical': 0.2}, return_period: rr01, time_step: 1, geotiff_enabled: False
+2025-11-17 21:47:35,407 - app.agents.routing_sim - INFO - Agent routing_sim created
+2025-11-17 21:47:35,409 - app.agents.routing_agent - INFO - Loaded 36 evacuation centers from C:\Users\minem\OneDrive\Documents\Coding Project\multi-agent-routing-app\masfro-backend\app\data\evacuation_centers.csv
+2025-11-17 21:47:35,409 - app.agents.routing_agent - INFO - routing_sim initialized with risk_weight=0.6, distance_weight=0.4, evacuation_centers=36
+2025-11-17 21:47:35,410 - app.agents.evacuation_sim - INFO - Agent evacuation_sim created
+2025-11-17 21:47:35,410 - app.agents.evacuation_manager_agent - INFO - evacuation_sim initialized
+2025-11-17 21:47:35,410 - __main__ - INFO - Simulation initialization complete
+2025-11-17 21:47:35,410 - __main__ - INFO - ================================================================================
+2025-11-17 21:47:35,410 - __main__ - INFO - STARTING SIMULATION - SCENARIO 1
+2025-11-17 21:47:35,410 - __main__ - INFO - ================================================================================
+2025-11-17 21:47:35,410 - __main__ - INFO - Capturing graph state BEFORE data injection...
+2025-11-17 21:47:35,421 - __main__ - INFO - BEFORE: 20,124 edges, avg risk: 0.0000
+2025-11-17 21:47:35,421 - __main__ - INFO - Injecting flood data into FloodAgent...
+2025-11-17 21:47:35,421 - __main__ - INFO - Flood data injected - Overall risk: critical
+2025-11-17 21:47:35,421 - __main__ - INFO - Injecting 100 scout tweets...
+2025-11-17 21:47:35,422 - __main__ - INFO - Processed 100 scout reports
+2025-11-17 21:47:35,422 - __main__ - INFO - Fusing hazard data from multiple sources...
+2025-11-17 21:47:35,422 - __main__ - INFO - HazardAgent processed 0 georeferenced reports
+2025-11-17 21:47:35,422 - __main__ - INFO - Capturing graph state AFTER data injection...
+2025-11-17 21:47:35,432 - __main__ - INFO - AFTER: 20,124 edges, avg risk: 0.0000
+2025-11-17 21:47:35,432 - __main__ - INFO - Generating visualizations...
+2025-11-17 21:47:35,432 - __main__ - INFO - Creating before/after graph visualization...
+2025-11-17 21:47:38,593 - __main__ - INFO - Visualization saved to: C:\Users\minem\OneDrive\Documents\Coding Project\multi-agent-routing-app\masfro-backend\outputs\visualizations\graph_before_after_scenario_1_20251117_214737.png
+2025-11-17 21:47:38,595 - __main__ - INFO - Creating risk distribution comparison plot...
+2025-11-17 21:47:39,081 - __main__ - INFO - Risk distribution plot saved to: C:\Users\minem\OneDrive\Documents\Coding Project\multi-agent-routing-app\masfro-backend\outputs\visualizations\risk_distribution_scenario_1_20251117_214738.png
+2025-11-17 21:47:39,081 - __main__ - INFO - Calculating test routes...
+2025-11-17 21:47:39,081 - __main__ - INFO - Calculating route: Evacuation from Nangka to Safe Zone
+2025-11-17 21:47:39,081 - __main__ - INFO - Calculating route: Emergency Response to Sto. Niño
+2025-11-17 21:47:39,082 - __main__ - INFO - Calculating route: Cross-City Safe Passage
+2025-11-17 21:47:39,082 - __main__ - INFO - Calculated 3 test routes
+2025-11-17 21:47:39,082 - __main__ - INFO - ================================================================================
+2025-11-17 21:47:39,082 - __main__ - INFO - SIMULATION COMPLETE
+2025-11-17 21:47:39,082 - __main__ - INFO - Duration: 3.67 seconds
+2025-11-17 21:47:39,082 - __main__ - INFO - Overall Risk Level: CRITICAL
+2025-11-17 21:47:39,082 - __main__ - INFO - Scout Reports Processed: 100
+2025-11-17 21:47:39,082 - __main__ - INFO - Routes Calculated: 3
+2025-11-17 21:47:39,082 - __main__ - INFO - ================================================================================
+2025-11-17 21:47:39,083 - __main__ - INFO - Results saved to: C:\Users\minem\OneDrive\Documents\Coding Project\multi-agent-routing-app\masfro-backend\outputs\simulation_scenario_1_20251117_214739.json

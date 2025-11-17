@@ -48,6 +48,9 @@ from app.database import get_db, FloodDataRepository, check_connection, init_db
 # Logging configuration
 from app.core.logging_config import setup_logging, get_logger
 
+# API Routes
+from app.api import graph_router, set_graph_environment
+
 # Initialize structured logging (will be called again in startup event for safety)
 setup_logging()
 logger = get_logger(__name__)
@@ -388,12 +391,18 @@ app.add_middleware(
 # Serve static files (flood maps, data)
 app.mount("/data", StaticFiles(directory="app/data"), name="data")
 
+# Include API routers
+app.include_router(graph_router)
+
 # --- 3. Initialize Multi-Agent System ---
 
 logger.info("Initializing MAS-FRO Multi-Agent System...")
 
 # Initialize environment
 environment = DynamicGraphEnvironment()
+
+# Set environment for graph API routes
+set_graph_environment(environment)
 
 # Initialize message queue for agent communication
 message_queue = MessageQueue()
