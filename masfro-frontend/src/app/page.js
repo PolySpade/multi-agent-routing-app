@@ -637,6 +637,7 @@ export default function Home() {
           routePath={routePath}
           onMapClick={handleMapClick}
           panelCollapsed={isPanelCollapsed}
+          selectionMode={selectionMode}
         />
       </section>
 

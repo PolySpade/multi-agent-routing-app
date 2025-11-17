@@ -17,7 +17,7 @@ const BACKEND_API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://local
 proj4.defs("EPSG:3857", "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext  +no_defs");
 proj4.defs("EPSG:4326", "+proj=longlat +datum=WGS84 +no_defs");
 
-export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick, onLocationSearch, showTraffic = true, panelCollapsed = false }) {
+export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick, onLocationSearch, showTraffic = true, panelCollapsed = false, selectionMode = null }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const startMarkerRef = useRef(null);
@@ -31,6 +31,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   const [returnPeriod, setReturnPeriod] = useState('rr01');
   const [floodEnabled, setFloodEnabled] = useState(false);
   const onMapClickRef = useRef(onMapClick);
+  const selectionModeRef = useRef(selectionMode);
 
   // WebSocket connection for real-time flood updates and alerts
   const {
@@ -56,6 +57,10 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   useEffect(() => {
     onMapClickRef.current = onMapClick;
   }, [onMapClick]);
+
+  useEffect(() => {
+    selectionModeRef.current = selectionMode;
+  }, [selectionMode]);
 
   useEffect(() => {
     if (!MAPBOX_TOKEN) return;
@@ -96,6 +101,19 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           console.error('❌ Error loading graph risk data:', error);
           console.error('Make sure backend is running: uvicorn app.main:app --reload');
         });
+    });
+
+    // Add general map click handler for selecting start/end points
+    mapRef.current.on('click', (e) => {
+      console.log('Mapbox click event:', e.lngLat);
+      const coords = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+      console.log('Calling onMapClick with:', coords);
+      const clickHandler = onMapClickRef.current;
+      if (clickHandler) {
+        clickHandler(coords);
+      } else {
+        console.warn('onMapClick handler is not defined');
+      }
     });
 
     return () => {
@@ -224,6 +242,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     // Add click handler for road details (only once)
     if (!mapRef.current._graphClickHandlerAdded) {
       mapRef.current.on('click', 'graph-risk-edges', (e) => {
+        // Stop propagation to prevent general map click from firing
+        e.originalEvent.stopPropagation();
+
+        // Don't show popup if we're in selection mode (selecting start/end points)
+        if (selectionModeRef.current) {
+          return;
+        }
+
         const feature = e.features[0];
         const props = feature.properties;
 
