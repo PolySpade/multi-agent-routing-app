@@ -51,8 +51,8 @@ export default function SimulationPanel({ isConnected, floodData }) {
       position: 'fixed',
       right: '20px',
       top: '100px',
-      width: isExpanded ? '380px' : '60px',
-      maxHeight: 'calc(100vh - 120px)',
+      width: isExpanded ? '380px' : '70px',
+      maxHeight: isExpanded ? 'calc(100vh - 120px)' : 'auto',
       background: 'linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%)',
       backdropFilter: 'blur(16px)',
       borderRadius: '16px',
@@ -64,80 +64,127 @@ export default function SimulationPanel({ isConnected, floodData }) {
       display: 'flex',
       flexDirection: 'column'
     }}>
-      {/* Header */}
-      <div style={{
-        padding: '1.25rem',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: 'rgba(36, 142, 168, 0.1)'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          opacity: isExpanded ? 1 : 0,
-          transition: 'opacity 0.2s'
-        }}>
-          <span style={{ fontSize: '1.25rem' }}>🎮</span>
-          <div>
-            <h3 style={{
-              margin: 0,
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: 'white',
-              letterSpacing: '0.5px'
-            }}>
-              SIMULATION MODE
-            </h3>
-            <div style={{
-              fontSize: '0.65rem',
-              color: isConnected ? '#10b981' : '#ef4444',
-              fontWeight: 600,
-              marginTop: '0.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.25rem'
-            }}>
-              <span style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: isConnected ? '#10b981' : '#ef4444',
-                animation: isConnected ? 'pulse 2s infinite' : 'none'
-              }} />
-              {isConnected ? 'LIVE' : 'OFFLINE'}
-            </div>
-          </div>
-        </div>
+      {/* Collapsed State - Show icon button */}
+      {!isExpanded && (
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={() => setIsExpanded(true)}
           style={{
-            background: 'rgba(36, 142, 168, 0.2)',
-            border: '1px solid rgba(36, 142, 168, 0.4)',
-            borderRadius: '8px',
-            padding: '0.5rem',
+            background: 'transparent',
+            border: 'none',
+            padding: '1.25rem',
             color: 'white',
             cursor: 'pointer',
-            fontSize: '1rem',
+            fontSize: '1.75rem',
             transition: 'all 0.2s',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            gap: '0.5rem',
+            width: '100%'
           }}
           onMouseEnter={(e) => {
-            e.target.style.background = 'rgba(36, 142, 168, 0.3)';
-            e.target.style.transform = 'scale(1.05)';
+            e.currentTarget.style.background = 'rgba(36, 142, 168, 0.15)';
           }}
           onMouseLeave={(e) => {
-            e.target.style.background = 'rgba(36, 142, 168, 0.2)';
-            e.target.style.transform = 'scale(1)';
+            e.currentTarget.style.background = 'transparent';
           }}
+          title="Open Simulation Panel"
         >
-          {isExpanded ? '→' : '←'}
+          <span>🎮</span>
+          <span style={{
+            fontSize: '1.25rem',
+            letterSpacing: '1px',
+            fontWeight: 700,
+            color: '#248ea8'
+          }}>←</span>
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: isConnected ? '#10b981' : '#ef4444',
+            animation: isConnected ? 'pulse 2s infinite' : 'none'
+          }} />
         </button>
-      </div>
+      )}
+
+      {/* Expanded State - Full Header */}
+      {isExpanded && (
+        <div style={{
+          padding: '1.25rem',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'rgba(36, 142, 168, 0.1)'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem'
+          }}>
+            <span style={{ fontSize: '1.25rem' }}>🎮</span>
+            <div>
+              <h3 style={{
+                margin: 0,
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: 'white',
+                letterSpacing: '0.5px'
+              }}>
+                SIMULATION MODE
+              </h3>
+              <div style={{
+                fontSize: '0.65rem',
+                color: isConnected ? '#10b981' : '#ef4444',
+                fontWeight: 600,
+                marginTop: '0.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem'
+              }}>
+                <span style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: isConnected ? '#10b981' : '#ef4444',
+                  animation: isConnected ? 'pulse 2s infinite' : 'none'
+                }} />
+                {isConnected ? 'LIVE' : 'OFFLINE'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsExpanded(false)}
+            style={{
+              background: 'rgba(36, 142, 168, 0.2)',
+              border: '1px solid rgba(36, 142, 168, 0.4)',
+              borderRadius: '8px',
+              padding: '0.5rem',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '32px',
+              minHeight: '32px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'rgba(36, 142, 168, 0.3)';
+              e.target.style.transform = 'scale(1.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'rgba(36, 142, 168, 0.2)';
+              e.target.style.transform = 'scale(1)';
+            }}
+            title="Collapse Panel"
+          >
+            →
+          </button>
+        </div>
+      )}
 
       {/* Content - only visible when expanded */}
       {isExpanded && (
