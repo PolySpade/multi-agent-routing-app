@@ -5,6 +5,7 @@ import shp from 'shpjs';
 import { fromUrl, fromBlob } from 'geotiff';
 import proj4 from 'proj4';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocketContext } from '../contexts/WebSocketContext';
 import FloodAlerts from './FloodAlerts';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
@@ -42,6 +43,9 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     clearAlerts
   } = useWebSocket();
 
+  // Get simulation state for real-time graph updates
+  const { simulationState } = useWebSocketContext();
+
   // Log WebSocket connection status
   useEffect(() => {
     console.log('WebSocket connection status:', isConnected ? 'Connected ✅' : 'Disconnected ❌');
@@ -53,6 +57,51 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       console.log('🌊 Received real-time flood data update:', floodData);
     }
   }, [floodData]);
+
+  // Real-time graph updates during simulation
+  // Throttled to refresh every 5 ticks to balance performance and visual updates
+  const lastGraphUpdateTickRef = useRef(0);
+  useEffect(() => {
+    if (!simulationState || !mapRef.current || !isMapLoaded) return;
+
+    const { event, data } = simulationState;
+
+    // Only update on tick events when simulation is running
+    if (event === 'tick' && data?.state === 'running') {
+      const currentTick = data.tick_count || 0;
+
+      // Throttle: update every 5 ticks to avoid excessive API calls
+      if (currentTick - lastGraphUpdateTickRef.current >= 5) {
+        lastGraphUpdateTickRef.current = currentTick;
+
+        console.log(`🔄 Refreshing graph risk visualization (tick ${currentTick})...`);
+
+        // Fetch updated graph data with current risk scores
+        fetch('http://localhost:8000/api/graph/edges/geojson')
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(geojsonData => {
+            console.log(`✅ Updated graph data: ${geojsonData.features.length} edges (avg risk: ${data.average_risk?.toFixed(4) || 'N/A'})`);
+
+            // Update the graph data state (will trigger re-render with new risk scores)
+            setGraphData(geojsonData);
+          })
+          .catch(error => {
+            console.error('❌ Error refreshing graph data:', error);
+          });
+      }
+    }
+
+    // Reset tick counter when simulation stops
+    if (event === 'stopped' || data?.state === 'stopped') {
+      lastGraphUpdateTickRef.current = 0;
+      console.log('⏹️ Simulation stopped, graph updates paused');
+    }
+  }, [simulationState, isMapLoaded]);
 
   useEffect(() => {
     onMapClickRef.current = onMapClick;

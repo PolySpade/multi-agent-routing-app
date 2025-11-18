@@ -711,3 +711,23 @@ starlette.websockets.WebSocketDisconnect
 2025-11-18 12:32:42 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
 2025-11-18 12:32:42 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
 2025-11-18 12:32:42 - app.main - ERROR - start_simulation:917 - Error starting simulation: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:34 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:34 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-18 16:57:34 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-18 16:57:34 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-18 16:57:34 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:37 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:37 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-18 16:57:37 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-18 16:57:37 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-18 16:57:37 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:40 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:40 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-18 16:57:40 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-18 16:57:40 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-18 16:57:40 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:42 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-18 16:57:42 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-18 16:57:42 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-18 16:57:42 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-18 16:57:42 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
