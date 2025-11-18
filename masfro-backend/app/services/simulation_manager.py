@@ -15,11 +15,14 @@ Author: MAS-FRO Development Team
 Date: November 2025
 """
 
+import json
+import asyncio
 from typing import Optional, Dict, Any, Literal, List, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 import logging
 from threading import Lock
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +78,13 @@ class SimulationManager:
         self._started_at: Optional[datetime] = None
         self._paused_at: Optional[datetime] = None
         self._total_runtime_seconds: float = 0.0
-        self._simulation_data: Dict[str, Any] = {}
+        
+        # Scenario-based simulation attributes
+        self._scenario_data: Optional[Dict[str, Any]] = None
+        self._event_queue: List[Dict[str, Any]] = []
+        self._simulation_clock: float = 0.0
+        self._last_tick_time: Optional[datetime] = None
+        self._tick_loop_task: Optional[asyncio.Task] = None
 
         # Tick-based simulation state
         self.current_time_step: int = 1  # GeoTIFF time step (1-18 hours)
@@ -132,7 +141,8 @@ class SimulationManager:
         hazard_agent=None,
         routing_agent=None,
         evacuation_manager=None,
-        environment=None
+        environment=None,
+        ws_manager=None
     ) -> None:
         """
         Set agent references for orchestration.
@@ -144,6 +154,7 @@ class SimulationManager:
             routing_agent: RoutingAgent instance
             evacuation_manager: EvacuationManagerAgent instance
             environment: DynamicGraphEnvironment instance
+            ws_manager: WebSocket ConnectionManager instance
         """
         self.flood_agent = flood_agent
         self.scout_agent = scout_agent
@@ -151,6 +162,7 @@ class SimulationManager:
         self.routing_agent = routing_agent
         self.evacuation_manager = evacuation_manager
         self.environment = environment
+        self.ws_manager = ws_manager
 
         logger.info(
             f"SimulationManager configured with agents: "
@@ -161,9 +173,9 @@ class SimulationManager:
             f"evacuation={evacuation_manager is not None}"
         )
 
-    def start(self, mode: str = "light") -> Dict[str, Any]:
+    async def start(self, mode: str = "light") -> Dict[str, Any]:
         """
-        Start the simulation.
+        Start the simulation (async).
 
         Args:
             mode: Simulation mode (light, medium, heavy)
@@ -186,12 +198,20 @@ class SimulationManager:
                 f"Must be light, medium, or heavy"
             )
 
+        # Load scenario data
+        self._load_scenario(self._mode)
+
         # Update state
         previous_state = self._state
         self._state = SimulationState.RUNNING
-        self._started_at = datetime.now()
-        self.tick_count = 0
-        self.current_time_step = 1
+
+        if previous_state == SimulationState.STOPPED:
+            self._started_at = datetime.now()
+            self._simulation_clock = 0.0
+            self.tick_count = 0
+            self.current_time_step = 1
+
+        self._last_tick_time = datetime.now()
 
         # Reset shared data bus
         self.shared_data_bus = {
@@ -213,6 +233,9 @@ class SimulationManager:
                 f"time_step={self.current_time_step}"
             )
 
+        # Start the simulation loop as a background task
+        self._tick_loop_task = asyncio.create_task(self._simulation_loop())
+
         logger.info(
             f"Simulation STARTED - Mode: {self._mode.value.upper()}, "
             f"Previous state: {previous_state.value}"
@@ -229,9 +252,9 @@ class SimulationManager:
             "previous_state": previous_state.value
         }
 
-    def stop(self) -> Dict[str, Any]:
+    async def stop(self) -> Dict[str, Any]:
         """
-        Stop (pause) the simulation.
+        Stop (pause) the simulation (async).
 
         Returns:
             Dictionary with stop result and metadata
@@ -242,9 +265,18 @@ class SimulationManager:
         if self._state != SimulationState.RUNNING:
             raise ValueError("Simulation is not running")
 
+        # Stop the simulation loop
+        if self._tick_loop_task:
+            self._tick_loop_task.cancel()
+            try:
+                await self._tick_loop_task
+            except asyncio.CancelledError:
+                pass
+            self._tick_loop_task = None
+
         # Update runtime
-        if self._started_at:
-            runtime = (datetime.now() - self._started_at).total_seconds()
+        if self._last_tick_time:
+            runtime = (datetime.now() - self._last_tick_time).total_seconds()
             self._total_runtime_seconds += runtime
 
         # Update state
@@ -269,9 +301,9 @@ class SimulationManager:
             "time_step": self.current_time_step
         }
 
-    def reset(self) -> Dict[str, Any]:
+    async def reset(self) -> Dict[str, Any]:
         """
-        Reset the simulation to initial state.
+        Reset the simulation to initial state (async).
 
         Clears all simulation data, resets state to stopped, and
         clears runtime counters. Also resets the graph edges.
@@ -279,6 +311,14 @@ class SimulationManager:
         Returns:
             Dictionary with reset result and metadata
         """
+        if self._tick_loop_task:
+            self._tick_loop_task.cancel()
+            try:
+                await self._tick_loop_task
+            except asyncio.CancelledError:
+                pass
+            self._tick_loop_task = None
+
         previous_state = self._state
         previous_mode = self._mode
         previous_runtime = self._total_runtime_seconds
@@ -290,7 +330,9 @@ class SimulationManager:
         self._started_at = None
         self._paused_at = None
         self._total_runtime_seconds = 0.0
-        self._simulation_data.clear()
+        self._scenario_data = None
+        self._event_queue = []
+        self._simulation_clock = 0.0
         self.tick_count = 0
         self.current_time_step = 1
 
@@ -301,6 +343,11 @@ class SimulationManager:
             "graph_updated": False,
             "pending_routes": []
         }
+
+        # Clear HazardAgent caches (accumulated scout/flood data)
+        if self.hazard_agent:
+            self.hazard_agent.clear_caches()
+            logger.info("HazardAgent caches cleared")
 
         # Reset graph edges to baseline (risk = 0.0)
         if self.environment and self.environment.graph:
@@ -329,6 +376,52 @@ class SimulationManager:
             "reset_at": datetime.now().isoformat()
         }
 
+    def _load_scenario(self, mode: SimulationMode):
+        """Load the simulation scenario file for the given mode."""
+        scenario_file = Path(__file__).parent.parent / "data" / "simulation_scenarios" / f"{mode.value}_scenario.csv"
+        if not scenario_file.exists():
+            logger.error(f"Scenario file not found: {scenario_file}")
+            self._scenario_data = {"events": []}
+            self._event_queue = []
+            return
+
+        import csv
+        
+        events = []
+        with open(scenario_file, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    payload = json.loads(row['payload'])
+                    events.append({
+                        "time_offset": int(row['time_offset']),
+                        "agent": row['agent'],
+                        "payload": payload
+                    })
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error decoding JSON payload in {scenario_file} at row {reader.line_num}: {e}")
+                except KeyError as e:
+                    logger.error(f"Missing column in {scenario_file} at row {reader.line_num}: {e}")
+
+        self._scenario_data = {"name": f"{mode.value.capitalize()} Flood Scenario (from CSV)", "events": events}
+        
+        # Sort events by time_offset and populate the event queue
+        self._event_queue = sorted(events, key=lambda e: e["time_offset"])
+        logger.info(f"Loaded scenario '{self._scenario_data.get('name')}' with {len(self._event_queue)} events.")
+
+    async def _simulation_loop(self):
+        """The main simulation loop that runs as a background task."""
+        while self._state == SimulationState.RUNNING:
+            self.run_tick()
+            if self.ws_manager:
+                await self.ws_manager.broadcast({
+                    "type": "simulation_state",
+                    "event": "tick",
+                    "data": self.get_status(),
+                    "timestamp": datetime.now().isoformat()
+                })
+            await asyncio.sleep(1) # Tick every second
+
     def run_tick(self, time_step: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute one simulation tick with ordered agent execution.
@@ -354,6 +447,13 @@ class SimulationManager:
                 f"Current state: {self._state.value}"
             )
 
+        # Update simulation clock
+        now = datetime.now()
+        if self._last_tick_time:
+            delta = (now - self._last_tick_time).total_seconds()
+            self._simulation_clock += delta
+        self._last_tick_time = now
+
         # Update time step
         if time_step is not None:
             if not 1 <= time_step <= 18:
@@ -369,6 +469,7 @@ class SimulationManager:
 
         logger.info(
             f"=== TICK {self.tick_count} START === "
+            f"Clock: {self._simulation_clock:.2f}s, "
             f"Time step: {self.current_time_step}/18, "
             f"Mode: {self._mode.value}"
         )
@@ -408,15 +509,16 @@ class SimulationManager:
 
     def _run_collection_phase(self) -> Dict[str, Any]:
         """
-        Phase 1: Data collection from FloodAgent and ScoutAgent.
+        Phase 1: Data collection from the scenario event queue.
 
-        Agents return data instead of calling HazardAgent directly.
-        Data is stored in shared_data_bus for the fusion phase.
+        Processes events from the queue whose time has come and places
+        their payload onto the shared_data_bus.
 
         Returns:
             Dict with collection phase results
         """
         phase_result = {
+            "events_processed": 0,
             "flood_data_collected": 0,
             "scout_reports_collected": 0,
             "errors": []
@@ -427,33 +529,25 @@ class SimulationManager:
         self.shared_data_bus["scout_data"] = []
         self.shared_data_bus["graph_updated"] = False
 
-        # Collect from FloodAgent
-        if self.flood_agent:
-            try:
-                flood_data = self.flood_agent.collect_and_forward_data()
-                self.shared_data_bus["flood_data"] = flood_data
-                phase_result["flood_data_collected"] = len(flood_data)
-                logger.info(
-                    f"FloodAgent collected {len(flood_data)} data points"
-                )
-            except Exception as e:
-                logger.error(f"FloodAgent collection failed: {e}")
-                phase_result["errors"].append(f"FloodAgent: {str(e)}")
+        # Process events from the queue
+        while self._event_queue and self._event_queue[0]["time_offset"] <= self._simulation_clock:
+            event = self._event_queue.pop(0)
+            phase_result["events_processed"] += 1
+            agent = event.get("agent")
+            payload = event.get("payload")
 
-        # Collect from ScoutAgent
-        if self.scout_agent:
-            try:
-                scout_tweets = self.scout_agent.step()
-                # Process tweets through NLP to get flood reports
-                # (ScoutAgent.step() already does this internally)
-                self.shared_data_bus["scout_data"] = scout_tweets or []
-                phase_result["scout_reports_collected"] = len(scout_tweets or [])
-                logger.info(
-                    f"ScoutAgent collected {len(scout_tweets or [])} reports"
-                )
-            except Exception as e:
-                logger.error(f"ScoutAgent collection failed: {e}")
-                phase_result["errors"].append(f"ScoutAgent: {str(e)}")
+            if agent == "flood_agent":
+                self.shared_data_bus["flood_data"] = payload
+                phase_result["flood_data_collected"] += 1
+                logger.info(f"Processed 'flood_agent' event at clock {self._simulation_clock:.2f}s")
+            elif agent == "scout_agent":
+                self.shared_data_bus["scout_data"].append(payload)
+                phase_result["scout_reports_collected"] += 1
+                logger.info(f"Processed 'scout_agent' event at clock {self._simulation_clock:.2f}s")
+            else:
+                error_msg = f"Unknown agent '{agent}' in scenario event."
+                phase_result["errors"].append(error_msg)
+                logger.warning(error_msg)
 
         return phase_result
 
@@ -624,17 +718,20 @@ class SimulationManager:
             "is_stopped": self.is_stopped,
             "is_paused": self.is_paused,
             "total_runtime_seconds": round(self._total_runtime_seconds, 2),
+            "simulation_clock": round(self._simulation_clock, 2),
             "started_at": self._started_at.isoformat() if self._started_at else None,
             "paused_at": self._paused_at.isoformat() if self._paused_at else None,
             "tick_count": self.tick_count,
             "current_time_step": self.current_time_step,
             "return_period": MODE_TO_RETURN_PERIOD.get(self._mode),
             "pending_routes": len(self.shared_data_bus.get("pending_routes", [])),
+            "scenario": self._scenario_data.get("name") if self._scenario_data else None,
+            "events_in_queue": len(self._event_queue)
         }
 
         # Calculate current runtime if running
-        if self.is_running and self._started_at:
-            current_runtime = (datetime.now() - self._started_at).total_seconds()
+        if self.is_running and self._last_tick_time:
+            current_runtime = (datetime.now() - self._last_tick_time).total_seconds()
             status["current_session_seconds"] = round(current_runtime, 2)
 
         return status

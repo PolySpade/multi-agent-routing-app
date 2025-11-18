@@ -119,6 +119,16 @@ class HazardAgent(BaseAgent):
         self.return_period = "rr01"  # Default return period
         self.time_step = 1  # Default time step (1 hour)
 
+        # Risk decay configuration - Realistic flood recession modeling
+        self.enable_risk_decay = True  # Enable time-based risk decay
+        self.scout_decay_rate_fast = 0.10  # 10% per minute (rain-based flooding, drains quickly)
+        self.scout_decay_rate_slow = 0.03  # 3% per minute (river/dam flooding, slow recession)
+        self.flood_decay_rate = 0.05  # 5% per minute (official data decay)
+        self.scout_report_ttl_minutes = 45  # Scout reports expire after 45 min
+        self.flood_data_ttl_minutes = 90  # Flood data expires after 90 min
+        self.risk_floor_without_validation = 0.15  # Minimum risk until scout validates "clear"
+        self.min_risk_threshold = 0.01  # Clear risk below this value
+
         # ML model placeholder (to be integrated later)
         self.flood_predictor = None
 
@@ -134,11 +144,217 @@ class HazardAgent(BaseAgent):
             logger.error(f"Failed to initialize LocationGeocoder: {e}")
             self.geocoder = None
 
+        # Risk trend tracking
+        self.previous_average_risk = 0.0
+        self.last_update_time = None
+        self.risk_history = []  # List of (timestamp, avg_risk) tuples
+
         logger.info(
             f"{self.agent_id} initialized with risk weights: {self.risk_weights}, "
             f"return_period: {self.return_period}, time_step: {self.time_step}, "
-            f"geotiff_enabled: {self.geotiff_enabled}"
+            f"geotiff_enabled: {self.geotiff_enabled}, "
+            f"risk_decay: {'ENABLED' if self.enable_risk_decay else 'DISABLED'}"
         )
+
+    def clear_caches(self) -> None:
+        """
+        Clear all cached data.
+
+        This method should be called when resetting the simulation or
+        when you want to start fresh with new data.
+        """
+        self.flood_data_cache.clear()
+        self.scout_data_cache.clear()
+        logger.info(f"{self.agent_id} caches cleared")
+
+    def calculate_data_age_minutes(self, timestamp: Any) -> float:
+        """
+        Calculate age of data in minutes from its timestamp.
+
+        Args:
+            timestamp: datetime object or ISO string
+
+        Returns:
+            Age in minutes
+        """
+        from datetime import datetime, timezone
+        if isinstance(timestamp, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            except:
+                logger.warning(f"Invalid timestamp format: {timestamp}")
+                return 0.0
+
+        if timestamp is None:
+            return 0.0
+
+        # Make both datetimes timezone-aware for comparison
+        current_time = datetime.now(timezone.utc)
+
+        # If timestamp is naive, assume it's UTC
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        age_seconds = (current_time - timestamp).total_seconds()
+        return max(0.0, age_seconds / 60.0)
+
+    def apply_time_decay(self, base_value: float, age_minutes: float, decay_rate: float) -> float:
+        """
+        Apply exponential decay to a value based on age.
+
+        Formula: value × e^(-decay_rate × age)
+
+        Args:
+            base_value: Original value (e.g., risk score)
+            age_minutes: Age of data in minutes
+            decay_rate: Decay rate per minute (e.g., 0.1 = 10% per minute)
+
+        Returns:
+            Decayed value
+
+        Example:
+            >>> apply_time_decay(0.8, 10, 0.1)  # 0.8 risk, 10 min old, 10%/min decay
+            0.294  # Decayed to ~37% of original
+        """
+        import math
+        if age_minutes <= 0:
+            return base_value
+        decay_factor = math.exp(-decay_rate * age_minutes)
+        return base_value * decay_factor
+
+    def determine_decay_rate(self, report_type: str = "flood") -> float:
+        """
+        Determine appropriate decay rate based on flood type and current conditions.
+
+        Rain-based flooding: Fast decay (water drains quickly)
+        River/dam flooding: Slow decay (water recedes slowly)
+
+        Args:
+            report_type: Type of report ("rain_report", "flood", "clear")
+
+        Returns:
+            Decay rate per minute
+        """
+        # Check if rivers/dams are still elevated (persistent flooding)
+        river_elevated = self._check_river_levels_elevated()
+
+        if river_elevated:
+            # Slow decay - river/dam still flooded
+            return self.scout_decay_rate_slow
+        elif report_type == "rain_report":
+            # Fast decay - rain-based flooding drains quickly
+            return self.scout_decay_rate_fast
+        else:
+            # Default moderate decay
+            return (self.scout_decay_rate_fast + self.scout_decay_rate_slow) / 2
+
+    def _check_river_levels_elevated(self) -> bool:
+        """
+        Check if river levels or dam levels are still elevated.
+
+        Returns:
+            True if any river/dam is above normal (alert/alarm/critical)
+        """
+        for location, data in self.flood_data_cache.items():
+            status = data.get('status', 'normal')
+            if status in ['alert', 'alarm', 'critical']:
+                return True
+
+            # Check water level vs alert level
+            water_level = data.get('water_level_m')
+            alert_level = data.get('alert_level_m')
+            if water_level and alert_level and water_level >= alert_level * 0.9:
+                return True  # Within 90% of alert level
+
+        return False
+
+    def clean_expired_data(self) -> Dict[str, int]:
+        """
+        Remove expired data from caches based on TTL.
+
+        Returns:
+            Dict with counts of expired items
+        """
+        from datetime import datetime
+        current_time = datetime.now()
+        expired_counts = {"scouts": 0, "flood_locations": 0}
+
+        # Clean expired scout reports
+        original_scout_count = len(self.scout_data_cache)
+        self.scout_data_cache = [
+            report for report in self.scout_data_cache
+            if self.calculate_data_age_minutes(report.get('timestamp')) < self.scout_report_ttl_minutes
+        ]
+        expired_counts["scouts"] = original_scout_count - len(self.scout_data_cache)
+
+        # Clean expired flood data
+        expired_locations = []
+        for location, data in self.flood_data_cache.items():
+            age = self.calculate_data_age_minutes(data.get('timestamp'))
+            if age >= self.flood_data_ttl_minutes:
+                expired_locations.append(location)
+
+        for location in expired_locations:
+            del self.flood_data_cache[location]
+        expired_counts["flood_locations"] = len(expired_locations)
+
+        if expired_counts["scouts"] > 0 or expired_counts["flood_locations"] > 0:
+            logger.info(
+                f"{self.agent_id} cleaned expired data: "
+                f"{expired_counts['scouts']} scout reports, "
+                f"{expired_counts['flood_locations']} flood locations"
+            )
+
+        return expired_counts
+
+    def check_scout_validation_for_area(self, lat: float, lon: float, radius_m: float = 1000) -> bool:
+        """
+        Check if scouts have validated clearance (report_type="clear") near a location.
+
+        Args:
+            lat: Latitude
+            lon: Longitude
+            radius_m: Search radius in meters
+
+        Returns:
+            True if any scout reported "clear" within radius in last 15 minutes
+        """
+        from datetime import datetime, timedelta
+        current_time = datetime.now()
+        validation_window = timedelta(minutes=15)
+
+        for report in self.scout_data_cache:
+            # Check if it's a "clear" report
+            if report.get('report_type') != 'clear':
+                continue
+
+            # Check if it's recent
+            timestamp = report.get('timestamp')
+            if timestamp:
+                age = self.calculate_data_age_minutes(timestamp)
+                if age > 15:  # Too old
+                    continue
+
+            # Check if it's nearby
+            coords = report.get('coordinates', {})
+            if not coords:
+                continue
+
+            report_lat = coords.get('lat')
+            report_lon = coords.get('lon')
+            if report_lat is None or report_lon is None:
+                continue
+
+            # Calculate distance (simple approximation)
+            import math
+            lat_diff = (report_lat - lat) * 111000  # 111km per degree latitude
+            lon_diff = (report_lon - lon) * 111000 * math.cos(math.radians(lat))
+            distance = math.sqrt(lat_diff**2 + lon_diff**2)
+
+            if distance <= radius_m:
+                return True  # Found validation!
+
+        return False  # No validation found
 
     def step(self):
         """
@@ -222,23 +438,35 @@ class HazardAgent(BaseAgent):
             f"time_step: {time_step}/18"
         )
 
-        # Clear previous caches
-        self.flood_data_cache.clear()
-        self.scout_data_cache.clear()
+        # FIXED: Don't clear caches - accumulate data across ticks
+        # Only clear when explicitly needed (e.g., simulation reset)
 
-        # Update flood data cache
-        for location, data in flood_data.items():
-            flood_data_entry = {
-                "location": location,
-                "flood_depth": data.get("flood_depth", 0.0),
-                "rainfall_1h": data.get("rainfall_1h", 0.0),
-                "rainfall_24h": data.get("rainfall_24h", 0.0),
-                "timestamp": data.get("timestamp")
-            }
-            self.flood_data_cache[location] = flood_data_entry
+        # Clean expired data first (time-based decay)
+        if self.enable_risk_decay:
+            expired_counts = self.clean_expired_data()
+            if expired_counts["scouts"] > 0 or expired_counts["flood_locations"] > 0:
+                logger.debug(
+                    f"Expired data removed: {expired_counts['scouts']} scouts, "
+                    f"{expired_counts['flood_locations']} flood locations"
+                )
 
-        # Update scout data cache
-        self.scout_data_cache = scout_data.copy()
+        # Update flood data cache (only if new data received)
+        if flood_data:
+            for location, data in flood_data.items():
+                flood_data_entry = {
+                    "location": location,
+                    "flood_depth": data.get("flood_depth", 0.0),
+                    "rainfall_1h": data.get("rainfall_1h", 0.0),
+                    "rainfall_24h": data.get("rainfall_24h", 0.0),
+                    "timestamp": data.get("timestamp")
+                }
+                self.flood_data_cache[location] = flood_data_entry
+            logger.debug(f"Updated flood_data_cache with {len(flood_data)} locations")
+
+        # Update scout data cache (accumulate new reports)
+        if scout_data:
+            self.scout_data_cache.extend(scout_data)
+            logger.debug(f"Added {len(scout_data)} scout reports (total: {len(self.scout_data_cache)})")
 
         # Ensure GeoTIFF is set to current time step (already done by SimulationManager)
         # This is a safety check
@@ -249,22 +477,93 @@ class HazardAgent(BaseAgent):
             )
             self.time_step = time_step
 
+        # ADDED: Process scout data spatially if coordinates are present
+        # Separate coordinate-based reports from location-name reports
+        reports_with_coords = []
+        reports_without_coords = []
+
+        if scout_data:
+            for report in scout_data:
+                if (report.get('coordinates') and
+                    isinstance(report.get('coordinates'), dict) and
+                    report['coordinates'].get('lat') is not None and
+                    report['coordinates'].get('lon') is not None):
+                    reports_with_coords.append(report)
+                else:
+                    reports_without_coords.append(report)
+
+            if reports_with_coords:
+                logger.info(
+                    f"{self.agent_id} applying SPATIAL risk updates for "
+                    f"{len(reports_with_coords)} coordinate-based scout reports"
+                )
+                self.process_scout_data_with_coordinates(reports_with_coords)
+
+            if reports_without_coords:
+                logger.info(
+                    f"{self.agent_id} will apply GLOBAL risk for "
+                    f"{len(reports_without_coords)} location-name scout reports"
+                )
+
         # Process data and update graph
-        fused_data = self.fuse_data()
+        # Pass flag to exclude coordinate-based reports from global processing
+        fused_data = self.fuse_data(exclude_coordinate_reports=True)
         risk_scores = self.calculate_risk_scores(fused_data)
         self.update_environment(risk_scores)
+
+        # Calculate risk trend metrics
+        current_time = get_philippine_time()
+        average_risk = sum(risk_scores.values()) / len(risk_scores) if risk_scores else 0.0
+
+        # Determine trend
+        risk_trend = "stable"
+        risk_change_rate = 0.0
+
+        if self.last_update_time and self.enable_risk_decay:
+            time_diff_minutes = (current_time - self.last_update_time).total_seconds() / 60.0
+            if time_diff_minutes > 0:
+                risk_delta = average_risk - self.previous_average_risk
+                risk_change_rate = risk_delta / time_diff_minutes
+
+                # Classify trend (threshold: 0.001 per minute = 0.06 per hour)
+                if risk_change_rate > 0.001:
+                    risk_trend = "increasing"
+                elif risk_change_rate < -0.001:
+                    risk_trend = "decreasing"
+
+        # Track risk history (keep last 20 data points)
+        self.risk_history.append((current_time, average_risk))
+        if len(self.risk_history) > 20:
+            self.risk_history = self.risk_history[-20:]
+
+        # Update tracking variables
+        self.previous_average_risk = average_risk
+        self.last_update_time = current_time
+
+        # Calculate cache statistics
+        active_scouts = len(self.scout_data_cache)
+        oldest_scout_age = 0.0
+        if self.scout_data_cache:
+            ages = [self.calculate_data_age_minutes(r.get('timestamp')) for r in self.scout_data_cache]
+            oldest_scout_age = max(ages) if ages else 0.0
 
         logger.info(
             f"{self.agent_id} risk update complete - "
             f"processed {len(fused_data)} locations, "
-            f"updated {len(risk_scores)} edges"
+            f"updated {len(risk_scores)} edges, "
+            f"avg_risk={average_risk:.4f}, trend={risk_trend}"
         )
 
         return {
             "locations_processed": len(fused_data),
             "edges_updated": len(risk_scores),
             "time_step": time_step,
-            "timestamp": get_philippine_time().isoformat()
+            "timestamp": current_time.isoformat(),
+            "average_risk": round(average_risk, 4),
+            "risk_trend": risk_trend,
+            "risk_change_rate": round(risk_change_rate, 6),
+            "active_reports": active_scouts,
+            "oldest_report_age_min": round(oldest_scout_age, 1)
         }
 
     def process_flood_data(self, flood_data: Dict[str, Any]) -> None:
@@ -397,13 +696,17 @@ class HazardAgent(BaseAgent):
 
         logger.debug(f"Scout data cache size: {len(self.scout_data_cache)}")
 
-    def fuse_data(self) -> Dict[str, Any]:
+    def fuse_data(self, exclude_coordinate_reports: bool = False) -> Dict[str, Any]:
         """
         Fuse data from multiple sources (FloodAgent and ScoutAgent).
 
         Combines official flood measurements with crowdsourced reports to
         create a comprehensive risk assessment. Uses weighted averaging
         based on data source reliability and timeliness.
+
+        Args:
+            exclude_coordinate_reports: If True, exclude scout reports that have
+                coordinates (as they are processed spatially, not globally)
 
         Returns:
             Dict mapping locations to fused risk information
@@ -418,7 +721,10 @@ class HazardAgent(BaseAgent):
                     ...
                 }
         """
-        logger.debug(f"{self.agent_id} fusing data from multiple sources")
+        logger.debug(
+            f"{self.agent_id} fusing data from multiple sources "
+            f"(exclude_coordinate_reports={exclude_coordinate_reports})"
+        )
 
         fused_data = {}
 
@@ -443,6 +749,17 @@ class HazardAgent(BaseAgent):
 
         # Integrate crowdsourced data
         for report in self.scout_data_cache:
+            # Skip coordinate-based reports if requested (they're processed spatially)
+            if exclude_coordinate_reports:
+                has_coords = (
+                    report.get('coordinates') and
+                    isinstance(report.get('coordinates'), dict) and
+                    report['coordinates'].get('lat') is not None and
+                    report['coordinates'].get('lon') is not None
+                )
+                if has_coords:
+                    continue  # Skip this report - already processed spatially
+
             location = report.get("location")
             if not location:
                 continue
@@ -457,6 +774,18 @@ class HazardAgent(BaseAgent):
 
             severity = report.get("severity", 0.0)
             confidence = report.get("confidence", 0.5)
+            report_type = report.get("report_type", "flood")
+
+            # Apply time-based decay to severity
+            if self.enable_risk_decay:
+                age_minutes = self.calculate_data_age_minutes(report.get('timestamp'))
+                decay_rate = self.determine_decay_rate(report_type)
+                severity = self.apply_time_decay(severity, age_minutes, decay_rate)
+
+                logger.debug(
+                    f"Scout report at {location}: age={age_minutes:.1f}min, "
+                    f"decay_rate={decay_rate:.3f}, decayed_severity={severity:.3f}"
+                )
 
             fused_data[location]["risk_level"] += severity * self.risk_weights["crowdsourced"] * confidence
             fused_data[location]["confidence"] += confidence * 0.6  # Lower weight for crowdsourced
@@ -688,7 +1017,36 @@ class HazardAgent(BaseAgent):
             logger.warning("Graph environment not available for risk calculation")
             return {}
 
+        # Apply time-based decay to existing spatial risk scores
+        # This allows risk from old scout reports to naturally decay over time
         risk_scores = {}
+        if self.enable_risk_decay:
+            # Apply decay to preserved spatial risk
+            for u, v, key in self.environment.graph.edges(keys=True):
+                existing_risk = self.environment.graph[u][v][key].get('risk_score', 0.0)
+                if existing_risk > 0.0:
+                    # Get edge metadata to check when it was last updated
+                    edge_data = self.environment.graph[u][v][key]
+                    last_update = edge_data.get('last_risk_update')
+
+                    if last_update:
+                        age_minutes = self.calculate_data_age_minutes(last_update)
+                        # Use spatial risk decay rate (8% per minute)
+                        decay_rate = 0.08
+                        decayed_risk = self.apply_time_decay(existing_risk, age_minutes, decay_rate)
+
+                        # Only preserve risk above minimum threshold
+                        if decayed_risk > self.min_risk_threshold:
+                            risk_scores[(u, v, key)] = decayed_risk
+                    else:
+                        # No timestamp - preserve as-is for backward compatibility
+                        risk_scores[(u, v, key)] = existing_risk
+        else:
+            # Decay disabled - preserve existing risk (old behavior)
+            for u, v, key in self.environment.graph.edges(keys=True):
+                existing_risk = self.environment.graph[u][v][key].get('risk_score', 0.0)
+                if existing_risk > 0.0:
+                    risk_scores[(u, v, key)] = existing_risk
 
         # Query GeoTIFF flood depths for all edges
         edge_flood_depths = self.get_edge_flood_depths()
@@ -722,13 +1080,15 @@ class HazardAgent(BaseAgent):
                 current_risk = risk_scores.get(edge_tuple, 0.0)
 
                 # Combine GeoTIFF risk with environmental risk
-                # Environmental risk acts as a multiplier/modifier
+                # Environmental risk acts as an additive modifier
                 environmental_factor = risk_level * (
                     self.risk_weights["crowdsourced"] + self.risk_weights["historical"]
                 )
 
-                # Take max to preserve highest risk
-                combined_risk = max(current_risk, current_risk + environmental_factor)
+                # FIXED: Allow risk to decrease by replacing instead of using max()
+                # Current risk reflects GeoTIFF + decayed spatial risk
+                # Environmental factor adds current weather/river conditions
+                combined_risk = current_risk + environmental_factor
                 risk_scores[edge_tuple] = min(combined_risk, 1.0)  # Cap at 1.0
 
         # Count risk distribution
@@ -751,18 +1111,28 @@ class HazardAgent(BaseAgent):
         """
         Update the Dynamic Graph Environment with calculated risk scores.
 
+        Also tracks the last update timestamp for time-based decay.
+
         Args:
             risk_scores: Dict mapping edge tuples to risk scores
         """
+        from datetime import datetime
         logger.debug(f"{self.agent_id} updating environment with risk scores")
 
         if not self.environment or not hasattr(self.environment, 'update_edge_risk'):
             logger.warning("Environment not configured for risk updates")
             return
 
+        current_time = datetime.now()
+
         for (u, v, key), risk in risk_scores.items():
             try:
                 self.environment.update_edge_risk(u, v, key, risk)
+
+                # Track when this edge was last updated (for decay calculation)
+                if self.enable_risk_decay:
+                    edge_data = self.environment.graph[u][v][key]
+                    edge_data['last_risk_update'] = current_time
             except Exception as e:
                 logger.error(f"Failed to update edge ({u}, {v}, {key}): {e}")
 

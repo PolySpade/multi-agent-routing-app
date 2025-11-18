@@ -452,6 +452,15 @@ set_scheduler(flood_scheduler)
 
 # Initialize Simulation Manager
 simulation_manager = get_simulation_manager()
+simulation_manager.set_agents(
+    flood_agent=flood_agent,
+    scout_agent=scout_agent,
+    hazard_agent=hazard_agent,
+    routing_agent=routing_agent,
+    evacuation_manager=evacuation_manager,
+    environment=environment,
+    ws_manager=ws_manager
+)
 
 logger.info("MAS-FRO system initialized successfully")
 
@@ -881,7 +890,7 @@ async def start_simulation(
 
     try:
         sim_manager = get_simulation_manager()
-        result = sim_manager.start(mode=mode)
+        result = await sim_manager.start(mode=mode)
 
         # Broadcast simulation state change via WebSocket
         await ws_manager.broadcast({
