@@ -39,7 +39,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
 
       // Log the event
       const eventMessages = {
-        started: `🎮 Simulation started via WebSocket - ${mode?.toUpperCase()} mode`,
+        started: `🌊 Simulation started via WebSocket - ${mode?.toUpperCase()} mode`,
         stopped: `⏸️ Simulation stopped via WebSocket`,
         reset: `🔄 Simulation reset via WebSocket`
       };
@@ -193,7 +193,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.5rem',
+            gap: '1rem',
             width: '100%'
           }}
           onMouseEnter={(e) => {
@@ -204,13 +204,13 @@ export default function SimulationPanel({ isConnected, floodData }) {
           }}
           title="Open Simulation Panel"
         >
-          <span>🎮</span>
-          <span style={{
+          <span>🌊</span>
+          {/* <span style={{
             fontSize: '1.25rem',
             letterSpacing: '1px',
             fontWeight: 700,
             color: '#248ea8'
-          }}>←</span>
+          }}>←</span> */}
           <span style={{
             width: '8px',
             height: '8px',
@@ -236,7 +236,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
             alignItems: 'center',
             gap: '0.75rem'
           }}>
-            <span style={{ fontSize: '1.25rem' }}>🎮</span>
+            <span style={{ fontSize: '1.25rem' }}>🌊</span>
             <div>
               <h3 style={{
                 margin: 0,
