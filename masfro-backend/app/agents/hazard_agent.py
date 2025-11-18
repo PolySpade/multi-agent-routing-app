@@ -180,6 +180,93 @@ class HazardAgent(BaseAgent):
             "timestamp": get_philippine_time()
         }
 
+    def update_risk(
+        self,
+        flood_data: Dict[str, Any],
+        scout_data: List[Dict[str, Any]],
+        time_step: int
+    ) -> Dict[str, Any]:
+        """
+        Update risk assessment based on external data (called by SimulationManager).
+
+        This method is the entry point for the tick-based architecture. It receives
+        data from the SimulationManager, updates the HazardAgent's internal caches,
+        sets the GeoTIFF scenario, and updates the graph.
+
+        Args:
+            flood_data: Flood data from FloodAgent
+            scout_data: Scout reports from ScoutAgent
+            time_step: Current simulation time step (1-18)
+
+        Returns:
+            Dict with update results
+                Format:
+                {
+                    "locations_processed": int,
+                    "edges_updated": int,
+                    "time_step": int,
+                    "timestamp": str
+                }
+
+        Example:
+            >>> result = hazard_agent.update_risk(
+            ...     flood_data={"Sto Nino": {...}},
+            ...     scout_data=[{...}],
+            ...     time_step=5
+            ... )
+        """
+        logger.info(
+            f"{self.agent_id} updating risk assessment - "
+            f"flood_data: {len(flood_data)} points, "
+            f"scout_data: {len(scout_data)} reports, "
+            f"time_step: {time_step}/18"
+        )
+
+        # Clear previous caches
+        self.flood_data_cache.clear()
+        self.scout_data_cache.clear()
+
+        # Update flood data cache
+        for location, data in flood_data.items():
+            flood_data_entry = {
+                "location": location,
+                "flood_depth": data.get("flood_depth", 0.0),
+                "rainfall_1h": data.get("rainfall_1h", 0.0),
+                "rainfall_24h": data.get("rainfall_24h", 0.0),
+                "timestamp": data.get("timestamp")
+            }
+            self.flood_data_cache[location] = flood_data_entry
+
+        # Update scout data cache
+        self.scout_data_cache = scout_data.copy()
+
+        # Ensure GeoTIFF is set to current time step (already done by SimulationManager)
+        # This is a safety check
+        if self.time_step != time_step:
+            logger.warning(
+                f"HazardAgent time_step mismatch: expected {time_step}, "
+                f"got {self.time_step}. Correcting..."
+            )
+            self.time_step = time_step
+
+        # Process data and update graph
+        fused_data = self.fuse_data()
+        risk_scores = self.calculate_risk_scores(fused_data)
+        self.update_environment(risk_scores)
+
+        logger.info(
+            f"{self.agent_id} risk update complete - "
+            f"processed {len(fused_data)} locations, "
+            f"updated {len(risk_scores)} edges"
+        )
+
+        return {
+            "locations_processed": len(fused_data),
+            "edges_updated": len(risk_scores),
+            "time_step": time_step,
+            "timestamp": get_philippine_time().isoformat()
+        }
+
     def process_flood_data(self, flood_data: Dict[str, Any]) -> None:
         """
         Process official flood data from FloodAgent.

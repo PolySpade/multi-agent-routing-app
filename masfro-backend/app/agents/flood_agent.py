@@ -188,6 +188,10 @@ class FloodAgent(BaseAgent):
         1. Real APIs (PAGASA river levels + OpenWeatherMap) if available
         2. Simulated data as fallback if no real data collected
 
+        NOTE: In tick-based architecture, this method RETURNS data instead of
+        forwarding it directly to HazardAgent. The SimulationManager handles
+        data forwarding in the fusion phase.
+
         Returns:
             Combined data that was collected
         """
@@ -249,12 +253,11 @@ class FloodAgent(BaseAgent):
             processed = self._process_collected_data(simulated)
             combined_data.update(processed)
 
-        # ========== FORWARD TO HAZARD AGENT ==========
+        # ========== DATA COLLECTION COMPLETE ==========
         if combined_data:
             logger.info(
-                f"[SEND] Forwarding {len(combined_data)} data points to HazardAgent"
+                f"[COLLECTED] {len(combined_data)} data points ready for fusion phase"
             )
-            self.send_to_hazard_agent(combined_data)
         else:
             logger.warning("[WARN] No data collected from any source!")
 

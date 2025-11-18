@@ -20659,3 +20659,385 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2025-11-18 11:07:42 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
 2025-11-18 11:07:42 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
 2025-11-18 11:07:42 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:12:42 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:12:42 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:12:42 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:12:42 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:12:42 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:12:44 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:12:48 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:12:50 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:12:50 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:12:50 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:12:52 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:12:52 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:12:52 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:12:53 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:12:53 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:12:53 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:12:55 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:12:55 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:12:55 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:12:55 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:12:55 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:12:55 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:12:55 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:12:55 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:12:56 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:12:56 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:12:56 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:12:56 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:12:56 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 13.29s
+2025-11-18 11:12:56 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 86c4c2c5-82a3-470a-abc9-18386df2aebd with 13 river stations
+2025-11-18 11:12:56 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=86c4c2c5-82a3-470a-abc9-18386df2aebd
+2025-11-18 11:12:56 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:12:56 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:12:56 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:12:56 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:12:56 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:12:56 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:12:56 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:12:56 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:17:56 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:17:56 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:17:56 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:17:56 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:17:56 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:17:57 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:18:02 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:18:04 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:18:04 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:18:04 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:18:06 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:18:06 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:18:06 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:18:07 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:18:07 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:18:07 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:18:09 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:18:09 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:18:09 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:18:09 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:18:09 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:18:09 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:18:09 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:18:09 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:18:10 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:18:10 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:18:10 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:18:10 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:18:10 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 13.95s
+2025-11-18 11:18:10 - app.database.repository - INFO - create_collection:104 - Saved flood data collection f7ab19ef-87bc-40ab-b59d-5582c59bfb38 with 13 river stations
+2025-11-18 11:18:10 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=f7ab19ef-87bc-40ab-b59d-5582c59bfb38
+2025-11-18 11:18:10 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:18:10 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:18:10 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:18:10 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:18:10 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:18:10 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:18:10 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:18:10 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:23:10 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:23:10 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:23:10 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:23:10 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:23:10 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:23:11 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:23:14 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:23:16 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:23:16 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:23:16 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:23:18 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:23:18 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:23:18 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:23:19 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:23:19 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:23:19 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:23:21 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:23:21 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:23:21 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:23:21 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:23:21 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:23:21 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:23:21 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:23:21 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:23:22 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:23:22 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:23:22 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:23:22 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:23:22 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 12.26s
+2025-11-18 11:23:22 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 532c2474-9bef-4efd-896f-ff900d71aff1 with 13 river stations
+2025-11-18 11:23:22 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=532c2474-9bef-4efd-896f-ff900d71aff1
+2025-11-18 11:23:22 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:23:22 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:23:22 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:23:22 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:23:22 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:23:22 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:23:22 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:23:22 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:28:22 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:28:22 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:28:22 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:28:22 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:28:22 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:28:23 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:28:26 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:28:28 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:28:28 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:28:28 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:28:31 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:28:33 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:28:33 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:28:33 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:28:33 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:28:33 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:28:33 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:28:33 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:28:33 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:28:34 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:28:34 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:28:34 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:28:34 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:28:34 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 11.99s
+2025-11-18 11:28:34 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 5739a7b5-d3fb-4d45-92cc-12c21616dd12 with 13 river stations
+2025-11-18 11:28:34 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=5739a7b5-d3fb-4d45-92cc-12c21616dd12
+2025-11-18 11:28:34 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:28:34 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:28:34 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:28:34 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:28:34 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:28:34 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:28:34 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:28:34 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:33:34 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:33:34 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:33:34 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:33:34 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:33:34 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:34:15 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:34:18 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:34:20 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:34:20 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:34:20 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:34:22 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:34:22 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:34:22 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:34:23 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:34:23 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:34:23 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:34:25 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:34:25 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:34:25 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:34:25 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:34:25 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:34:25 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:34:25 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:34:25 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:34:25 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:34:25 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:34:25 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 51.11s
+2025-11-18 11:34:25 - app.database.repository - INFO - create_collection:104 - Saved flood data collection e81b3595-8257-4689-8c09-65efbe9d0ebe with 13 river stations
+2025-11-18 11:34:25 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=e81b3595-8257-4689-8c09-65efbe9d0ebe
+2025-11-18 11:34:25 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:34:25 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:34:25 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:34:25 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:34:25 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:34:25 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:34:25 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:34:25 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:39:25 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:39:25 - app.agents.flood_agent - INFO - collect_and_forward_data:194 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:39:25 - app.agents.flood_agent - INFO - fetch_real_river_levels:545 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:39:25 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:39:25 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:39:26 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:39:29 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:39:32 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:39:32 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:39:32 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - fetch_real_river_levels:612 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - collect_and_forward_data:206 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - fetch_real_weather_data:640 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - fetch_real_weather_data:700 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - collect_and_forward_data:219 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:39:34 - app.agents.flood_agent - INFO - fetch_real_dam_levels:721 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:39:36 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:39:36 - app.agents.flood_agent - INFO - fetch_real_dam_levels:791 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:39:36 - app.agents.flood_agent - INFO - collect_and_forward_data:233 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:39:36 - app.agents.flood_agent - INFO - collect_and_forward_data:254 - [SEND] Forwarding 14 data points to HazardAgent
+2025-11-18 11:39:36 - app.agents.flood_agent - INFO - send_to_hazard_agent:870 - flood_agent_001 sending 14 data points to HazardAgent (batched)
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - process_flood_data_batch:243 - hazard_agent_001 received batched flood data for 14 locations
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - process_flood_data_batch:268 - hazard_agent_001 cached 14 valid data points (0 invalid)
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - process_flood_data_batch:275 - hazard_agent_001 triggering hazard processing after batch update
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - process_and_update:171 - hazard_agent_001 processing hazard data...
+2025-11-18 11:39:36 - app.agents.hazard_agent - DEBUG - fuse_data:334 - hazard_agent_001 fusing data from multiple sources
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - fuse_data:383 - Data fusion complete for 14 locations
+2025-11-18 11:39:36 - app.agents.hazard_agent - DEBUG - calculate_risk_scores:598 - hazard_agent_001 calculating risk scores with GeoTIFF integration
+2025-11-18 11:39:36 - app.agents.hazard_agent - INFO - get_edge_flood_depths:457 - GeoTIFF integration disabled - skipping flood depth queries
+2025-11-18 11:39:37 - app.agents.hazard_agent - INFO - calculate_risk_scores:654 - Calculated risk scores for 35932 edges. Distribution: low=35932, moderate=0, high=0, critical=0
+2025-11-18 11:39:37 - app.agents.hazard_agent - DEBUG - update_environment:670 - hazard_agent_001 updating environment with risk scores
+2025-11-18 11:39:37 - app.agents.hazard_agent - INFO - update_environment:682 - Updated 35932 edges in the environment
+2025-11-18 11:39:37 - app.agents.flood_agent - INFO - send_to_hazard_agent:883 - flood_agent_001 successfully forwarded batched data to hazard_agent_001
+2025-11-18 11:39:37 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 11.74s
+2025-11-18 11:39:37 - app.database.repository - INFO - create_collection:104 - Saved flood data collection 294d753d-f644-45df-b8e3-f63f9bdda392 with 13 river stations
+2025-11-18 11:39:37 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=294d753d-f644-45df-b8e3-f63f9bdda392
+2025-11-18 11:39:37 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: flood_update
+2025-11-18 11:39:37 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:39:37 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:39:37 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:39:37 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:39:37 - app.main - INFO - broadcast_flood_update:234 - Broadcasted flood update to 4 clients
+2025-11-18 11:39:37 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:39:37 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:42:58 - app.main - INFO - shutdown_event:492 - ============================================================
+2025-11-18 11:42:58 - app.main - INFO - shutdown_event:493 - MAS-FRO Backend Shutting Down
+2025-11-18 11:42:58 - app.main - INFO - shutdown_event:494 - ============================================================
+2025-11-18 11:42:58 - app.main - INFO - shutdown_event:495 - Stopping background scheduler...
+2025-11-18 11:42:58 - app.services.flood_data_scheduler - INFO - stop:280 - Stopping FloodDataScheduler...
+2025-11-18 11:43:28 - app.services.flood_data_scheduler - WARNING - stop:288 - Scheduler stop timed out, cancelling task
+2025-11-18 11:43:28 - app.services.flood_data_scheduler - INFO - stop:291 - [OK] FloodDataScheduler stopped
+2025-11-18 11:43:28 - app.main - INFO - shutdown_event:499 - Scheduler stopped gracefully
+2025-11-18 11:43:28 - app.main - INFO - shutdown_event:500 - MAS-FRO backend shutdown complete
+2025-11-18 11:51:46 - app.core.logging_config - INFO - setup_logging:101 - Logging configuration initialized
+2025-11-18 11:51:46 - app.main - INFO - <module>:402 - Initializing MAS-FRO Multi-Agent System...
+2025-11-18 11:51:48 - app.communication.message_queue - INFO - __init__:46 - MessageQueue system initialized
+2025-11-18 11:51:48 - app.agents.hazard_agent_001 - INFO - __init__:36 - Agent hazard_agent_001 created
+2025-11-18 11:51:48 - app.agents.hazard_agent - INFO - __init__:116 - hazard_agent_001 GeoTIFF integration DISABLED
+2025-11-18 11:51:48 - app.ml_models.location_geocoder - INFO - __init__:169 - LocationGeocoder initialized with 85 location mappings
+2025-11-18 11:51:48 - app.agents.hazard_agent - INFO - __init__:129 - hazard_agent_001 LocationGeocoder initialized
+2025-11-18 11:51:48 - app.agents.hazard_agent - INFO - __init__:137 - hazard_agent_001 initialized with risk weights: {'flood_depth': 0.5, 'crowdsourced': 0.3, 'historical': 0.2}, return_period: rr01, time_step: 1, geotiff_enabled: False
+2025-11-18 11:51:48 - app.agents.flood_agent_001 - INFO - __init__:36 - Agent flood_agent_001 created
+2025-11-18 11:51:48 - services.river_scraper_service - INFO - __init__:44 - RiverScraperService initialized
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - __init__:106 - flood_agent_001 initialized RiverScraperService
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - __init__:114 - flood_agent_001 initialized OpenWeatherMapService
+2025-11-18 11:51:48 - services.dam_water_scraper_service - INFO - __init__:164 - DamWaterScraperService initialized
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - __init__:125 - flood_agent_001 initialized DamWaterScraperService
+2025-11-18 11:51:48 - services.data_sources - INFO - __init__:309 - DataCollector initialized: simulated=False, pagasa=False, noah=False, mmda=False
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - __init__:153 - flood_agent_001 initialized with update interval 300s, real_apis=True, simulated=False
+2025-11-18 11:51:48 - app.agents.routing_agent_001 - INFO - __init__:36 - Agent routing_agent_001 created
+2025-11-18 11:51:48 - app.agents.routing_agent - INFO - _load_evacuation_centers:402 - Loaded 36 evacuation centers from C:\Users\Donald\Documents\Code\multi-agent-routing-app\masfro-backend\app\data\evacuation_centers.csv
+2025-11-18 11:51:48 - app.agents.routing_agent - INFO - __init__:71 - routing_agent_001 initialized with risk_weight=0.6, distance_weight=0.4, evacuation_centers=36
+2025-11-18 11:51:48 - app.agents.evac_manager_001 - INFO - __init__:36 - Agent evac_manager_001 created
+2025-11-18 11:51:48 - app.agents.evacuation_manager_agent - INFO - __init__:90 - evac_manager_001 initialized
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - set_hazard_agent:167 - flood_agent_001 linked to hazard_agent_001
+2025-11-18 11:51:48 - app.agents.evacuation_manager_agent - INFO - set_hazard_agent:126 - evac_manager_001 linked to hazard_agent_001
+2025-11-18 11:51:48 - app.agents.evacuation_manager_agent - INFO - set_routing_agent:116 - evac_manager_001 linked to routing_agent_001
+2025-11-18 11:51:48 - app.services.flood_data_scheduler - INFO - __init__:71 - FloodDataScheduler initialized with interval=300s (5.0 minutes), WebSocket broadcasting=enabled
+2025-11-18 11:51:48 - app.services.simulation_manager - INFO - __init__:101 - SimulationManager initialized (tick-based architecture)
+2025-11-18 11:51:48 - app.main - INFO - <module>:456 - MAS-FRO system initialized successfully
+2025-11-18 11:51:48 - app.core.logging_config - INFO - setup_logging:101 - Logging configuration initialized
+2025-11-18 11:51:48 - app.main - INFO - startup_event:465 - ============================================================
+2025-11-18 11:51:48 - app.main - INFO - startup_event:466 - MAS-FRO Backend Starting Up
+2025-11-18 11:51:48 - app.main - INFO - startup_event:467 - ============================================================
+2025-11-18 11:51:48 - app.main - INFO - startup_event:468 - Structured logging initialized - logs written to logs/masfro.log
+2025-11-18 11:51:48 - app.main - INFO - startup_event:471 - Checking database connection...
+2025-11-18 11:51:48 - app.database.connection - INFO - check_connection:92 - [OK] Database connection successful
+2025-11-18 11:51:48 - app.main - INFO - startup_event:473 - Database connection successful
+2025-11-18 11:51:48 - app.database.connection - INFO - init_db:76 - [OK] Database tables created successfully
+2025-11-18 11:51:48 - app.main - INFO - startup_event:480 - Starting background scheduler...
+2025-11-18 11:51:48 - app.services.flood_data_scheduler - INFO - start:265 - [OK] FloodDataScheduler started (interval=300s)
+2025-11-18 11:51:48 - app.main - INFO - startup_event:484 - Automated flood data collection started (every 5 minutes)
+2025-11-18 11:51:48 - app.services.flood_data_scheduler - INFO - _collection_loop:179 - FloodDataScheduler started
+2025-11-18 11:51:48 - app.services.flood_data_scheduler - INFO - _collection_loop:185 - Scheduler triggering flood data collection...
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - collect_and_forward_data:198 - flood_agent_001 collecting flood data from all sources...
+2025-11-18 11:51:48 - app.agents.flood_agent - INFO - fetch_real_river_levels:548 - flood_agent_001 fetching REAL river levels from PAGASA API
+2025-11-18 11:51:48 - services.river_scraper_service - INFO - get_river_levels:55 - Fetching river data from PAGASA website using Selenium
+2025-11-18 11:51:48 - services.river_scraper_service - INFO - get_river_levels:70 - Launching Chrome browser...
+2025-11-18 11:51:50 - services.river_scraper_service - INFO - get_river_levels:74 - Navigating to https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/map.do...
+2025-11-18 11:51:53 - services.river_scraper_service - INFO - get_river_levels:78 - Waiting for table to load...
+2025-11-18 11:51:55 - services.river_scraper_service - INFO - get_river_levels:99 - Found table 'table-type1'. Parsing with Pandas...
+2025-11-18 11:51:55 - services.river_scraper_service - INFO - _process_dataframe:136 - Processing DataFrame into clean station data
+2025-11-18 11:51:55 - services.river_scraper_service - INFO - get_river_levels:108 - Successfully scraped 14 stations
+2025-11-18 11:51:55 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-18 11:51:55 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-18 11:51:56 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-18 11:51:57 - app.agents.flood_agent - INFO - fetch_real_river_levels:615 - Fetched river data for 4 Marikina stations. Statuses: ['alert', 'alert', 'normal', 'normal']
+2025-11-18 11:51:57 - app.agents.flood_agent - INFO - collect_and_forward_data:210 - [OK] Collected REAL river data: 4 stations
+2025-11-18 11:51:57 - app.agents.flood_agent - INFO - fetch_real_weather_data:643 - flood_agent_001 fetching REAL weather from OpenWeatherMap
+2025-11-18 11:51:58 - app.agents.flood_agent - INFO - fetch_real_weather_data:703 - Weather data: 0.0mm/hr current, 0.0mm 24h forecast, intensity=none
+2025-11-18 11:51:58 - app.agents.flood_agent - INFO - collect_and_forward_data:223 - [OK] Collected REAL weather data for Marikina
+2025-11-18 11:51:58 - app.agents.flood_agent - INFO - fetch_real_dam_levels:724 - flood_agent_001 fetching REAL dam levels from PAGASA
+2025-11-18 11:52:00 - services.dam_water_scraper_service - INFO - get_dam_levels:180 - Successfully scraped 9 dam water levels
+2025-11-18 11:52:00 - app.agents.flood_agent - INFO - fetch_real_dam_levels:794 - Fetched dam data for 9 dams. Statuses: ['normal', 'alarm', 'normal', 'watch', 'normal', 'normal', 'normal', 'normal', 'alarm']
+2025-11-18 11:52:00 - app.agents.flood_agent - INFO - collect_and_forward_data:237 - [OK] Collected REAL dam data: 9 dams
+2025-11-18 11:52:00 - app.agents.flood_agent - INFO - collect_and_forward_data:258 - [COLLECTED] 14 data points ready for fusion phase
+2025-11-18 11:52:00 - app.services.flood_data_scheduler - INFO - _collection_loop:205 - [OK] Scheduled collection successful: 14 data points in 12.13s
+2025-11-18 11:52:01 - app.database.repository - INFO - create_collection:104 - Saved flood data collection f81cdb61-88ef-443e-a01c-58a570cf9e94 with 13 river stations
+2025-11-18 11:52:01 - app.services.flood_data_scheduler - INFO - _save_to_database:143 - [DB] Data saved to database: collection_id=f81cdb61-88ef-443e-a01c-58a570cf9e94
+2025-11-18 11:52:01 - app.services.flood_data_scheduler - DEBUG - _collection_loop:222 - WebSocket broadcast completed
+2025-11-18 11:52:01 - app.services.flood_data_scheduler - DEBUG - _collection_loop:248 - Next collection in 300s...
+2025-11-18 11:52:01 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-18 11:52:01 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-18 11:52:02 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-18 11:52:04 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-18 11:52:04 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-18 11:52:05 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-18 11:52:08 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-18 11:52:08 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-18 11:52:08 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-18 11:52:22 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 1
+2025-11-18 11:52:22 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 2
+2025-11-18 11:52:22 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 3
+2025-11-18 11:52:33 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 4
+2025-11-18 11:52:33 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 5
+2025-11-18 11:52:33 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 6
+2025-11-18 11:52:34 - app.api.graph_routes - INFO - get_graph_edges_geojson:59 - Fetching graph edges for GeoJSON conversion
+2025-11-18 11:52:34 - app.api.graph_routes - INFO - get_graph_edges_geojson:133 - Returning all 35932 edges (no sampling)
+2025-11-18 11:52:35 - app.api.graph_routes - INFO - get_graph_edges_geojson:194 - Returning 35932 edges as GeoJSON
+2025-11-18 11:52:38 - app.main - INFO - connect:140 - WebSocket connected. Total connections: 7
+2025-11-18 11:52:38 - app.main - INFO - start_simulation:880 - Simulation start request received - Mode: light
+2025-11-18 11:52:38 - app.services.simulation_manager - INFO - start:216 - Simulation STARTED - Mode: LIGHT, Previous state: stopped
+2025-11-18 11:52:38 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: simulation_state
+2025-11-18 11:52:38 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:38 - app.main - INFO - broadcast:194 - WebSocket disconnected during broadcast
+2025-11-18 11:52:38 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:38 - app.main - INFO - broadcast:194 - WebSocket disconnected during broadcast
+2025-11-18 11:52:38 - app.main - INFO - broadcast:194 - WebSocket disconnected during broadcast
+2025-11-18 11:52:38 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:38 - app.main - INFO - broadcast:194 - WebSocket disconnected during broadcast
+2025-11-18 11:52:38 - app.main - INFO - disconnect:149 - WebSocket disconnected. Total connections: 6
+2025-11-18 11:52:38 - app.main - INFO - disconnect:149 - WebSocket disconnected. Total connections: 5
+2025-11-18 11:52:38 - app.main - INFO - disconnect:149 - WebSocket disconnected. Total connections: 4
+2025-11-18 11:52:38 - app.main - INFO - disconnect:149 - WebSocket disconnected. Total connections: 3
+2025-11-18 11:52:38 - app.main - INFO - start_simulation:894 - Simulation started successfully - Mode: light, State: running
+2025-11-18 11:52:42 - app.main - INFO - stop_simulation:929 - Simulation stop request received
+2025-11-18 11:52:42 - app.services.simulation_manager - INFO - stop:254 - Simulation STOPPED (paused) - Total runtime: 4.38s, Ticks: 0, Time step: 1
+2025-11-18 11:52:42 - app.main - DEBUG - broadcast:167 - Successfully serialized message of type: simulation_state
+2025-11-18 11:52:42 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:43 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:43 - app.main - DEBUG - broadcast:192 - send_text successful
+2025-11-18 11:52:43 - app.main - INFO - stop_simulation:943 - Simulation stopped successfully - Runtime: 4.38s
