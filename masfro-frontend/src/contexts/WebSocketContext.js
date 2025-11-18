@@ -11,6 +11,7 @@ export function WebSocketProvider({ children }) {
   const [lastMessage, setLastMessage] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
   const [statistics, setStatistics] = useState(null);
+  const [simulationState, setSimulationState] = useState(null);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const pingIntervalRef = useRef(null);
@@ -112,6 +113,11 @@ export function WebSocketProvider({ children }) {
               console.log('📊 Risk update received:', data);
               break;
 
+            case 'simulation_state':
+              console.log('🎮 Simulation state update:', data.event, data.data);
+              setSimulationState(data);
+              break;
+
             case 'pong':
               // Heartbeat response
               break;
@@ -207,6 +213,7 @@ export function WebSocketProvider({ children }) {
     lastMessage,
     systemStatus,
     statistics,
+    simulationState,
     sendMessage,
     requestUpdate,
     reconnect: connect

@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 export default function SimulationPanel({ isConnected, floodData }) {
+  const { simulationState: wsSimulationState } = useWebSocketContext();
   const [simulationMode, setSimulationMode] = useState('light');
   const [isExpanded, setIsExpanded] = useState(true);
   const [agentLogs, setAgentLogs] = useState([]);
+  const [simulationState, setSimulationState] = useState('stopped'); // 'stopped', 'running', 'paused'
+  const logIdCounter = React.useRef(0); // Unique ID counter for logs
 
   // Add logs when flood data or connection changes
   useEffect(() => {
@@ -20,12 +24,121 @@ export default function SimulationPanel({ isConnected, floodData }) {
     }
   }, [isConnected]);
 
+  // Sync WebSocket simulation state updates
+  useEffect(() => {
+    if (wsSimulationState && wsSimulationState.data) {
+      const { state, mode, event } = wsSimulationState.data;
+
+      // Update local state from WebSocket message
+      if (state) {
+        setSimulationState(state);
+      }
+      if (mode) {
+        setSimulationMode(mode);
+      }
+
+      // Log the event
+      const eventMessages = {
+        started: `🎮 Simulation started via WebSocket - ${mode?.toUpperCase()} mode`,
+        stopped: `⏸️ Simulation stopped via WebSocket`,
+        reset: `🔄 Simulation reset via WebSocket`
+      };
+
+      if (event && eventMessages[event]) {
+        addLog('system', eventMessages[event]);
+      }
+    }
+  }, [wsSimulationState]);
+
   const addLog = (source, message) => {
     const timestamp = new Date().toLocaleTimeString();
+    // Generate truly unique ID using timestamp + counter + random
+    logIdCounter.current += 1;
+    const uniqueId = `${Date.now()}-${logIdCounter.current}-${Math.random().toString(36).substr(2, 9)}`;
     setAgentLogs(prev => [
-      { source, message, timestamp, id: Date.now() },
+      { source, message, timestamp, id: uniqueId },
       ...prev.slice(0, 49) // Keep last 50 logs
     ]);
+  };
+
+  // Simulation control handlers
+  const handleStart = async () => {
+    try {
+      addLog('system', `⏳ Starting simulation - ${simulationMode.toUpperCase()} flood scenario...`);
+
+      const response = await fetch(`http://localhost:8000/api/simulation/start?mode=${simulationMode}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to start simulation');
+      }
+
+      const data = await response.json();
+      setSimulationState('running');
+      addLog('system', `🚀 Simulation STARTED - ${data.mode.toUpperCase()} mode`);
+      addLog('system', `Started at: ${new Date(data.started_at).toLocaleTimeString()}`);
+    } catch (error) {
+      console.error('Error starting simulation:', error);
+      addLog('system', `❌ Error: ${error.message}`);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      addLog('system', '⏳ Stopping simulation...');
+
+      const response = await fetch('http://localhost:8000/api/simulation/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to stop simulation');
+      }
+
+      const data = await response.json();
+      setSimulationState('paused');
+      addLog('system', '⏸️ Simulation STOPPED - Data input paused');
+      addLog('system', `Total runtime: ${data.total_runtime_seconds}s`);
+    } catch (error) {
+      console.error('Error stopping simulation:', error);
+      addLog('system', `❌ Error: ${error.message}`);
+    }
+  };
+
+  const handleReset = async () => {
+    try {
+      addLog('system', '⏳ Resetting simulation...');
+
+      const response = await fetch('http://localhost:8000/api/simulation/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to reset simulation');
+      }
+
+      const data = await response.json();
+      setSimulationState('stopped');
+      setAgentLogs([]);
+      addLog('system', '🔄 Simulation RESET - Graph and logs cleared');
+      addLog('system', `Previous runtime: ${data.previous_runtime_seconds}s`);
+    } catch (error) {
+      console.error('Error resetting simulation:', error);
+      addLog('system', `❌ Error: ${error.message}`);
+    }
   };
 
   const getSourceIcon = (source) => {
@@ -262,6 +375,217 @@ export default function SimulationPanel({ isConnected, floodData }) {
                 {simulationMode === 'heavy' && '> 1.0m depth • High risk zones'}
               </div>
             </div>
+          </div>
+
+          {/* Simulation Control Buttons */}
+          <div style={{
+            padding: '1.25rem',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem'
+          }}>
+            {/* Status Badge */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '0.25rem'
+            }}>
+              <span style={{
+                fontSize: '0.75rem',
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                Simulation Control
+              </span>
+              <div style={{
+                padding: '0.25rem 0.75rem',
+                borderRadius: '12px',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                background: simulationState === 'running'
+                  ? 'rgba(16, 185, 129, 0.2)'
+                  : simulationState === 'paused'
+                  ? 'rgba(245, 158, 11, 0.2)'
+                  : 'rgba(148, 163, 184, 0.2)',
+                color: simulationState === 'running'
+                  ? '#10b981'
+                  : simulationState === 'paused'
+                  ? '#f59e0b'
+                  : '#94a3b8',
+                border: `1px solid ${
+                  simulationState === 'running'
+                    ? 'rgba(16, 185, 129, 0.4)'
+                    : simulationState === 'paused'
+                    ? 'rgba(245, 158, 11, 0.4)'
+                    : 'rgba(148, 163, 184, 0.4)'
+                }`
+              }}>
+                {simulationState === 'running' ? '▶ Running' : simulationState === 'paused' ? '⏸ Paused' : '⏹ Stopped'}
+              </div>
+            </div>
+
+            {/* Button Group */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              gap: '0.5rem'
+            }}>
+              {/* Start Button */}
+              <button
+                onClick={handleStart}
+                disabled={simulationState === 'running' || !isConnected}
+                style={{
+                  padding: '0.75rem 0.5rem',
+                  borderRadius: '10px',
+                  border: simulationState === 'running'
+                    ? '1px solid rgba(148, 163, 184, 0.2)'
+                    : '1px solid rgba(16, 185, 129, 0.4)',
+                  background: simulationState === 'running'
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(16, 185, 129, 0.15)',
+                  color: simulationState === 'running'
+                    ? 'rgba(255, 255, 255, 0.4)'
+                    : '#10b981',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: simulationState === 'running' || !isConnected ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: simulationState === 'running' || !isConnected ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (simulationState !== 'running' && isConnected) {
+                    e.currentTarget.style.background = 'rgba(16, 185, 129, 0.25)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = simulationState === 'running'
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(16, 185, 129, 0.15)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span style={{ fontSize: '1.2rem' }}>▶️</span>
+                <span style={{ fontSize: '0.7rem' }}>START</span>
+              </button>
+
+              {/* Stop Button */}
+              <button
+                onClick={handleStop}
+                disabled={simulationState !== 'running'}
+                style={{
+                  padding: '0.75rem 0.5rem',
+                  borderRadius: '10px',
+                  border: simulationState !== 'running'
+                    ? '1px solid rgba(148, 163, 184, 0.2)'
+                    : '1px solid rgba(245, 158, 11, 0.4)',
+                  background: simulationState !== 'running'
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(245, 158, 11, 0.15)',
+                  color: simulationState !== 'running'
+                    ? 'rgba(255, 255, 255, 0.4)'
+                    : '#f59e0b',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: simulationState !== 'running' ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: simulationState !== 'running' ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (simulationState === 'running') {
+                    e.currentTarget.style.background = 'rgba(245, 158, 11, 0.25)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = simulationState !== 'running'
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(245, 158, 11, 0.15)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span style={{ fontSize: '1.2rem' }}>⏸️</span>
+                <span style={{ fontSize: '0.7rem' }}>STOP</span>
+              </button>
+
+              {/* Reset Button */}
+              <button
+                onClick={handleReset}
+                disabled={!isConnected}
+                style={{
+                  padding: '0.75rem 0.5rem',
+                  borderRadius: '10px',
+                  border: !isConnected
+                    ? '1px solid rgba(148, 163, 184, 0.2)'
+                    : '1px solid rgba(239, 68, 68, 0.4)',
+                  background: !isConnected
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(239, 68, 68, 0.15)',
+                  color: !isConnected
+                    ? 'rgba(255, 255, 255, 0.4)'
+                    : '#ef4444',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: !isConnected ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: !isConnected ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (isConnected) {
+                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = !isConnected
+                    ? 'rgba(148, 163, 184, 0.1)'
+                    : 'rgba(239, 68, 68, 0.15)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span style={{ fontSize: '1.2rem' }}>🔄</span>
+                <span style={{ fontSize: '0.7rem' }}>RESET</span>
+              </button>
+            </div>
+
+            {/* Info message based on state */}
+            {!isConnected && (
+              <div style={{
+                fontSize: '0.7rem',
+                color: '#ef4444',
+                textAlign: 'center',
+                padding: '0.5rem',
+                background: 'rgba(239, 68, 68, 0.1)',
+                borderRadius: '6px',
+                border: '1px solid rgba(239, 68, 68, 0.2)'
+              }}>
+                ⚠️ Backend offline - controls disabled
+              </div>
+            )}
           </div>
 
           {/* Agent Logs */}
