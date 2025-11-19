@@ -3,24 +3,24 @@
 """
 NLP Processor for Social Media Flood Reports (MAS-FRO)
 
-This module implements natural language processing functions for extracting
+This module implements ML-based natural language processing for extracting
 flood-related information from social media text (Twitter/X, Facebook posts).
-Handles both Filipino and English text commonly used in Marikina area flood
-reports.
+Handles both Filipino and English text commonly used in Marikina area flood reports.
 
-Key Functions:
-- Location extraction (barangays, landmarks, streets)
-- Severity assessment (depth indicators, passability)
-- Report classification (flood, clear, traffic, evacuation)
-- Flood-related filtering
+Key Features:
+- ML-based flood classification (flood vs none)
+- spaCy NER for location extraction
+- ML-based severity classification (critical, dangerous, minor, none)
+- Backward compatible with existing ScoutAgent interface
 
 Author: MAS-FRO Development Team
 Date: November 2025
-Version: 2.0 - Enhanced with comprehensive Marikina geography and Filipino terminology
+Version: 3.0 - ML-based models with spaCy NER
 """
 
 import re
-from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,23 +28,21 @@ logger = logging.getLogger(__name__)
 
 class NLPProcessor:
     """
-    Natural Language Processor for flood reports.
+    ML-based Natural Language Processor for flood reports.
 
-    This class provides methods to extract structured information from
-    unstructured social media text about flood conditions. Handles
-    mixed Filipino-English (Taglish) text common in Philippine social media.
+    This class uses trained machine learning models to extract structured
+    information from unstructured social media text about flood conditions.
 
-    Enhanced Features:
-    - Complete Marikina City barangay coverage (all 16 barangays)
-    - MMDA flood gauge depth standards
-    - Comprehensive Filipino/Tagalog flood terminology
-    - 200+ location references (barangays, landmarks, roads)
+    Models Used:
+    - flood_classifier.pkl: Binary classification (flood/none)
+    - location_extract (spaCy): Named Entity Recognition for locations
+    - severity_classifier.pkl: Multi-class classification (critical/dangerous/minor/none)
 
     Attributes:
-        flood_keywords: Keywords indicating flooding (Filipino & English)
-        severity_indicators: Keywords for severity assessment
-        known_locations: All Marikina barangays, landmarks, and roads
-        depth_mapping: MMDA standard flood depth measurements
+        flood_classifier: Sklearn model for flood detection
+        location_model: spaCy NER model for location extraction
+        severity_classifier: Sklearn model for severity assessment
+        severity_mapping: Maps model output to 0-1 scale
 
     Example:
         >>> processor = NLPProcessor()
@@ -52,247 +50,132 @@ class NLPProcessor:
         ...     "Baha sa J.P. Rizal, tuhod level! Hindi madaan!"
         ... )
         >>> print(info['severity'])
-        0.6
+        0.8
         >>> print(info['is_flood_related'])
         True
     """
 
     def __init__(self):
-        """Initialize the NLP processor with comprehensive keyword dictionaries."""
+        """Initialize the NLP processor with ML models."""
 
-        # ===== FLOOD-RELATED KEYWORDS (Filipino and English) =====
-        self.flood_keywords = {
-            # Primary flood indicators
-            "flood": [
-                # English
-                "flood", "flooded", "flooding", "floodwater", "floodwaters",
-                "submerged", "inundated", "underwater",
-                # Filipino/Tagalog
-                "baha", "bumaha", "bahain", "pagbaha", "binaha",
-                "apaw", "umapaw", "puno", "lumalaki ang tubig",
-                "tumataas ang tubig", "pisan", "dilubyo", "sinap"
-            ],
+        # Define model paths
+        models_dir = Path(__file__).parent / "new_models"
 
-            # Clear/No flood indicators
-            "clear": [
-                # English
-                "clear", "cleared", "no flood", "passable", "safe", "dry",
-                "receding", "subsiding",
-                # Filipino
-                "walang baha", "okay", "madaan", "safe", "tuyo",
-                "humupa", "bumaba na", "keri pa", "pwede pa"
-            ],
+        self.flood_classifier = None
+        self.location_model = None
+        self.severity_classifier = None
 
-            # Blocked/Impassable indicators
-            "blocked": [
-                # English
-                "blocked", "impassable", "closed", "not passable", "stranded",
-                "stuck", "trapped",
-                # Filipino
-                "sarado", "hindi madaan", "barado", "naipit", "naharang",
-                "di madadaanan", "nakatigil", "nakaabang"
-            ],
+        # Load flood classifier
+        try:
+            import joblib
+            flood_model_path = models_dir / "flood_classifier.pkl"
+            self.flood_classifier = joblib.load(flood_model_path)
+            logger.info(f"Flood classifier loaded from {flood_model_path}")
+        except ImportError:
+            logger.error("joblib not installed. Install with: uv add joblib")
+            logger.warning("Flood detection will fall back to rule-based method")
+        except Exception as e:
+            logger.error(f"Failed to load flood classifier: {e}")
+            logger.warning("Flood detection will fall back to rule-based method")
 
-            # Traffic indicators
-            "traffic": [
-                # English
-                "traffic", "slow", "congestion", "jam",
-                # Filipino
-                "trapik", "mabagal", "bara", "mahaba", "pila"
-            ],
+        # Load spaCy location extraction model
+        try:
+            import spacy
+            location_model_path = models_dir / "location_extract"
+            self.location_model = spacy.load(str(location_model_path))
+            logger.info(f"Location extraction model loaded from {location_model_path}")
+        except ImportError:
+            logger.error("spaCy not installed. Install with: pip install spacy")
+            logger.warning("Location extraction will fall back to rule-based method")
+        except Exception as e:
+            logger.error(f"Failed to load location extraction model: {e}")
+            logger.warning("Location extraction will fall back to rule-based method")
 
-            # Water level rising indicators
-            "rising": [
-                # English
-                "rising", "increasing", "getting higher", "climbing",
-                # Filipino
-                "tumataas", "lumalaki", "lumalalim", "tumataas pa",
-                "patuloy tumataas"
-            ],
+        # Load severity classifier
+        try:
+            import joblib
+            severity_model_path = models_dir / "severity_classifier.pkl"
+            self.severity_classifier = joblib.load(severity_model_path)
+            logger.info(f"Severity classifier loaded from {severity_model_path}")
+        except ImportError:
+            logger.error("joblib not installed. Install with: uv add joblib")
+            logger.warning("Severity assessment will fall back to rule-based method")
+        except Exception as e:
+            logger.error(f"Failed to load severity classifier: {e}")
+            logger.warning("Severity assessment will fall back to rule-based method")
 
-            # Evacuation indicators
-            "evacuation": [
-                # English
-                "evacuate", "evacuating", "evacuation", "rescue", "help",
-                # Filipino
-                "lumikas", "lumilikas", "evac", "rescue", "tulong",
-                "kailangan ng tulong", "emergency"
-            ]
+        # Severity mapping: Model output -> 0-1 scale
+        # Based on MMDA flood depth standards
+        self.severity_mapping = {
+            "none": 0.0,        # No flooding
+            "minor": 0.3,       # Gutter to ankle (passable)
+            "dangerous": 0.65,  # Knee to waist (not passable)
+            "critical": 0.95    # Chest to neck (life-threatening)
         }
 
-        # ===== SEVERITY INDICATORS BY DEPTH =====
-        # Based on MMDA flood gauge standards and Filipino body-based indicators
-        self.severity_indicators = {
-            # Gutter/Very Shallow (8 inches / 20cm)
-            "gutter": [
-                "gutter", "gutter deep", "gutter-deep",
-                "imburnal", "kanal",
-                "mababaw lang", "konti lang", "kaunti lang"
-            ],
-
-            # Ankle (10 inches / 25cm)
-            "ankle": [
-                "ankle", "ankle deep", "ankle-deep",
-                "sakong", "bukung-bukong", "sa paa lang",
-                "half knee", "half-knee", "kalahating tuhod"
-            ],
-
-            # Knee (19 inches / 48cm) - NPLV threshold
-            "knee": [
-                "knee", "knee deep", "knee-deep", "knee level",
-                "tuhod", "hanggang tuhod", "tuhod level",
-                "pantuhod", "abot tuhod"
-            ],
-
-            # Tire/Mid-thigh (26 inches / 66cm) - NPATV threshold
-            "tire": [
-                "tire", "tire deep", "tire-deep",
-                "gulong", "hanggang gulong",
-                "hita", "mid-thigh"
-            ],
-
-            # Waist (37 inches / 94cm)
-            "waist": [
-                "waist", "waist deep", "waist-deep", "waist level",
-                "baywang", "bewang", "hanggang baywang",
-                "abot baywang", "pantawid"
-            ],
-
-            # Chest (45 inches / 114cm)
-            "chest": [
-                "chest", "chest deep", "chest-deep", "chest level",
-                "dibdib", "hanggang dibdib", "abot dibdib",
-                "breast level"
-            ],
-
-            # Neck/Head (60+ inches / 150cm+)
-            "neck": [
-                "neck", "neck deep", "neck-deep",
-                "leeg", "hanggang leeg", "abot leeg",
-                "head deep", "overhead", "mataas na"
-            ],
-
-            # General depth indicators
-            "high": [
-                "high", "deep", "mataas", "malalim", "grabe",
-                "sobrang taas", "malala", "critical"
-            ]
+        # Report type mapping based on severity
+        self.report_type_mapping = {
+            "none": "clear",
+            "minor": "flood",
+            "dangerous": "blocked",
+            "critical": "evacuation"
         }
 
-        # ===== COMPLETE MARIKINA CITY LOCATIONS =====
-        # All 16 barangays + landmarks + roads + LRT stations
-        self.known_locations = {
-            # === 16 OFFICIAL BARANGAYS ===
-            "barangays": [
-                # District I (9 barangays)
-                "Barangka", "Tañong", "Tanong",
-                "Jesus dela Peña", "Jesus de la Peña", "Jesus Dela Pena",
-                "Industrial Valley Complex", "IVC", "Industrial Valley",
-                "Kalumpang", "Calumpang",
-                "San Roque",
-                "Sta. Elena", "Santa Elena",
-                "Sto. Niño", "Santo Niño", "Santo Nino", "Sto Nino",
-                "Malanday",
-                # District II (7 barangays)
-                "Concepcion Uno", "Concepcion I", "Concepcion 1",
-                "Concepcion Dos", "Concepcion II", "Concepcion 2",
-                "Nangka",
-                "Parang",
-                "Marikina Heights",
-                "Fortune",
-                "Tumana"
-            ],
-
-            # === MAJOR ROADS & HIGHWAYS ===
-            "roads": [
-                # Major highways
-                "Marcos Highway", "Marikina-Infanta Highway",
-                "Sumulong Highway", "Sumulong",
-                "Gil Fernando Avenue", "Gil Fernando", "Mayor Gil Fernando",
-                "Felix Avenue", "Felix",
-                "A. Bonifacio", "Andres Bonifacio Avenue",
-                "Aurora Boulevard", "Aurora Blvd",
-                "Ramon Magsaysay Boulevard",
-
-                # Local streets
-                "J.P. Rizal", "JP Rizal", "Rizal Avenue",
-                "Shoe Avenue",
-                "Riverbanks Road",
-                "Liamzon Street", "Ditchoy Street", "Dasdasan Street"
-            ],
-
-            # === LRT-2 STATIONS ===
-            "lrt_stations": [
-                "Santolan Station", "Santolan LRT",
-                "Marikina-Pasig Station", "Marikina Station",
-                "Antipolo Station", "Antipolo LRT"
-            ],
-
-            # === MAJOR LANDMARKS ===
-            "landmarks": [
-                # Shopping Centers
-                "SM Marikina", "SM City Marikina",
-                "Robinsons Metro East", "Robinsons Marikina",
-                "Sta. Lucia East Grand Mall", "Sta Lucia Mall",
-                "Riverbanks Center", "Riverbanks Mall",
-
-                # Government & Institutions
-                "Marikina City Hall", "City Hall",
-                "Marikina Sports Center", "Sports Center",
-                "Marikina Health Center",
-
-                # Religious Sites
-                "Our Lady of the Abandoned", "Diocesan Shrine",
-                "Marikina Cathedral",
-
-                # Historical & Cultural
-                "Shoe Museum", "Marikina Shoe Museum",
-
-                # Natural Features
-                "Marikina River", "Marikina Riverbanks", "Riverbanks",
-
-                # Bridges
-                "Marikina Bridge", "Tumana Bridge", "Rosario Bridge",
-
-                # Residential Villages
-                "SSS Village", "Provident Village", "Provident"
-            ]
+        # Passability rules based on severity
+        self.passability_rules = {
+            "none": True,       # Clear, passable
+            "minor": True,      # Minor flooding, still passable
+            "dangerous": False, # Not passable
+            "critical": False   # Definitely not passable
         }
 
-        # Flatten all locations into a single list for matching
-        self.all_known_locations = []
-        for category in self.known_locations.values():
-            self.all_known_locations.extend(category)
+        # Fallback keywords for rule-based methods
+        self._init_fallback_keywords()
 
-        # ===== DEPTH-TO-SEVERITY MAPPING =====
-        # Based on MMDA flood gauge standards (0-1 scale)
-        # Reference: 0.5m = medium hazard, 1.5m = high hazard
-        self.depth_mapping = {
-            "gutter": 0.1,    # 8 inches / 20cm - Passable to all
-            "ankle": 0.15,    # 10 inches / 25cm - Passable to all
-            "knee": 0.5,      # 19 inches / 48cm - Not passable to light vehicles
-            "tire": 0.65,     # 26 inches / 66cm - Not passable to all vehicles
-            "waist": 0.8,     # 37 inches / 94cm - Dangerous
-            "chest": 0.9,     # 45 inches / 114cm - Very dangerous
-            "neck": 0.95,     # 60+ inches / 150cm+ - Critical
-            "high": 0.7       # General high water
+        logger.info("NLPProcessor v3.0 initialized with ML models")
+        logger.info(f"  - Flood classifier: {'✓' if self.flood_classifier else '✗ (fallback)'}")
+        logger.info(f"  - Location model: {'✓' if self.location_model else '✗ (fallback)'}")
+        logger.info(f"  - Severity classifier: {'✓' if self.severity_classifier else '✗ (fallback)'}")
+
+    def _init_fallback_keywords(self):
+        """Initialize fallback keywords for rule-based processing."""
+
+        # Minimal keyword set for fallback
+        self.flood_keywords = [
+            "baha", "flood", "flooded", "flooding", "bumaha", "pagbaha",
+            "water", "tubig", "ulan", "rain"
+        ]
+
+        self.clear_keywords = [
+            "clear", "cleared", "walang baha", "no flood", "okay",
+            "passable", "madaan", "safe"
+        ]
+
+        self.severity_keywords = {
+            "minor": ["gutter", "ankle", "sakong", "mababaw"],
+            "dangerous": ["knee", "waist", "tuhod", "baywang", "tire"],
+            "critical": ["chest", "neck", "dibdib", "leeg", "grabe", "malala"]
         }
 
-        logger.info("NLPProcessor v2.0 initialized with comprehensive Marikina data")
-        logger.info(f"  - {len(self.all_known_locations)} known locations loaded")
-        logger.info(f"  - {sum(len(v) for v in self.flood_keywords.values())} flood keywords")
-        logger.info(f"  - {sum(len(v) for v in self.severity_indicators.values())} severity indicators")
+        # Simple Marikina location patterns
+        self.location_patterns = [
+            r'\b(Barangka|Nangka|Malanday|Tumana|Parang|Concepcion|Fortune)\b',
+            r'\b(Marikina Heights|Industrial Valley|IVC|San Roque|Sta\.? Elena)\b',
+            r'\b(SM Marikina|Riverbanks|Marcos Highway|Sumulong)\b',
+            r'\bsa\s+([A-Z][a-zA-Z\s]+?)(?:\s|,|!|\.)',
+            r'\bat\s+([A-Z][a-zA-Z\s]+?)(?:\s|,|!|\.)'
+        ]
 
     def extract_flood_info(self, text: str) -> Dict[str, Any]:
         """
-        Extract flood information from social media text.
+        Extract flood information from social media text using ML models.
 
         Analyzes text to extract:
-        - Whether report is flood-related (NEW!)
-        - Location mentioned
-        - Flood severity
-        - Road passability
-        - Report type
+        - Whether report is flood-related (ML classifier)
+        - Location mentioned (spaCy NER)
+        - Flood severity (ML classifier)
+        - Road passability (rule-based from severity)
+        - Report type (derived from severity)
 
         Args:
             text: Social media post text (Filipino/English/mixed)
@@ -300,7 +183,7 @@ class NLPProcessor:
         Returns:
             Dict containing extracted information:
                 {
-                    "is_flood_related": bool,      # NEW: Critical for filtering
+                    "is_flood_related": bool,
                     "location": str or None,
                     "severity": float (0-1),
                     "passable": bool or None,
@@ -317,307 +200,276 @@ class NLPProcessor:
             >>> print(f"Location: {info['location']}")
             >>> print(f"Severity: {info['severity']:.2f}")
         """
-        text_lower = text.lower()
 
-        # Extract location
-        location = self._extract_location(text)
+        # 1. Flood classification (ML or fallback)
+        is_flood_related, flood_confidence = self._classify_flood(text)
 
-        # Determine report type
-        report_type = self._classify_report_type(text_lower)
+        # 2. Location extraction (spaCy NER or fallback)
+        location, location_confidence = self._extract_location(text)
 
-        # Extract severity
-        severity = self._extract_severity(text_lower)
+        # 3. Severity classification (ML or fallback)
+        severity_label, severity_score = self._classify_severity(text)
 
-        # Determine passability
-        passable = self._determine_passability(text_lower, severity)
+        # 4. Map severity to 0-1 scale
+        # If model outputs unknown label, default to 0.0
+        severity = self.severity_mapping.get(severity_label, 0.0)
 
-        # Calculate confidence based on keyword matches
-        confidence = self._calculate_confidence(text_lower, location, severity)
+        # If unknown severity label, log warning and use fallback
+        if severity_label not in self.severity_mapping:
+            logger.warning(
+                f"Unknown severity label '{severity_label}'. "
+                f"Expected: {list(self.severity_mapping.keys())}. Defaulting to 'none'."
+            )
+            severity_label = "none"
+            severity = 0.0
 
-        # NEW: Determine if flood-related
-        is_flood_related = self._is_flood_related(report_type, severity, text_lower)
+        # 5. Determine report type from severity
+        report_type = self.report_type_mapping.get(severity_label, "flood")
+
+        # 6. Determine passability from severity
+        passable = self.passability_rules.get(severity_label, None)
+
+        # 7. Calculate overall confidence
+        confidence = self._calculate_overall_confidence(
+            flood_confidence,
+            location_confidence,
+            severity_score
+        )
 
         return {
-            "is_flood_related": is_flood_related,  # NEW FIELD
+            "is_flood_related": is_flood_related,
             "location": location,
             "severity": severity,
             "passable": passable,
             "report_type": report_type,
             "confidence": confidence,
-            "raw_text": text
+            "raw_text": text,
+            # Additional metadata
+            "severity_label": severity_label,  # Raw model output
+            "model_confidence": {
+                "flood": flood_confidence,
+                "location": location_confidence,
+                "severity": severity_score
+            }
         }
 
-    def _is_flood_related(self, report_type: str, severity: float, text: str) -> bool:
+    def _classify_flood(self, text: str) -> tuple[bool, float]:
         """
-        Determine if the report is flood-related.
-
-        A report is considered flood-related if:
-        1. Report type is "flood", "blocked", "evacuation", or "rising"
-        2. OR severity > 0 (indicates flooding)
-        3. AND NOT a "clear" report (unless it mentions previous flooding)
-        4. AND NOT explicitly negated (e.g., "walang baha", "no flood")
-
-        Args:
-            report_type: Classification of report
-            severity: Severity score (0-1)
-            text: Lowercased text
-
-        Returns:
-            True if flood-related, False otherwise
-        """
-        # Check for explicit negation first
-        negation_phrases = [
-            "walang baha", "no flood", "no water", "no flooding",
-            "hindi baha", "wala", "clear", "okay", "passable"
-        ]
-        has_negation = any(phrase in text for phrase in negation_phrases)
-
-        # If text explicitly says "no flood", it's not flood-related
-        # (even if it mentions rain or water in other context)
-        if has_negation and severity < 0.5:
-            return False
-
-        # Clear reports are NOT flood-related
-        if report_type == "clear":
-            # Unless they mention flood clearing/receding (still flood context)
-            flood_context = any(kw in text for kw in ["humupa", "bumaba", "receding"])
-            return flood_context
-
-        # Flood, evacuation, rising, blocked are flood-related
-        if report_type in ["flood", "evacuation", "rising", "blocked"]:
-            return True
-
-        # Traffic reports are flood-related if they mention water/flood
-        if report_type == "traffic":
-            flood_mentioned = any(kw in text for kw in self.flood_keywords["flood"])
-            return flood_mentioned or severity > 0.1
-
-        # Any report with severity > 0.1 is likely flood-related
-        # (unless negated above)
-        if severity > 0.1:
-            return True
-
-        return False
-
-    def _extract_location(self, text: str) -> Optional[str]:
-        """
-        Extract location mention from text.
-
-        Enhanced to check all 16 Marikina barangays, major roads,
-        LRT stations, and landmarks.
+        Classify if text is flood-related using ML model.
 
         Args:
             text: Input text
 
         Returns:
-            Extracted location or None
+            (is_flood: bool, confidence: float)
         """
-        # Check for known locations (case-insensitive)
-        for location in self.all_known_locations:
-            # Word boundary matching to avoid false positives
-            pattern = r'\b' + re.escape(location) + r'\b'
-            if re.search(pattern, text, re.IGNORECASE):
-                return location
+        if self.flood_classifier is None:
+            # Fallback: Rule-based classification
+            return self._classify_flood_fallback(text)
 
-        # Try to extract with common Filipino/English patterns
-        patterns = [
-            # Filipino: "sa [Location]"
-            r'(?:sa|nasa)\s+([A-Z][a-zA-Z\s]+?)(?:\s|,|!|\.|$)',
-            # English: "at/in [Location]"
-            r'(?:at|in)\s+([A-Z][a-zA-Z\s]+?)(?:\s|,|!|\.|$)',
-            # Pattern: "[Location] area/road/street"
-            r'([A-Z][a-zA-Z\s]+?)\s+(?:area|road|street|avenue|bridge|station)',
-        ]
+        try:
+            # Use ML model
+            # Assuming classifier has predict_proba method
+            prediction = self.flood_classifier.predict([text])[0]
 
-        for pattern in patterns:
-            match = re.search(pattern, text)
+            # Get probability scores if available
+            if hasattr(self.flood_classifier, 'predict_proba'):
+                proba = self.flood_classifier.predict_proba([text])[0]
+                confidence = float(max(proba))
+            else:
+                confidence = 0.8  # Default confidence if no proba
+
+            is_flood = (prediction == "flood")
+
+            logger.debug(f"Flood classification: {prediction} (confidence: {confidence:.2f})")
+            return is_flood, confidence
+
+        except Exception as e:
+            logger.error(f"Error in flood classification: {e}")
+            return self._classify_flood_fallback(text)
+
+    def _classify_flood_fallback(self, text: str) -> tuple[bool, float]:
+        """Fallback rule-based flood classification."""
+        text_lower = text.lower()
+
+        # Check for clear/no flood indicators first
+        if any(kw in text_lower for kw in self.clear_keywords):
+            return False, 0.6
+
+        # Check for flood keywords
+        flood_count = sum(1 for kw in self.flood_keywords if kw in text_lower)
+
+        if flood_count >= 1:
+            confidence = min(0.5 + (flood_count * 0.15), 0.9)
+            return True, confidence
+
+        return False, 0.3
+
+    def _extract_location(self, text: str) -> tuple[Optional[str], float]:
+        """
+        Extract location using spaCy NER model.
+
+        Args:
+            text: Input text
+
+        Returns:
+            (location: str or None, confidence: float)
+        """
+        if self.location_model is None:
+            # Fallback: Rule-based extraction
+            return self._extract_location_fallback(text)
+
+        try:
+            # Use spaCy NER model
+            doc = self.location_model(text)
+
+            # Extract location entities
+            locations = [ent.text for ent in doc.ents if ent.label_ == "LOC"]
+
+            if locations:
+                # Clean and filter locations
+                cleaned_locations = []
+                for loc in locations:
+                    # Split on punctuation and take first part (in case entity spans multiple phrases)
+                    import re
+                    parts = re.split(r'[.!?;]+', loc)
+                    cleaned = parts[0].strip() if parts else loc
+
+                    # Remove trailing and leading punctuation from cleaned part
+                    cleaned = cleaned.strip('.,!?;:')
+
+                    # Remove common suffixes/prefixes that aren't part of location
+                    stop_words = ['area', 'near', 'at', 'sa', 'ng', 'pa', 'na', 'ko', 'ka']
+                    words = cleaned.split()
+
+                    # Remove stop words from the end
+                    while words and words[-1].lower() in stop_words:
+                        words.pop()
+
+                    # Remove stop words from the beginning
+                    while words and words[0].lower() in stop_words:
+                        words.pop(0)
+
+                    cleaned = ' '.join(words) if words else cleaned
+
+                    # Filter out common false positives
+                    false_positives = [
+                        'urgent', 'update', 'alert', 'warning', 'help',
+                        'all', 'now', 'today', 'yesterday', 'ulan', 'rain',
+                        'baha', 'flood', 'tubig', 'water', 'bantayan',
+                        'madaan', 'lahat'
+                    ]
+
+                    if cleaned.lower() not in false_positives and len(cleaned) > 2:
+                        cleaned_locations.append(cleaned)
+
+                if cleaned_locations:
+                    # Return first valid location with high confidence
+                    location = cleaned_locations[0]
+                    confidence = 0.85  # Default high confidence for NER
+
+                    logger.debug(f"Location extracted: {location} (confidence: {confidence:.2f})")
+                    return location, confidence
+
+            logger.debug("No valid location entities found")
+            return None, 0.0
+
+        except Exception as e:
+            logger.error(f"Error in location extraction: {e}")
+            return self._extract_location_fallback(text)
+
+    def _extract_location_fallback(self, text: str) -> tuple[Optional[str], float]:
+        """Fallback rule-based location extraction."""
+
+        for pattern in self.location_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                location = match.group(1).strip()
-                # Avoid single-word false positives (e.g., "The", "At")
+                location = match.group(1) if match.lastindex else match.group(0)
+                location = location.strip()
+
+                # Filter out false positives
                 if len(location) > 3 and location.lower() not in ["the", "this", "that"]:
-                    return location
+                    return location, 0.5
 
-        return None
+        return None, 0.0
 
-    def _classify_report_type(self, text: str) -> str:
+    def _classify_severity(self, text: str) -> tuple[str, float]:
         """
-        Classify the type of report.
-
-        Enhanced with more categories: flood, clear, blocked, traffic,
-        rising, evacuation.
+        Classify severity using ML model.
 
         Args:
-            text: Lowercased text
+            text: Input text
 
         Returns:
-            Report type
+            (severity_label: str, confidence: float)
+            Severity labels: "critical", "dangerous", "minor", "none"
         """
-        scores = {
-            "flood": 0,
-            "clear": 0,
-            "blocked": 0,
-            "traffic": 0,
-            "rising": 0,
-            "evacuation": 0
-        }
+        if self.severity_classifier is None:
+            # Fallback: Rule-based classification
+            return self._classify_severity_fallback(text)
 
-        # Count keyword matches for each type
-        for report_type, keywords in self.flood_keywords.items():
-            for keyword in keywords:
-                if keyword in text:
-                    scores[report_type] += 1
+        try:
+            # Use ML model
+            prediction = self.severity_classifier.predict([text])[0]
 
-        # Return type with highest score
-        max_score = max(scores.values())
+            # Get probability scores if available
+            if hasattr(self.severity_classifier, 'predict_proba'):
+                proba = self.severity_classifier.predict_proba([text])[0]
+                confidence = float(max(proba))
+            else:
+                confidence = 0.8  # Default confidence
 
-        if max_score == 0:
-            # Default to flood if no clear match
-            return "flood"
+            logger.debug(f"Severity classification: {prediction} (confidence: {confidence:.2f})")
+            return prediction, confidence
 
-        # Get type with highest score
-        max_type = max(scores, key=scores.get)
+        except Exception as e:
+            logger.error(f"Error in severity classification: {e}")
+            return self._classify_severity_fallback(text)
 
-        return max_type
+    def _classify_severity_fallback(self, text: str) -> tuple[str, float]:
+        """Fallback rule-based severity classification."""
+        text_lower = text.lower()
 
-    def _extract_severity(self, text: str) -> float:
-        """
-        Extract flood severity from text.
+        # Check from highest to lowest severity
+        for severity_level in ["critical", "dangerous", "minor"]:
+            keywords = self.severity_keywords.get(severity_level, [])
+            if any(kw in text_lower for kw in keywords):
+                return severity_level, 0.6
 
-        Enhanced with MMDA flood gauge standards and comprehensive
-        Filipino depth indicators.
+        # Default to none if no severity keywords found
+        return "none", 0.4
 
-        Args:
-            text: Lowercased text
-
-        Returns:
-            Severity score (0-1 scale)
-        """
-        # Check for depth indicators (ordered from highest to lowest)
-        depth_priority = ["neck", "chest", "waist", "tire", "knee", "ankle", "gutter"]
-
-        for depth_level in depth_priority:
-            keywords = self.severity_indicators.get(depth_level, [])
-            for keyword in keywords:
-                if keyword in text:
-                    return self.depth_mapping.get(depth_level, 0.5)
-
-        # Check general "high" indicators
-        for keyword in self.severity_indicators.get("high", []):
-            if keyword in text:
-                return 0.7
-
-        # Check for numeric depth mentions
-        # Pattern: "X cm", "X meters", "X inches", "X ft"
-        numeric_patterns = [
-            (r'(\d+)\s*(?:cm|centimeter)', 100),      # centimeters
-            (r'(\d+)\s*(?:m|meter)(?!etro)', 1),      # meters (not metro)
-            (r'(\d+)\s*(?:inch|inches)', 2.54),       # inches
-            (r'(\d+)\s*(?:ft|feet)', 30.48),          # feet
-        ]
-
-        for pattern, conversion in numeric_patterns:
-            match = re.search(pattern, text)
-            if match:
-                value_cm = float(match.group(1))
-                value_m = value_cm / conversion
-                # Convert to 0-1 scale (max depth 2m = 1.0)
-                return min(value_m / 2.0, 1.0)
-
-        # Default severity for flood reports without specific depth
-        if any(kw in text for kw in self.flood_keywords["flood"]):
-            return 0.4  # Moderate default
-
-        return 0.0
-
-    def _determine_passability(self, text: str, severity: float) -> Optional[bool]:
-        """
-        Determine if road is passable based on text and severity.
-
-        Enhanced with MMDA standards:
-        - < 0.5 (knee): Passable to all or light vehicles only
-        - >= 0.5 (tire): Not passable to all vehicles
-
-        Args:
-            text: Lowercased text
-            severity: Severity score
-
-        Returns:
-            True if passable, False if impassable, None if unclear
-        """
-        # Check for explicit passability keywords
-        clear_keywords = self.flood_keywords["clear"]
-        blocked_keywords = self.flood_keywords["blocked"]
-
-        is_clear = any(kw in text for kw in clear_keywords)
-        is_blocked = any(kw in text for kw in blocked_keywords)
-
-        if is_clear and not is_blocked:
-            return True
-        elif is_blocked and not is_clear:
-            return False
-
-        # Infer from severity (MMDA standards)
-        if severity >= 0.65:  # Tire-deep or higher
-            return False  # Not passable to all vehicles
-        elif severity >= 0.5:  # Knee-deep
-            return None  # Not passable to light vehicles (unclear)
-        elif severity <= 0.15:  # Ankle or gutter
-            return True  # Passable to all
-
-        return None  # Unclear
-
-    def _calculate_confidence(
+    def _calculate_overall_confidence(
         self,
-        text: str,
-        location: Optional[str],
-        severity: float
+        flood_conf: float,
+        location_conf: float,
+        severity_conf: float
     ) -> float:
         """
-        Calculate confidence score for extracted information.
-
-        Enhanced with more sophisticated confidence calculation.
+        Calculate overall confidence from component confidences.
 
         Args:
-            text: Lowercased text
-            location: Extracted location
-            severity: Extracted severity
+            flood_conf: Flood classification confidence
+            location_conf: Location extraction confidence
+            severity_conf: Severity classification confidence
 
         Returns:
-            Confidence score (0-1)
+            Overall confidence (0-1)
         """
-        confidence = 0.4  # Base confidence
+        # Weighted average (flood classification is most important)
+        weights = {
+            'flood': 0.4,
+            'location': 0.3,
+            'severity': 0.3
+        }
 
-        # Increase confidence if location found
-        if location:
-            # Higher boost if location is a known Marikina location
-            if location in self.all_known_locations:
-                confidence += 0.25
-            else:
-                confidence += 0.15
-
-        # Increase confidence if specific severity indicators found
-        has_severity_keyword = any(
-            any(kw in text for kw in keywords)
-            for keywords in self.severity_indicators.values()
+        overall = (
+            flood_conf * weights['flood'] +
+            location_conf * weights['location'] +
+            severity_conf * weights['severity']
         )
-        if has_severity_keyword:
-            confidence += 0.2
 
-        # Increase confidence if multiple flood keywords present
-        flood_keyword_count = sum(
-            1 for keyword in self.flood_keywords["flood"]
-            if keyword in text
-        )
-        if flood_keyword_count >= 2:
-            confidence += 0.15
-        elif flood_keyword_count >= 1:
-            confidence += 0.05
-
-        # Increase confidence if report includes numbers (specific)
-        if re.search(r'\d+', text):
-            confidence += 0.05
-
-        return min(confidence, 1.0)
+        return min(overall, 1.0)
 
     def batch_process(self, texts: List[str]) -> List[Dict[str, Any]]:
         """
@@ -653,8 +505,6 @@ class NLPProcessor:
         """
         Get statistics from processed reports.
 
-        Enhanced to include flood-related filtering.
-
         Args:
             processed_reports: List of processed report dicts
 
@@ -663,6 +513,7 @@ class NLPProcessor:
         """
         by_type = {}
         by_location = {}
+        by_severity_label = {}
         severities = []
         passable_count = 0
         impassable_count = 0
@@ -681,6 +532,10 @@ class NLPProcessor:
             location = report.get("location")
             if location:
                 by_location[location] = by_location.get(location, 0) + 1
+
+            # Count by severity label
+            severity_label = report.get("severity_label", "none")
+            by_severity_label[severity_label] = by_severity_label.get(severity_label, 0) + 1
 
             # Collect severity
             severity = report.get("severity", 0.0)
@@ -702,6 +557,7 @@ class NLPProcessor:
             "flood_related_percentage": (flood_related_count / len(processed_reports) * 100)
                                        if processed_reports else 0.0,
             "by_type": by_type,
+            "by_severity_label": by_severity_label,
             "by_location": by_location,
             "average_severity": avg_severity,
             "passable_count": passable_count,
@@ -715,7 +571,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    print("=== Testing Enhanced NLP Processor ===\n")
+    print("=== Testing ML-based NLP Processor v3.0 ===\n")
 
     processor = NLPProcessor()
 
@@ -760,7 +616,7 @@ if __name__ == "__main__":
         print(f"Test {i}: {text}")
         print(f"  Flood-related: {result['is_flood_related']}")
         print(f"  Location: {result['location']}")
-        print(f"  Severity: {result['severity']:.2f}")
+        print(f"  Severity: {result['severity']:.2f} ({result['severity_label']})")
         print(f"  Type: {result['report_type']}")
         print(f"  Passable: {result['passable']}")
         print(f"  Confidence: {result['confidence']:.2f}")

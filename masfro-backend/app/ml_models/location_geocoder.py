@@ -8,10 +8,13 @@ Maps location names to lat/lon coordinates for spatial risk analysis.
 
 Author: MAS-FRO Development Team
 Date: November 2025
+Version: 2.0 - CSV-based location database
 """
 
 from typing import Dict, Tuple, Optional
 import logging
+import csv
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -20,27 +23,87 @@ class LocationGeocoder:
     """
     Geocoder for Marikina City locations.
 
-    Provides coordinate lookup for barangays, landmarks, roads, and LRT stations
-    extracted by the NLP Processor. Coordinates sourced from OpenStreetMap and
-    Google Maps.
+    Loads location database from CSV file containing 3000+ Marikina locations.
+    Provides coordinate lookup for barangays, landmarks, roads, schools,
+    subdivisions, and other points of interest.
 
     Attributes:
         location_coordinates: Dict mapping location names to (lat, lon) tuples
+        csv_path: Path to location.csv file
 
     Example:
         >>> geocoder = LocationGeocoder()
         >>> coords = geocoder.get_coordinates("Nangka")
         >>> print(coords)
-        (14.6507, 121.1009)
+        (14.6728917, 121.109213)
     """
 
-    def __init__(self):
-        """Initialize geocoder with Marikina City location coordinates."""
+    def __init__(self, csv_path: Optional[Path] = None):
+        """
+        Initialize geocoder by loading locations from CSV file.
 
-        # ===== BARANGAY COORDINATES =====
+        Args:
+            csv_path: Optional path to location.csv. If None, uses default path.
+        """
+
+        # Determine CSV path
+        if csv_path is None:
+            # Default: locations/location.csv in same directory as this file
+            csv_path = Path(__file__).parent / "locations" / "location.csv"
+
+        self.csv_path = csv_path
+        self.location_coordinates = {}
+
+        # Load locations from CSV
+        self._load_from_csv()
+
+        logger.info(
+            f"LocationGeocoder v2.0 initialized with {len(self.location_coordinates)} "
+            f"locations from {csv_path.name}"
+        )
+
+    def _load_from_csv(self):
+        """Load location coordinates from CSV file."""
+        if not self.csv_path.exists():
+            logger.error(f"Location CSV not found: {self.csv_path}")
+            logger.warning("Falling back to empty location database")
+            return
+
+        try:
+            with open(self.csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    name = row.get('name', '').strip()
+                    lat_str = row.get('@lat', '').strip()
+                    lon_str = row.get('@lon', '').strip()
+
+                    # Skip rows with missing data
+                    if not name or not lat_str or not lon_str:
+                        continue
+
+                    try:
+                        lat = float(lat_str)
+                        lon = float(lon_str)
+
+                        # Store as (lat, lon) tuple
+                        self.location_coordinates[name] = (lat, lon)
+
+                    except ValueError as e:
+                        logger.debug(f"Skipping invalid coordinates for '{name}': {e}")
+                        continue
+
+            logger.info(f"Loaded {len(self.location_coordinates)} locations from CSV")
+
+        except Exception as e:
+            logger.error(f"Error loading location CSV: {e}")
+            logger.warning("Falling back to empty location database")
+
+        # ===== LEGACY HARDCODED COORDINATES (FALLBACK) =====
+        # Keep these as fallback for critical locations not in CSV
         # Source: OpenStreetMap, Google Maps
         # Coordinates represent approximate barangay centers
-        self.barangay_coords = {
+        fallback_barangays = {
             # District I
             "Barangka": (14.6386, 121.0978),
             "Tañong": (14.6425, 121.0892),
@@ -76,8 +139,8 @@ class LocationGeocoder:
             "Tumana": (14.6789, 121.1100),
         }
 
-        # ===== LANDMARK COORDINATES =====
-        self.landmark_coords = {
+        # Add fallback landmarks (if not in CSV)
+        fallback_landmarks = {
             # Shopping Centers
             "SM Marikina": (14.6394, 121.1067),
             "SM City Marikina": (14.6394, 121.1067),
@@ -120,9 +183,8 @@ class LocationGeocoder:
             "Provident": (14.6631, 121.0822),
         }
 
-        # ===== LRT STATION COORDINATES =====
-        # Source: LRT Portal, OpenStreetMap
-        self.lrt_coords = {
+        # Add fallback LRT stations (if not in CSV)
+        fallback_lrt = {
             "Santolan Station": (14.6394, 121.1067),
             "Santolan LRT": (14.6394, 121.1067),
             "Marikina-Pasig Station": (14.6319, 121.1156),
@@ -131,9 +193,8 @@ class LocationGeocoder:
             "Antipolo LRT": (14.6244, 121.1242),
         }
 
-        # ===== ROAD/HIGHWAY COORDINATES =====
-        # For roads, use midpoint along the road within Marikina
-        self.road_coords = {
+        # Add fallback roads/highways (if not in CSV)
+        fallback_roads = {
             "Marcos Highway": (14.6400, 121.1100),
             "Marikina-Infanta Highway": (14.6400, 121.1100),
             "Sumulong Highway": (14.6489, 121.0956),
@@ -158,18 +219,22 @@ class LocationGeocoder:
             "Dasdasan Street": (14.6319, 121.1156),
         }
 
-        # Combine all coordinate dictionaries
-        self.location_coordinates = {
-            **self.barangay_coords,
-            **self.landmark_coords,
-            **self.lrt_coords,
-            **self.road_coords,
+        # Merge fallback data (only add if not already in CSV)
+        fallback_data = {
+            **fallback_barangays,
+            **fallback_landmarks,
+            **fallback_lrt,
+            **fallback_roads
         }
 
-        logger.info(
-            f"LocationGeocoder initialized with {len(self.location_coordinates)} "
-            f"location mappings"
-        )
+        added_fallbacks = 0
+        for name, coords in fallback_data.items():
+            if name not in self.location_coordinates:
+                self.location_coordinates[name] = coords
+                added_fallbacks += 1
+
+        if added_fallbacks > 0:
+            logger.info(f"Added {added_fallbacks} fallback locations not in CSV")
 
     def get_coordinates(self, location_name: str) -> Optional[Tuple[float, float]]:
         """
@@ -302,23 +367,31 @@ class LocationGeocoder:
             >>> print(barangay)
             'Nangka'
         """
+        # List of official Marikina barangays
+        official_barangays = [
+            "Barangka", "Tañong", "Jesus dela Peña", "Jesus de la Peña",
+            "Industrial Valley Complex", "IVC", "Kalumpang", "Calumpang",
+            "San Roque", "Sta. Elena", "Santa Elena", "Sto. Niño", "Santo Niño",
+            "Malanday", "Concepcion Uno", "Concepcion Dos", "Nangka",
+            "Parang", "Marikina Heights", "Fortune", "Tumana"
+        ]
+
         min_distance = float('inf')
         nearest_barangay = None
 
         km_per_degree = 110.0
 
-        for barangay_name, (brgy_lat, brgy_lon) in self.barangay_coords.items():
-            # Skip duplicate entries (keep original names only)
-            if barangay_name in ["Tanong", "Calumpang", "Santo Nino"]:
-                continue
+        # Search through all locations for barangay matches
+        for loc_name, (loc_lat, loc_lon) in self.location_coordinates.items():
+            # Check if this location is a barangay
+            if loc_name in official_barangays:
+                lat_diff = abs(lat - loc_lat) * km_per_degree
+                lon_diff = abs(lon - loc_lon) * km_per_degree * 0.97
+                distance = (lat_diff**2 + lon_diff**2) ** 0.5
 
-            lat_diff = abs(lat - brgy_lat) * km_per_degree
-            lon_diff = abs(lon - brgy_lon) * km_per_degree * 0.97
-            distance = (lat_diff**2 + lon_diff**2) ** 0.5
-
-            if distance < min_distance:
-                min_distance = distance
-                nearest_barangay = barangay_name
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_barangay = loc_name
 
         return nearest_barangay
 

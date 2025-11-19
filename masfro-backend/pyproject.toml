@@ -28,6 +28,8 @@ dependencies = [
     "pyproj>=3.7.1",
     "lxml>=6.0.2",
     "rich>=14.2.0",
+    "spacy>=3.8.11",
+    "joblib>=1.5.2",
 ]
 
 [dependency-groups]
