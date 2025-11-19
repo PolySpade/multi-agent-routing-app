@@ -826,3 +826,241 @@ starlette.websockets.WebSocketDisconnect
 2025-11-19 13:34:19 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
 2025-11-19 13:34:19 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
 2025-11-19 13:34:19 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:31:00 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:31:29 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:31:29 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:31:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:32:25 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:32:55 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:32:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:33:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:33:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:33:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:33:57 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:12 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:28 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:31 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:34:58 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:09 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:23 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:28 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:35:58 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:36:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:36:29 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:36:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:36:59 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:37:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:37:30 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:37:53 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:37:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:38:01 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:38:20 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:38:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:38:31 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:38:56 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:02 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:05 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:26 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:33 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:35 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:45 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:39:56 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:40:03 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:40:15 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:40:34 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:40:45 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:40:59 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:04 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:05 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:07 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:29 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:35 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:40 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:41:42 - app.main - ERROR - get_scout_reports:1613 - Error retrieving scout reports: can't compare offset-naive and offset-aware datetimes
+2025-11-19 15:41:47 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:41:47 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:41:48 - app.main - ERROR - get_scout_reports:1613 - Error retrieving scout reports: can't compare offset-naive and offset-aware datetimes
+2025-11-19 15:41:59 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:42:06 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:42:20 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:42:20 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:42:20 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:42:20 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:42:20 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:42:29 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:42:40 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:42:40 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:42:40 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:42:41 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:42:43 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:42:44 - app.main - ERROR - get_evacuation_centers:1703 - Error retrieving evacuation centers: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:43:00 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:43:10 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:43:30 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:43:44 - app.main - ERROR - get_all_agents_status:1774 - Error retrieving agents status: 'DynamicGraphEnvironment' object has no attribute 'evacuation_centers'
+2025-11-19 15:43:45 - app.main - ERROR - get_flood_agent_status:1653 - Error retrieving flood status: 0
+2025-11-19 15:43:45 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:45 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:43:45 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:43:45 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:43:45 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:43:46 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:43:46 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:43:46 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:43:47 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:169 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:170 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:171 - Message type field: simulation_state
+2025-11-19 15:43:47 - app.main - ERROR - broadcast:177 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 15:43:47 - app.main - ERROR - stop_simulation:966 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 15:44:48 - app.main - ERROR - get_evacuation_centers:1708 - Error retrieving evacuation centers: name 'pd' is not defined
+2025-11-19 15:44:53 - app.main - ERROR - get_evacuation_centers:1708 - Error retrieving evacuation centers: name 'pd' is not defined
+2025-11-19 15:45:10 - app.main - ERROR - get_evacuation_centers:1708 - Error retrieving evacuation centers: name 'pd' is not defined
+2025-11-19 15:45:10 - app.main - ERROR - get_evacuation_centers:1708 - Error retrieving evacuation centers: name 'pd' is not defined
+2025-11-19 15:45:22 - app.main - ERROR - get_evacuation_centers:1708 - Error retrieving evacuation centers: name 'pd' is not defined
+2025-11-19 15:55:10 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 15:55:13 - app.main - ERROR - get_scout_reports:1614 - Error retrieving scout reports: can't compare offset-naive and offset-aware datetimes
+2025-11-19 15:55:13 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 16:00:21 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:21 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:21 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:21 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:21 - app.main - ERROR - reset_simulation:1023 - Error resetting simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:23 - app.main - ERROR - reset_simulation:1023 - Error resetting simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:23 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:23 - app.main - ERROR - reset_simulation:1023 - Error resetting simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:25 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:25 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:25 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:26 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:26 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:45 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:45 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:45 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:45 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:45 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 16:00:49 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 16:00:49 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 16:19:16 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 16:19:19 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 18:00:31 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 18:00:31 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 18:00:31 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 18:00:31 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 18:00:31 - app.main - ERROR - reset_simulation:1023 - Error resetting simulation: Object of type coroutine is not JSON serializable
+2025-11-19 18:00:33 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 18:00:33 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 18:00:33 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 18:00:33 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 18:00:33 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 18:36:23 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0

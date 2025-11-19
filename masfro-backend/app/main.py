@@ -24,6 +24,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
+import pandas as pd
 
 # Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
@@ -1544,6 +1545,249 @@ async def get_database_statistics(
 # GeoTIFF Flood Map Endpoints
 # ============================================================================
 
+# ============================================================================
+# Agent Data Endpoints - For Frontend Display
+# ============================================================================
+
+@app.get("/api/agents/scout/reports", tags=["Agent Data"])
+async def get_scout_reports(
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of reports"),
+    hours: int = Query(24, ge=1, le=168, description="Hours of history")
+):
+    """
+    Get crowdsourced flood reports from ScoutAgent.
+
+    Returns recent flood reports collected from social media (Twitter/X)
+    that have been processed and validated by the NLP system.
+
+    Args:
+        limit: Maximum number of reports to return (1-200)
+        hours: Number of hours of history to include (1-168)
+
+    Returns:
+        List of validated flood reports with location, severity, and timestamp
+    """
+    try:
+        if not hazard_agent:
+            raise HTTPException(
+                status_code=503,
+                detail="HazardAgent not initialized"
+            )
+
+        # Get reports from HazardAgent's scout data cache
+        all_reports = hazard_agent.scout_data_cache or []
+
+        # Filter by time if timestamps available
+        from datetime import datetime, timedelta
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+
+        filtered_reports = []
+        for report in all_reports:
+            # Check if report has timestamp and is within time range
+            if "timestamp" in report:
+                try:
+                    report_time = datetime.fromisoformat(report["timestamp"].replace("Z", "+00:00"))
+                    if report_time >= cutoff_time:
+                        filtered_reports.append(report)
+                except (ValueError, AttributeError):
+                    # Include reports with invalid timestamps
+                    filtered_reports.append(report)
+            else:
+                # Include reports without timestamps
+                filtered_reports.append(report)
+
+        # Apply limit
+        limited_reports = filtered_reports[:limit]
+
+        return {
+            "status": "success",
+            "total_reports": len(limited_reports),
+            "time_range_hours": hours,
+            "reports": limited_reports,
+            "scout_agent_active": scout_agent is not None,
+            "note": "Reports are from crowdsourced social media data processed by NLP"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving scout reports: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving scout reports: {str(e)}"
+        )
+
+
+@app.get("/api/agents/flood/current-status", tags=["Agent Data"])
+async def get_flood_agent_status():
+    """
+    Get current flood status from FloodAgent.
+
+    Returns the latest flood data including river levels, weather conditions,
+    and risk assessments from official sources (PAGASA + OpenWeatherMap).
+
+    Returns:
+        Current flood conditions and weather data
+    """
+    try:
+        if not flood_agent:
+            raise HTTPException(
+                status_code=503,
+                detail="FloodAgent not initialized"
+            )
+
+        # Get latest flood data from HazardAgent cache
+        flood_data = hazard_agent.flood_data_cache if hazard_agent else []
+
+        return {
+            "status": "success",
+            "data_points": len(flood_data),
+            "flood_data": flood_data,
+            "last_update": flood_data[0].get("timestamp") if flood_data else None,
+            "data_source": "PAGASA + OpenWeatherMap APIs",
+            "note": "Data is automatically collected every 5 minutes"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving flood status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving flood status: {str(e)}"
+        )
+
+
+@app.get("/api/agents/evacuation/centers", tags=["Agent Data"])
+async def get_evacuation_centers():
+    """
+    Get list of all evacuation centers in Marikina City.
+
+    Returns information about official evacuation centers including
+    their locations, capacity, and current status.
+
+    Returns:
+        List of evacuation centers with coordinates and metadata
+    """
+    try:
+        if not routing_agent:
+            raise HTTPException(
+                status_code=503,
+                detail="RoutingAgent not initialized"
+            )
+
+        # Get evacuation centers from RoutingAgent
+        centers = []
+        if hasattr(routing_agent, 'evacuation_centers') and not routing_agent.evacuation_centers.empty:
+            # Convert DataFrame to list of dicts
+            for _, row in routing_agent.evacuation_centers.iterrows():
+                centers.append({
+                    "name": row.get("name", "Unknown"),
+                    "location": row.get("address", ""),
+                    "barangay": row.get("barangay", ""),
+                    "coordinates": {
+                        "lat": row.get("latitude"),
+                        "lon": row.get("longitude")
+                    },
+                    "capacity": int(row.get("capacity", 0)) if not pd.isna(row.get("capacity")) else 0,
+                    "type": row.get("type", ""),
+                    "facilities": row.get("facilities", "").split(", ") if pd.notna(row.get("facilities")) else [],
+                    "contact": row.get("contact", ""),
+                    "is_active": True
+                })
+
+        return {
+            "status": "success",
+            "total_centers": len(centers),
+            "centers": centers,
+            "note": "Official evacuation centers from Marikina City database"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving evacuation centers: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving evacuation centers: {str(e)}"
+        )
+
+
+@app.get("/api/agents/status", tags=["Agent Data"])
+async def get_all_agents_status():
+    """
+    Get comprehensive status of all agents in the system.
+
+    Returns real-time status information about all agents including:
+    - ScoutAgent: Active reports, simulation mode
+    - FloodAgent: Data sources, last update
+    - HazardAgent: Cached data counts, GeoTIFF status
+    - RoutingAgent: Routes calculated, performance metrics
+    - EvacuationManagerAgent: Active evacuations, statistics
+
+    Returns:
+        Comprehensive system status across all agents
+    """
+    try:
+        status = {
+            "scout_agent": {
+                "active": scout_agent is not None,
+                "simulation_mode": scout_agent.simulation_mode if scout_agent else None,
+                "reports_cached": len(hazard_agent.scout_data_cache) if hazard_agent else 0,
+                "status": "active" if scout_agent else "inactive"
+            },
+            "flood_agent": {
+                "active": flood_agent is not None,
+                "data_points": len(hazard_agent.flood_data_cache) if hazard_agent else 0,
+                "use_real_apis": flood_agent.use_real_apis if flood_agent else False,
+                "status": "active" if flood_agent else "inactive"
+            },
+            "hazard_agent": {
+                "active": hazard_agent is not None,
+                "geotiff_enabled": hazard_agent.is_geotiff_enabled() if hazard_agent else False,
+                "current_scenario": {
+                    "return_period": hazard_agent.return_period if hazard_agent else None,
+                    "time_step": hazard_agent.time_step if hazard_agent else None
+                } if hazard_agent else None,
+                "total_cached_data": (
+                    len(hazard_agent.flood_data_cache) + len(hazard_agent.scout_data_cache)
+                ) if hazard_agent else 0,
+                "status": "active" if hazard_agent else "inactive"
+            },
+            "routing_agent": {
+                "active": routing_agent is not None,
+                "status": "active" if routing_agent else "inactive"
+            },
+            "evacuation_manager": {
+                "active": evacuation_manager is not None,
+                "evacuation_centers": (
+                    len(routing_agent.evacuation_centers)
+                    if routing_agent and hasattr(routing_agent, 'evacuation_centers') and not routing_agent.evacuation_centers.empty
+                    else 0
+                ),
+                "status": "active" if evacuation_manager else "inactive"
+            },
+            "system": {
+                "graph_loaded": environment.graph is not None,
+                "total_nodes": environment.graph.number_of_nodes() if environment.graph else 0,
+                "total_edges": environment.graph.number_of_edges() if environment.graph else 0
+            }
+        }
+
+        return {
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "agents": status
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving agents status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving agents status: {str(e)}"
+        )
+
+
 @app.get("/api/geotiff/available-maps")
 async def get_available_flood_maps():
     """
@@ -1712,4 +1956,5 @@ async def serve_geotiff_file(return_period: str, filename: str):
         media_type="image/tiff",
         filename=filename
     )
+
 

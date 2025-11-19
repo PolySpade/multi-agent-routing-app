@@ -259,6 +259,12 @@ class ScoutAgent(BaseAgent):
                     }
 
                     processed_reports.append(report)
+
+                    # Log the actual message content being sent
+                    logger.info(
+                        f"Message sent: {tweet['text']}"
+                    )
+
                     logger.debug(
                         f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
                         f"{enhanced_info['location']} ({enhanced_info['coordinates']['lat']:.4f}, "
@@ -318,6 +324,12 @@ class ScoutAgent(BaseAgent):
                     }
 
                     processed_reports.append(report)
+
+                    # Log the actual message content being sent
+                    logger.info(
+                        f"Message sent: {tweet['text']}"
+                    )
+
                     logger.debug(
                         f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
                         f"{flood_info['location']} - severity {flood_info['severity']:.2f}"

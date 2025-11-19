@@ -6,6 +6,8 @@ import Link from 'next/link';
 import LocationSearch from '@/components/LocationSearch';
 import FeedbackForm from '@/components/FeedbackForm';
 import SimulationPanel from '@/components/SimulationPanel';
+import AgentDataPanel from '@/components/AgentDataPanel';
+import EvacuationCentersPanel from '@/components/EvacuationCentersPanel';
 import { findRoute } from '@/utils/routingService';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
@@ -42,6 +44,8 @@ export default function Home() {
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackLocation, setFeedbackLocation] = useState(null);
+  const [showAgentPanel, setShowAgentPanel] = useState(true);
+  const [showEvacuationPanel, setShowEvacuationPanel] = useState(true);
 
   const { isConnected, systemStatus } = useWebSocketContext();
 
@@ -484,10 +488,24 @@ export default function Home() {
                   Hide ⇱
                 </button>
               </div>
-              <div style={{marginTop: '1rem', display:'flex', gap:'0.5rem'}}>
+              <div style={{marginTop: '1rem', display:'flex', gap:'0.5rem', flexWrap: 'wrap'}}>
                 <Link href="/dashboard" className="nav-link">
                   📊 Dashboard
                 </Link>
+                <button
+                  onClick={() => setShowAgentPanel(!showAgentPanel)}
+                  className="nav-link"
+                  style={{ border: 'none', cursor: 'pointer' }}
+                >
+                  🤖 {showAgentPanel ? 'Hide' : 'Show'} Agents
+                </button>
+                <button
+                  onClick={() => setShowEvacuationPanel(!showEvacuationPanel)}
+                  className="nav-link"
+                  style={{ border: 'none', cursor: 'pointer' }}
+                >
+                  🏥 {showEvacuationPanel ? 'Hide' : 'Show'} Centers
+                </button>
               </div>
             </header>
 
@@ -648,6 +666,12 @@ export default function Home() {
         isConnected={isConnected}
         floodData={null}
       />
+
+      {/* --- Agent Data Panel --- */}
+      {showAgentPanel && <AgentDataPanel />}
+
+      {/* --- Evacuation Centers Panel --- */}
+      {showEvacuationPanel && <EvacuationCentersPanel />}
 
       {/* --- Feedback Modal --- */}
       {showFeedback && (

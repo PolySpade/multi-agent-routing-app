@@ -163,7 +163,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
     <div style={{
       position: 'fixed',
       right: '20px',
-      top: '100px',
+      top: '20px',
       width: isExpanded ? '380px' : '70px',
       maxHeight: isExpanded ? 'calc(100vh - 120px)' : 'auto',
       background: 'linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%)',

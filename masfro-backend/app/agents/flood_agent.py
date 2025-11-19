@@ -612,6 +612,14 @@ class FloodAgent(BaseAgent):
                     "source": "PAGASA_API"
                 }
 
+            # Log each river level in the specific required format
+            for station_name, station_data in river_data.items():
+                water_level = station_data.get('water_level_m', 0.0)
+                if water_level is not None:
+                    logger.info(
+                        f"River level is {water_level:.2f}m at {station_name}"
+                    )
+
             logger.info(
                 f"Fetched river data for {len(river_data)} Marikina stations. "
                 f"Statuses: {[s['status'] for s in river_data.values()]}"
@@ -699,6 +707,11 @@ class FloodAgent(BaseAgent):
                 "timestamp": datetime.now(),
                 "source": "OpenWeatherMap_API"
             }
+
+            # Log in the specific required format
+            logger.info(
+                f"Rainfall in Marikina is {current_rain:.2f}mm"
+            )
 
             logger.info(
                 f"Weather data: {current_rain:.1f}mm/hr current, "
@@ -790,6 +803,14 @@ class FloodAgent(BaseAgent):
                     "timestamp": datetime.now(),
                     "source": "PAGASA_Dam_Monitoring"
                 }
+
+            # Log each dam level in the specific required format
+            for dam_name, dam_info in dam_data.items():
+                rwl = dam_info.get('reservoir_water_level_m', 0.0)
+                if rwl is not None:
+                    logger.info(
+                        f"Dam Level is {rwl:.2f}m at {dam_name}"
+                    )
 
             logger.info(
                 f"Fetched dam data for {len(dam_data)} dams. "
