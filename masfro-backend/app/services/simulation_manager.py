@@ -524,30 +524,79 @@ class SimulationManager:
             "errors": []
         }
 
+        # ENHANCED: Log current queue state
+        next_event_info = "None"
+        if self._event_queue:
+            next_event = self._event_queue[0]
+            next_event_info = f"agent={next_event.get('agent')}, time={next_event.get('time_offset')}s"
+
+        logger.info(
+            f"Collection phase START - "
+            f"Clock: {self._simulation_clock:.2f}s, "
+            f"Queue size: {len(self._event_queue)}, "
+            f"Next event: {next_event_info}"
+        )
+
         # Clear previous tick's data
         self.shared_data_bus["flood_data"] = {}
         self.shared_data_bus["scout_data"] = []
         self.shared_data_bus["graph_updated"] = False
 
         # Process events from the queue
+        events_processed_details = []
         while self._event_queue and self._event_queue[0]["time_offset"] <= self._simulation_clock:
             event = self._event_queue.pop(0)
             phase_result["events_processed"] += 1
             agent = event.get("agent")
             payload = event.get("payload")
+            time_offset = event.get("time_offset")
+
+            # ENHANCED: Log each event processed with details
+            logger.info(
+                f"Processing event #{phase_result['events_processed']}: "
+                f"agent={agent}, time_offset={time_offset}s"
+            )
 
             if agent == "flood_agent":
                 self.shared_data_bus["flood_data"] = payload
                 phase_result["flood_data_collected"] += 1
-                logger.info(f"Processed 'flood_agent' event at clock {self._simulation_clock:.2f}s")
+                logger.info(f"✓ Flood data collected: {len(payload)} data points")
+                events_processed_details.append(f"flood_agent@{time_offset}s")
+
             elif agent == "scout_agent":
+                # ENHANCED: Log scout data structure
+                logger.debug(f"Scout report payload: {payload}")
+
+                # FIX: Update timestamp to current time for simulation data
+                # This ensures reports pass the time-based filtering in the API
+                if "timestamp" in payload:
+                    payload["timestamp"] = datetime.now().isoformat()
+
                 self.shared_data_bus["scout_data"].append(payload)
                 phase_result["scout_reports_collected"] += 1
-                logger.info(f"Processed 'scout_agent' event at clock {self._simulation_clock:.2f}s")
+
+                # Log key scout data fields
+                location = payload.get("location", "Unknown")
+                severity = payload.get("severity", 0)
+                logger.info(
+                    f"✓ Scout report collected: location='{location}', severity={severity:.2f}"
+                )
+                events_processed_details.append(f"scout_agent@{time_offset}s[{location}]")
+
             else:
                 error_msg = f"Unknown agent '{agent}' in scenario event."
                 phase_result["errors"].append(error_msg)
                 logger.warning(error_msg)
+
+        # ENHANCED: Log phase summary
+        logger.info(
+            f"Collection phase COMPLETE - "
+            f"Events processed: {phase_result['events_processed']} "
+            f"({', '.join(events_processed_details) if events_processed_details else 'none'}), "
+            f"Flood data: {phase_result['flood_data_collected']}, "
+            f"Scout reports: {phase_result['scout_reports_collected']}, "
+            f"Remaining in queue: {len(self._event_queue)}"
+        )
 
         return phase_result
 

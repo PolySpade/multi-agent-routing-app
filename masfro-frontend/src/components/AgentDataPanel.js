@@ -42,15 +42,52 @@ export default function AgentDataPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [isCollapsed, setIsCollapsed] = useState(false); // NEW: Collapse state
+
+  // NEW: Simulation state tracking
+  const [simulationState, setSimulationState] = useState(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+
+  // NEW: Fetch simulation status
+  const fetchSimulationStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/simulation/status`);
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        const previousState = simulationState?.state;
+        setSimulationState(data);
+
+        // Log state changes
+        if (previousState && previousState !== data.state) {
+          logger.info(`Simulation state changed: ${previousState} → ${data.state}`);
+        }
+
+        // Enable auto-refresh when simulation is running
+        const isRunning = data.state === 'running';
+        if (autoRefreshEnabled !== isRunning) {
+          setAutoRefreshEnabled(isRunning);
+          logger.info(`Auto-refresh ${isRunning ? 'ENABLED' : 'DISABLED'}`);
+        }
+      }
+    } catch (err) {
+      logger.error('Failed to fetch simulation status', err);
+    }
+  };
 
   // Fetch agent status on mount
   useEffect(() => {
     logger.info('AgentDataPanel mounted - initializing data fetch');
     fetchAgentsStatus();
-    const interval = setInterval(fetchAgentsStatus, 30000); // Every 30s
+    fetchSimulationStatus(); // NEW: Fetch simulation status on mount
+
+    const agentInterval = setInterval(fetchAgentsStatus, 30000); // Every 30s
+    const simInterval = setInterval(fetchSimulationStatus, 3000); // NEW: Every 3s for simulation state
+
     return () => {
       logger.info('AgentDataPanel unmounting - clearing intervals');
-      clearInterval(interval);
+      clearInterval(agentInterval);
+      clearInterval(simInterval);
     };
   }, []);
 
@@ -60,6 +97,30 @@ export default function AgentDataPanel() {
     if (activeTab === 'scout') fetchScoutReports();
     else if (activeTab === 'flood') fetchFloodData();
   }, [activeTab]);
+
+  // NEW: Auto-refresh data during simulation
+  useEffect(() => {
+    if (!autoRefreshEnabled) {
+      logger.debug('Auto-refresh disabled');
+      return;
+    }
+
+    logger.info('Auto-refresh enabled - polling every 5 seconds during simulation');
+
+    const refreshInterval = setInterval(() => {
+      logger.debug('Auto-refresh: fetching latest data');
+      if (activeTab === 'scout') {
+        fetchScoutReports();
+      } else if (activeTab === 'flood') {
+        fetchFloodData();
+      }
+    }, 5000); // Refresh every 5 seconds during simulation
+
+    return () => {
+      logger.info('Auto-refresh stopped');
+      clearInterval(refreshInterval);
+    };
+  }, [autoRefreshEnabled, activeTab]);
 
   const fetchAgentsStatus = async () => {
     const endpoint = `${API_BASE}/api/agents/status`;
@@ -123,11 +184,23 @@ export default function AgentDataPanel() {
         logger.warn(errorMsg, data);
       }
     } catch (err) {
-      const errorMsg = `Error: ${err.message}`;
+      let errorMsg = 'Unable to load scout reports';
+
+      if (!navigator.onLine) {
+        errorMsg = 'No internet connection detected';
+      } else if (err.message.includes('fetch') || err.name === 'TypeError') {
+        errorMsg = 'Backend server not responding. Ensure the backend is running on port 8000.';
+      } else if (err.message.includes('CORS')) {
+        errorMsg = 'CORS error: Backend may not allow requests from this origin';
+      } else {
+        errorMsg = `Error: ${err.message}`;
+      }
+
       setError(errorMsg);
       logger.error('Failed to fetch scout reports', {
         error: err.message,
-        stack: err.stack
+        stack: err.stack,
+        endpoint
       });
     } finally {
       setLoading(false);
@@ -170,11 +243,23 @@ export default function AgentDataPanel() {
         logger.warn(errorMsg, data);
       }
     } catch (err) {
-      const errorMsg = `Error: ${err.message}`;
+      let errorMsg = 'Unable to load flood data';
+
+      if (!navigator.onLine) {
+        errorMsg = 'No internet connection detected';
+      } else if (err.message.includes('fetch') || err.name === 'TypeError') {
+        errorMsg = 'Backend server not responding. Ensure the backend is running on port 8000.';
+      } else if (err.message.includes('CORS')) {
+        errorMsg = 'CORS error: Backend may not allow requests from this origin';
+      } else {
+        errorMsg = `Error: ${err.message}`;
+      }
+
       setError(errorMsg);
       logger.error('Failed to fetch flood data', {
         error: err.message,
-        stack: err.stack
+        stack: err.stack,
+        endpoint
       });
     } finally {
       setLoading(false);
@@ -197,42 +282,73 @@ export default function AgentDataPanel() {
   };
 
   return (
-    <div className="agent-data-panel">
+    <div className={`agent-data-panel ${isCollapsed ? 'collapsed' : ''}`}>
       <style jsx>{`
         .agent-data-panel {
-          position: fixed;
-          bottom: 20px;
-          right: 20px;
-          width: 400px;
-          max-height: calc(100vh - 100px);
-          background: rgba(15, 20, 25, 0.95);
-          backdrop-filter: blur(12px);
+          position: relative;
+          width: 100%;
+          min-height: 300px;
+          max-height: 500px;
+          background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
+          backdrop-filter: blur(16px);
           border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+          border: 1px solid rgba(36, 142, 168, 0.3);
+          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
           display: flex;
           flex-direction: column;
-          z-index: 40;
           overflow: hidden;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .agent-data-panel.collapsed {
+          min-height: auto;
+          max-height: 80px;
         }
 
         .panel-header {
-          padding: 1.5rem;
+          padding: 1.25rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(36, 142, 168, 0.1);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          cursor: pointer;
+          user-select: none;
+        }
+
+        .panel-header:hover {
+          background: rgba(36, 142, 168, 0.15);
+        }
+
+        .header-content {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          flex: 1;
+        }
+
+        .panel-icon {
+          font-size: 1.25rem;
+        }
+
+        .header-title-section {
+          flex: 1;
         }
 
         .panel-title {
-          font-size: 1.25rem;
+          font-size: 1rem;
           font-weight: 700;
           color: white;
-          margin: 0 0 0.5rem 0;
+          margin: 0;
+          letter-spacing: 0.5px;
         }
 
         .status-indicator {
           display: flex;
-          gap: 1rem;
-          font-size: 0.75rem;
+          gap: 0.75rem;
+          font-size: 0.7rem;
           color: rgba(255, 255, 255, 0.6);
+          margin-top: 0.25rem;
         }
 
         .status-item {
@@ -253,6 +369,44 @@ export default function AgentDataPanel() {
 
         .status-inactive {
           background: #ef4444;
+        }
+
+        .status-warning {
+          background: #f59e0b;
+        }
+
+        .status-pulse {
+          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .collapse-btn {
+          background: rgba(36, 142, 168, 0.2);
+          border: 1px solid rgba(36, 142, 168, 0.4);
+          border-radius: 8px;
+          padding: 0.5rem;
+          color: white;
+          cursor: pointer;
+          font-size: 1rem;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 32px;
+          min-height: 32px;
+        }
+
+        .collapse-btn:hover {
+          background: rgba(36, 142, 168, 0.3);
+          transform: scale(1.05);
+        }
+
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
+          }
         }
 
         .tab-bar {
@@ -414,51 +568,78 @@ export default function AgentDataPanel() {
       `}</style>
 
       {/* Header */}
-      <div className="panel-header">
-        <h2 className="panel-title">Agent Data Monitor</h2>
-        <div className="status-indicator">
-          {agentsStatus && (
-            <>
-              <div className="status-item">
-                <div className={`status-dot ${agentsStatus.scout_agent?.active ? 'status-active' : 'status-inactive'}`}></div>
-                Scout
-              </div>
-              <div className="status-item">
-                <div className={`status-dot ${agentsStatus.flood_agent?.active ? 'status-active' : 'status-inactive'}`}></div>
-                Flood
-              </div>
-              {/* <div className="status-item">
-                <div className={`status-dot ${agentsStatus.evacuation_manager?.active ? 'status-active' : 'status-inactive'}`}></div>
-                Evac
-              </div> */}
-            </>
-          )}
-          {lastUpdate && (
-            <div className="status-item">
-              Updated: {lastUpdate.toLocaleTimeString()}
+      <div className="panel-header" onClick={() => setIsCollapsed(!isCollapsed)}>
+        <div className="header-content">
+          <span className="panel-icon">📊</span>
+          <div className="header-title-section">
+            <h2 className="panel-title">AGENT DATA MONITOR</h2>
+            <div className="status-indicator">
+              {agentsStatus && (
+                <>
+                  <div className="status-item">
+                    <div className={`status-dot ${agentsStatus.scout_agent?.active ? 'status-active' : 'status-inactive'}`}></div>
+                    Scout
+                  </div>
+                  <div className="status-item">
+                    <div className={`status-dot ${agentsStatus.flood_agent?.active ? 'status-active' : 'status-inactive'}`}></div>
+                    Flood
+                  </div>
+                  {/* Simulation status indicator */}
+                  {simulationState && (
+                    <div className="status-item">
+                      <div className={`status-dot ${
+                        simulationState.state === 'running' ? 'status-active status-pulse' :
+                        simulationState.state === 'paused' ? 'status-warning' :
+                        'status-inactive'
+                      }`}></div>
+                      Sim: {simulationState.state === 'running' ? `${simulationState.mode.toUpperCase()}` :
+                            simulationState.state === 'paused' ? 'PAUSED' :
+                            'OFF'}
+                    </div>
+                  )}
+                </>
+              )}
+              {lastUpdate && (
+                <div className="status-item">
+                  Updated: {lastUpdate.toLocaleTimeString()}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-
-      {/* Tab Bar */}
-      <div className="tab-bar">
         <button
-          className={`tab ${activeTab === 'scout' ? 'active' : ''}`}
-          onClick={() => setActiveTab('scout')}
+          className="collapse-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsCollapsed(!isCollapsed);
+          }}
+          title={isCollapsed ? "Expand Panel" : "Collapse Panel"}
         >
-          Scout Reports
-        </button>
-        <button
-          className={`tab ${activeTab === 'flood' ? 'active' : ''}`}
-          onClick={() => setActiveTab('flood')}
-        >
-          Flood Data
+          {isCollapsed ? '▲' : '▼'}
         </button>
       </div>
 
-      {/* Content */}
-      <div className="panel-content">
+      {/* Tab Bar and Content - only visible when not collapsed */}
+      {!isCollapsed && (
+        <>
+          {/* Tab Bar */}
+          <div className="tab-bar">
+            <button
+              className={`tab ${activeTab === 'scout' ? 'active' : ''}`}
+              onClick={() => setActiveTab('scout')}
+            >
+              Scout Reports
+            </button>
+            <button
+              className={`tab ${activeTab === 'flood' ? 'active' : ''}`}
+              onClick={() => setActiveTab('flood')}
+            >
+              Flood Data
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="panel-content">
         {loading && <div className="loading">Loading...</div>}
         {error && <div className="error">{error}</div>}
 
@@ -490,14 +671,14 @@ export default function AgentDataPanel() {
                       {getSeverityLabel(report.severity || 0)}
                     </div>
                   </div>
-                  {report.original_text && (
+                  {report.text && (
                     <div className="report-text">
-                      {report.original_text}
+                      {report.text}
                     </div>
                   )}
                   <div className="report-meta">
                     <span>
-                      {report.coordinates ?
+                      {report.coordinates?.lat && report.coordinates?.lon ?
                         `${report.coordinates.lat.toFixed(4)}, ${report.coordinates.lon.toFixed(4)}`
                         : 'No coordinates'}
                     </span>
@@ -548,7 +729,9 @@ export default function AgentDataPanel() {
             )}
           </>
         )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

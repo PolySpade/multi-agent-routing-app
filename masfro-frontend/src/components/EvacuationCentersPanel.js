@@ -10,7 +10,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
  * Dedicated panel for displaying evacuation centers with detailed information
  * including location, capacity, contact details, and availability status.
  */
-export default function EvacuationCentersPanel() {
+export default function EvacuationCentersPanel({ onSelectDestination }) {
   const [evacuationCenters, setEvacuationCenters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -61,81 +61,86 @@ export default function EvacuationCentersPanel() {
     <div className="evacuation-panel">
       <style jsx>{`
         .evacuation-panel {
-          position: fixed;
-          top: 80px;
-          right: 20px;
-          width: 420px;
-          max-height: calc(100vh - 120px);
-          background: rgba(15, 20, 25, 0.95);
-          backdrop-filter: blur(12px);
+          position: relative;
+          width: 100%;
+          max-height: 600px;
+          background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
+          backdrop-filter: blur(16px);
           border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+          border: 1px solid rgba(36, 142, 168, 0.3);
+          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
           display: flex;
           flex-direction: column;
-          z-index: 35;
           overflow: hidden;
-          transition: all 0.3s ease;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .evacuation-panel.collapsed {
-          max-height: 60px;
+          min-height: auto;
+          max-height: 80px;
         }
 
         .panel-header {
           padding: 1.25rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(36, 142, 168, 0.1);
           cursor: pointer;
           user-select: none;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .panel-header:hover {
+          background: rgba(36, 142, 168, 0.15);
         }
 
         .header-content {
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          gap: 0.75rem;
         }
 
-        .panel-title {
-          font-size: 1.15rem;
-          font-weight: 700;
-          color: white;
-          margin: 0;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-
-        .title-icon {
-          width: 20px;
-          height: 20px;
+        .panel-icon {
+          font-size: 1.25rem;
           color: #248ea8;
         }
 
+        .panel-title {
+          font-size: 1rem;
+          font-weight: 700;
+          color: white;
+          margin: 0;
+          letter-spacing: 0.5px;
+        }
+
         .collapse-btn {
-          background: none;
-          border: none;
-          color: rgba(255, 255, 255, 0.6);
+          background: rgba(36, 142, 168, 0.2);
+          border: 1px solid rgba(36, 142, 168, 0.4);
+          border-radius: 8px;
+          padding: 0.5rem;
+          color: white;
           cursor: pointer;
-          font-size: 1.2rem;
-          transition: color 0.2s;
+          font-size: 1rem;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 32px;
+          min-height: 32px;
         }
 
         .collapse-btn:hover {
-          color: white;
+          background: rgba(36, 142, 168, 0.3);
+          transform: scale(1.05);
         }
 
         .status-bar {
           display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 0.5rem;
-          font-size: 0.75rem;
+          gap: 0.75rem;
+          margin-top: 0.25rem;
+          font-size: 0.7rem;
           color: rgba(255, 255, 255, 0.6);
-        }
-
-        .status-info {
-          display: flex;
-          gap: 1rem;
         }
 
         .status-item {
@@ -157,11 +162,39 @@ export default function EvacuationCentersPanel() {
           margin-bottom: 1rem;
           border-left: 4px solid #248ea8;
           transition: all 0.2s;
+          position: relative;
         }
 
         .center-card:hover {
           background: rgba(255, 255, 255, 0.08);
           transform: translateY(-2px);
+        }
+
+        .go-btn {
+          position: absolute;
+          top: 1rem;
+          right: 1rem;
+          background: rgba(36, 142, 168, 0.2);
+          border: 1px solid rgba(36, 142, 168, 0.4);
+          color: #7dd3fc;
+          padding: 0.2rem 1rem;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.85rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          transition: all 0.2s;
+        }
+
+        .go-btn:hover {
+          background: rgba(36, 142, 168, 0.3);
+          border-color: rgba(36, 142, 168, 0.6);
+          transform: scale(1.05);
+        }
+
+        .go-btn:active {
+          transform: scale(0.95);
         }
 
         .center-header {
@@ -292,31 +325,33 @@ export default function EvacuationCentersPanel() {
       {/* Header */}
       <div className="panel-header" onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}>
         <div className="header-content">
-          <h2 className="panel-title">
-            <svg className="title-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Evacuation Centers
-          </h2>
-          <button className="collapse-btn">
-            {isPanelCollapsed ? '▼' : '▲'}
-          </button>
-        </div>
-        {!isPanelCollapsed && (
-          <div className="status-bar">
-            <div className="status-info">
-              <div className="status-item">
-                {evacuationCenters.length} Centers
-              </div>
-            </div>
-            {lastUpdate && (
-              <div className="status-item">
-                Updated: {lastUpdate.toLocaleTimeString()}
+          <span className="panel-icon">🏥</span>
+          <div>
+            <h2 className="panel-title">EVACUATION CENTERS</h2>
+            {!isPanelCollapsed && (
+              <div className="status-bar">
+                <div className="status-item">
+                  {evacuationCenters.length} Centers
+                </div>
+                {lastUpdate && (
+                  <div className="status-item">
+                    Updated: {lastUpdate.toLocaleTimeString()}
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </div>
+        <button
+          className="collapse-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsPanelCollapsed(!isPanelCollapsed);
+          }}
+          title={isPanelCollapsed ? "Expand Panel" : "Collapse Panel"}
+        >
+          {isPanelCollapsed ? '▲' : '▼'}
+        </button>
       </div>
 
       {/* Content */}
@@ -369,14 +404,31 @@ export default function EvacuationCentersPanel() {
               {/* Evacuation Center Cards */}
               {evacuationCenters.map((center, idx) => (
                 <div key={idx} className="center-card">
+                  {/* GO Button */}
+                  {onSelectDestination && center.coordinates && (
+                    <button
+                      className="go-btn"
+                      onClick={() => {
+                        onSelectDestination(
+                          center.coordinates.lat,
+                          center.coordinates.lon,
+                          center.name
+                        );
+                      }}
+                      title={`Set ${center.name} as destination`}
+                    >
+                      GO
+                    </button>
+                  )}
+
                   <div className="center-header">
                     <div className="center-name">{center.name}</div>
-                    <div
+                    {/* <div
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(center.status) }}
                     >
                       {getStatusLabel(center.status)}
-                    </div>
+                    </div> */}
                   </div>
 
                   <div className="center-details">

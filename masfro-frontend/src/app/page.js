@@ -196,7 +196,7 @@ export default function Home() {
       <style jsx>{`
         .app-container {
           display: grid;
-          grid-template-columns: ${isPanelCollapsed ? '0px' : '400px'} 1fr;
+          grid-template-columns: ${isPanelCollapsed ? '0px' : '400px'} 1fr ${showAgentPanel || showEvacuationPanel ? '440px' : '0px'};
           height: 100vh;
           transition: grid-template-columns 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
           background: linear-gradient(135deg, #1a1f2e, #0f1419);
@@ -472,6 +472,34 @@ export default function Home() {
           justify-content: center;
           padding: 1rem;
         }
+
+        /* --- Right Panels Container --- */
+        .panels-container {
+          background: linear-gradient(180deg, rgba(15, 20, 25, 0.95) 0%, rgba(26, 31, 46, 0.95) 100%);
+          backdrop-filter: blur(20px);
+          border-left: 1px solid var(--glass-border);
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          padding: 1rem;
+          overflow-y: auto;
+          overflow-x: hidden;
+          position: relative;
+          z-index: 30;
+        }
+
+        .panels-container::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .panels-container::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .panels-container::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.2);
+          border-radius: 10px;
+        }
       `}</style>
 
       {/* --- Sidebar --- */}
@@ -661,17 +689,29 @@ export default function Home() {
         />
       </section>
 
-      {/* --- Simulation Panel --- */}
-      <SimulationPanel
-        isConnected={isConnected}
-        floodData={null}
-      />
+      {/* --- Right Panels Container --- */}
+      {(showAgentPanel || showEvacuationPanel) && (
+        <section className="panels-container">
+          {/* Simulation Panel */}
+          <SimulationPanel
+            isConnected={isConnected}
+            floodData={null}
+          />
 
-      {/* --- Agent Data Panel --- */}
-      {showAgentPanel && <AgentDataPanel />}
+          {/* Agent Data Panel */}
+          {showAgentPanel && <AgentDataPanel />}
 
-      {/* --- Evacuation Centers Panel --- */}
-      {showEvacuationPanel && <EvacuationCentersPanel />}
+          {/* Evacuation Centers Panel */}
+          {showEvacuationPanel && (
+            <EvacuationCentersPanel
+              onSelectDestination={(lat, lng, name) => {
+                setEndPoint({ lat, lng });
+                setMessage(`Destination set to ${name}. Click "Find Safest Route" to calculate.`);
+              }}
+            />
+          )}
+        </section>
+      )}
 
       {/* --- Feedback Modal --- */}
       {showFeedback && (

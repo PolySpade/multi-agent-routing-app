@@ -443,11 +443,12 @@ flood_agent.set_hazard_agent(hazard_agent)
 evacuation_manager.set_hazard_agent(hazard_agent)
 evacuation_manager.set_routing_agent(routing_agent)
 
-# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
+# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting and HazardAgent forwarding
 flood_scheduler = FloodDataScheduler(
     flood_agent,
     interval_seconds=300,
-    ws_manager=ws_manager
+    ws_manager=ws_manager,
+    hazard_agent=hazard_agent
 )
 set_scheduler(flood_scheduler)
 
@@ -940,7 +941,7 @@ async def stop_simulation():
 
     try:
         sim_manager = get_simulation_manager()
-        result = sim_manager.stop()
+        result = await sim_manager.stop()
 
         # Broadcast simulation state change via WebSocket
         await ws_manager.broadcast({
@@ -993,7 +994,7 @@ async def reset_simulation():
 
     try:
         sim_manager = get_simulation_manager()
-        result = sim_manager.reset()
+        result = await sim_manager.reset()
 
         # Reset graph to baseline (clear all risk scores)
         if environment.graph:
@@ -1618,6 +1619,67 @@ async def get_scout_reports(
         )
 
 
+@app.post("/api/agents/scout/collect", tags=["Agent Data"])
+async def trigger_scout_collection():
+    """
+    Manually trigger ScoutAgent to collect real-time Twitter/X data.
+
+    This endpoint allows manual triggering of scout data collection
+    outside of simulation mode. ScoutAgent will:
+    1. Search Twitter/X for flood-related tweets
+    2. Process them with NLP
+    3. Forward validated reports to HazardAgent
+    4. Make them available via /api/agents/scout/reports
+
+    Returns:
+        Collection results with tweet counts and processing status
+
+    Example:
+        POST /api/agents/scout/collect
+    """
+    logger.info("Manual scout collection triggered via API")
+
+    try:
+        if not scout_agent:
+            raise HTTPException(
+                status_code=503,
+                detail="ScoutAgent not initialized"
+            )
+
+        # Check if in simulation mode
+        if scout_agent.simulation_mode:
+            return {
+                "status": "skipped",
+                "message": "ScoutAgent is in simulation mode. Use simulation endpoints instead.",
+                "simulation_mode": True
+            }
+
+        # Trigger scout collection
+        start_time = datetime.now()
+
+        # Call step() in a thread to avoid blocking
+        new_tweets = await asyncio.to_thread(scout_agent.step)
+
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        return {
+            "status": "success",
+            "tweets_collected": len(new_tweets) if new_tweets else 0,
+            "duration_seconds": round(duration, 2),
+            "timestamp": end_time.isoformat(),
+            "message": f"Collected and processed {len(new_tweets) if new_tweets else 0} new tweets",
+            "note": "Check /api/agents/scout/reports to view processed reports"
+        }
+
+    except Exception as e:
+        logger.error(f"Error in manual scout collection: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error collecting scout data: {str(e)}"
+        )
+
+
 @app.get("/api/agents/flood/current-status", tags=["Agent Data"])
 async def get_flood_agent_status():
     """
@@ -1637,13 +1699,22 @@ async def get_flood_agent_status():
             )
 
         # Get latest flood data from HazardAgent cache
-        flood_data = hazard_agent.flood_data_cache if hazard_agent else []
+        flood_data_dict = hazard_agent.flood_data_cache if hazard_agent else {}
+
+        # flood_data_cache is a dict, not a list
+        # Extract timestamp from any available data source
+        last_update = None
+        if flood_data_dict:
+            for source_data in flood_data_dict.values():
+                if isinstance(source_data, dict) and source_data.get("timestamp"):
+                    last_update = source_data.get("timestamp")
+                    break
 
         return {
             "status": "success",
-            "data_points": len(flood_data),
-            "flood_data": flood_data,
-            "last_update": flood_data[0].get("timestamp") if flood_data else None,
+            "data_points": len(flood_data_dict),
+            "flood_data": flood_data_dict,
+            "last_update": last_update,
             "data_source": "PAGASA + OpenWeatherMap APIs",
             "note": "Data is automatically collected every 5 minutes"
         }
@@ -1956,5 +2027,79 @@ async def serve_geotiff_file(return_period: str, filename: str):
         media_type="image/tiff",
         filename=filename
     )
+
+
+@app.get("/api/debug/hazard-cache", tags=["Debug"])
+async def get_hazard_cache_debug():
+    """
+    Debug endpoint to inspect HazardAgent cache contents.
+
+    Returns raw cache data for debugging simulation data flow.
+    Useful for diagnosing issues with simulation data not appearing in AgentDataPanel.
+
+    Returns:
+        Cache contents, sizes, and simulation manager state
+    """
+    if not hazard_agent:
+        raise HTTPException(
+            status_code=503,
+            detail="HazardAgent not initialized"
+        )
+
+    return {
+        "status": "success",
+        "timestamp": datetime.now().isoformat(),
+        "flood_data_cache": hazard_agent.flood_data_cache,
+        "scout_data_cache": hazard_agent.scout_data_cache,
+        "cache_sizes": {
+            "flood": len(hazard_agent.flood_data_cache),
+            "scout": len(hazard_agent.scout_data_cache)
+        },
+        "simulation_manager_state": {
+            "state": simulation_manager._state.value if simulation_manager else None,
+            "mode": simulation_manager._mode.value if simulation_manager else None,
+            "tick_count": simulation_manager.tick_count if simulation_manager else 0,
+            "time_step": simulation_manager.current_time_step if simulation_manager else 0,
+            "simulation_clock": simulation_manager._simulation_clock if simulation_manager else 0,
+            "event_queue_size": len(simulation_manager._event_queue) if simulation_manager else 0
+        }
+    }
+
+
+@app.get("/api/debug/simulation-events", tags=["Debug"])
+async def get_simulation_events_debug():
+    """
+    Debug endpoint to inspect simulation event queue.
+
+    Shows upcoming events and their timing to help debug
+    why events might not be processing.
+
+    Returns:
+        Event queue contents and processing status
+    """
+    if not simulation_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="SimulationManager not initialized"
+        )
+
+    # Get next 10 events without removing them
+    upcoming_events = simulation_manager._event_queue[:10] if simulation_manager._event_queue else []
+
+    return {
+        "status": "success",
+        "timestamp": datetime.now().isoformat(),
+        "simulation_clock": simulation_manager._simulation_clock,
+        "total_events_remaining": len(simulation_manager._event_queue),
+        "upcoming_events": upcoming_events,
+        "simulation_state": {
+            "state": simulation_manager._state.value,
+            "mode": simulation_manager._mode.value,
+            "tick_count": simulation_manager.tick_count,
+            "time_step": simulation_manager.current_time_step,
+            "is_running": simulation_manager.is_running,
+            "is_paused": simulation_manager.is_paused
+        }
+    }
 
 

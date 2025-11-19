@@ -1064,3 +1064,67 @@ starlette.websockets.WebSocketDisconnect
 2025-11-19 18:00:33 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
 2025-11-19 18:00:33 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
 2025-11-19 18:36:23 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 23:58:33 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 23:58:36 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 23:58:39 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-19 23:58:48 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 23:58:48 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 23:58:48 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 23:58:48 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 23:58:48 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:32 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:32 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 23:59:32 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 23:59:32 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 23:59:32 - app.main - ERROR - reset_simulation:1023 - Error resetting simulation: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 23:59:33 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 23:59:33 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 23:59:33 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:34 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-19 23:59:34 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-19 23:59:34 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-19 23:59:34 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-19 23:59:34 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:56 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:56 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-20 00:02:56 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-20 00:02:56 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-20 00:02:56 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-20 00:02:59 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-20 00:02:59 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-20 00:02:59 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:03:01 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-20 00:03:01 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-20 00:03:01 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-20 00:03:01 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-20 00:03:01 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:03:09 - app.main - ERROR - broadcast:170 - JSON serialization error: Object of type coroutine is not JSON serializable
+2025-11-20 00:03:09 - app.main - ERROR - broadcast:171 - Message keys: dict_keys(['type', 'event', 'data', 'timestamp'])
+2025-11-20 00:03:09 - app.main - ERROR - broadcast:172 - Message type field: simulation_state
+2025-11-20 00:03:09 - app.main - ERROR - broadcast:178 - Field 'data' caused error: Object of type coroutine is not JSON serializable, value type: <class 'coroutine'>
+2025-11-20 00:03:09 - app.main - ERROR - stop_simulation:967 - Error stopping simulation: Object of type coroutine is not JSON serializable
+2025-11-20 00:04:54 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-20 00:04:54 - app.main - ERROR - get_scout_reports:1614 - Error retrieving scout reports: can't compare offset-naive and offset-aware datetimes
+2025-11-20 00:05:00 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-20 00:05:12 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-20 00:05:14 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-20 00:05:16 - app.main - ERROR - get_flood_agent_status:1654 - Error retrieving flood status: 0
+2025-11-20 00:31:15 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
+2025-11-20 00:31:17 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
+2025-11-20 00:31:24 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
+2025-11-20 00:32:19 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
+2025-11-20 00:32:22 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0

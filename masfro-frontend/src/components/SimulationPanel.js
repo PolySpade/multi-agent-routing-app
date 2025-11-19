@@ -160,144 +160,165 @@ export default function SimulationPanel({ isConnected, floodData }) {
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      right: '20px',
-      top: '20px',
-      width: isExpanded ? '380px' : '70px',
-      maxHeight: isExpanded ? 'calc(100vh - 120px)' : 'auto',
-      background: 'linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%)',
-      backdropFilter: 'blur(16px)',
-      borderRadius: '16px',
-      boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
-      border: '1px solid rgba(36, 142, 168, 0.3)',
-      zIndex: 1000,
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
-      {/* Collapsed State - Show icon button */}
-      {!isExpanded && (
-        <button
-          onClick={() => setIsExpanded(true)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            padding: '1.25rem',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: '1.75rem',
-            transition: 'all 0.2s',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '1rem',
-            width: '100%'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(36, 142, 168, 0.15)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-          }}
-          title="Open Simulation Panel"
-        >
-          <span>🌊</span>
-          {/* <span style={{
-            fontSize: '1.25rem',
-            letterSpacing: '1px',
-            fontWeight: 700,
-            color: '#248ea8'
-          }}>←</span> */}
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: isConnected ? '#10b981' : '#ef4444',
-            animation: isConnected ? 'pulse 2s infinite' : 'none'
-          }} />
-        </button>
-      )}
+    <div className={`simulation-panel ${isExpanded ? '' : 'collapsed'}`}>
+      <style jsx>{`
+        .simulation-panel {
+          position: relative;
+          width: 100%;
+          min-height: 400px;
+          max-height: 600px;
+          background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
+          backdrop-filter: blur(16px);
+          border-radius: 16px;
+          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+          border: 1px solid rgba(36, 142, 168, 0.3);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
 
-      {/* Expanded State - Full Header */}
-      {isExpanded && (
-        <div style={{
-          padding: '1.25rem',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: 'rgba(36, 142, 168, 0.1)'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem'
-          }}>
-            <span style={{ fontSize: '1.25rem' }}>🌊</span>
-            <div>
-              <h3 style={{
-                margin: 0,
-                fontSize: '1rem',
-                fontWeight: 700,
-                color: 'white',
-                letterSpacing: '0.5px'
-              }}>
-                SIMULATION MODE
-              </h3>
-              <div style={{
-                fontSize: '0.65rem',
-                color: isConnected ? '#10b981' : '#ef4444',
-                fontWeight: 600,
-                marginTop: '0.25rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem'
-              }}>
-                <span style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: isConnected ? '#10b981' : '#ef4444',
-                  animation: isConnected ? 'pulse 2s infinite' : 'none'
-                }} />
-                {isConnected ? 'LIVE' : 'OFFLINE'}
-              </div>
+        .simulation-panel.collapsed {
+          min-height: auto;
+          max-height: 80px;
+        }
+        .panel-header {
+          padding: 1.25rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: rgba(36, 142, 168, 0.1);
+          cursor: pointer;
+          user-select: none;
+        }
+
+        .panel-header:hover {
+          background: rgba(36, 142, 168, 0.15);
+        }
+
+        .header-content {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .panel-icon {
+          font-size: 1.25rem;
+        }
+
+        .panel-title {
+          margin: 0;
+          font-size: 1rem;
+          font-weight: 700;
+          color: white;
+          letter-spacing: 0.5px;
+        }
+
+        .connection-status {
+          font-size: 0.65rem;
+          font-weight: 600;
+          margin-top: 0.25rem;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+
+        .status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+        }
+
+        .status-active {
+          background: #10b981;
+          animation: pulse 2s infinite;
+        }
+
+        .status-inactive {
+          background: #ef4444;
+        }
+
+        .collapse-btn {
+          background: rgba(36, 142, 168, 0.2);
+          border: 1px solid rgba(36, 142, 168, 0.4);
+          border-radius: 8px;
+          padding: 0.5rem;
+          color: white;
+          cursor: pointer;
+          font-size: 1rem;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 32px;
+          min-height: 32px;
+        }
+
+        .collapse-btn:hover {
+          background: rgba(36, 142, 168, 0.3);
+          transform: scale(1.05);
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        /* Scrollbar styling */
+        .simulation-panel ::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .simulation-panel ::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 3px;
+        }
+
+        .simulation-panel ::-webkit-scrollbar-thumb {
+          background: rgba(36, 142, 168, 0.4);
+          border-radius: 3px;
+        }
+
+        .simulation-panel ::-webkit-scrollbar-thumb:hover {
+          background: rgba(36, 142, 168, 0.6);
+        }
+      `}</style>
+
+      {/* Header */}
+      <div className="panel-header" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className="header-content">
+          <span className="panel-icon">🌊</span>
+          <div>
+            <h3 className="panel-title">SIMULATION MODE</h3>
+            <div className="connection-status" style={{ color: isConnected ? '#10b981' : '#ef4444' }}>
+              <span className={`status-dot ${isConnected ? 'status-active' : 'status-inactive'}`} />
+              {isConnected ? 'LIVE' : 'OFFLINE'}
             </div>
           </div>
-          <button
-            onClick={() => setIsExpanded(false)}
-            style={{
-              background: 'rgba(36, 142, 168, 0.2)',
-              border: '1px solid rgba(36, 142, 168, 0.4)',
-              borderRadius: '8px',
-              padding: '0.5rem',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: '32px',
-              minHeight: '32px'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = 'rgba(36, 142, 168, 0.3)';
-              e.target.style.transform = 'scale(1.05)';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(36, 142, 168, 0.2)';
-              e.target.style.transform = 'scale(1)';
-            }}
-            title="Collapse Panel"
-          >
-            →
-          </button>
         </div>
-      )}
+        <button
+          className="collapse-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }}
+          title={isExpanded ? "Collapse Panel" : "Expand Panel"}
+        >
+          {isExpanded ? '▼' : '▲'}
+        </button>
+      </div>
 
       {/* Content - only visible when expanded */}
       {isExpanded && (
@@ -706,43 +727,6 @@ export default function SimulationPanel({ isConnected, floodData }) {
           </div>
         </>
       )}
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        /* Scrollbar styling */
-        div::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        div::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 3px;
-        }
-
-        div::-webkit-scrollbar-thumb {
-          background: rgba(36, 142, 168, 0.4);
-          border-radius: 3px;
-        }
-
-        div::-webkit-scrollbar-thumb:hover {
-          background: rgba(36, 142, 168, 0.6);
-        }
-      `}</style>
     </div>
   );
 }

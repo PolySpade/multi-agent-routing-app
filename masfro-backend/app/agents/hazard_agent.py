@@ -1339,8 +1339,23 @@ class HazardAgent(BaseAgent):
                     logger.warning(f"Invalid scout report: {report}")
                     continue
 
-                # Add to cache for data fusion
-                self.scout_data_cache.append(report)
+                # Check for duplicates before adding to cache
+                # Deduplicate based on location + text (same report)
+                is_duplicate = False
+                report_location = report.get('location', '')
+                report_text = report.get('text', '')
+
+                for existing in self.scout_data_cache:
+                    if (existing.get('location') == report_location and
+                        existing.get('text') == report_text):
+                        is_duplicate = True
+                        break
+
+                # Add to cache only if not duplicate
+                if not is_duplicate:
+                    self.scout_data_cache.append(report)
+                else:
+                    logger.debug(f"Skipping duplicate scout report: {report_location}")
 
                 # Check if report has coordinates
                 coords = report.get('coordinates')
