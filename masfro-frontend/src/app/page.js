@@ -8,6 +8,7 @@ import FeedbackForm from '@/components/FeedbackForm';
 import SimulationPanel from '@/components/SimulationPanel';
 import AgentDataPanel from '@/components/AgentDataPanel';
 import EvacuationCentersPanel from '@/components/EvacuationCentersPanel';
+import RiskLegend from '@/components/RiskLegend';
 import { findRoute } from '@/utils/routingService';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
@@ -32,6 +33,42 @@ const formatCoordinate = (point) => {
   return `${point.lat.toFixed(4)}°, ${point.lng.toFixed(4)}°`;
 };
 
+const getRiskInfo = (riskLevel) => {
+  if (riskLevel === null || riskLevel === undefined) return { label: '—', color: '#94a3b8', description: 'No data' };
+
+  // Risk level is 0-1 scale
+  if (riskLevel <= 0.2) return {
+    label: 'Very Low',
+    color: '#10b981',
+    description: 'Safe - No significant flood risk',
+    depth: 'Dry or < 6 inches (ankle level)'
+  };
+  if (riskLevel <= 0.4) return {
+    label: 'Low',
+    color: '#84cc16',
+    description: 'Minor risk - Passable with caution',
+    depth: '6-12 inches (below knee)'
+  };
+  if (riskLevel <= 0.6) return {
+    label: 'Moderate',
+    color: '#eab308',
+    description: 'Moderate risk - Drive slowly',
+    depth: '1-2 feet (knee to waist)'
+  };
+  if (riskLevel <= 0.8) return {
+    label: 'High',
+    color: '#f97316',
+    description: 'High risk - Dangerous conditions',
+    depth: '2-3 feet (waist to chest)'
+  };
+  return {
+    label: 'Critical',
+    color: '#ef4444',
+    description: 'Critical - Impassable or extremely dangerous',
+    depth: '> 3 feet (chest level or higher)'
+  };
+};
+
 export default function Home() {
   // --- State & Hooks ---
   const [startPoint, setStartPoint] = useState(null);
@@ -46,6 +83,7 @@ export default function Home() {
   const [feedbackLocation, setFeedbackLocation] = useState(null);
   const [showAgentPanel, setShowAgentPanel] = useState(true);
   const [showEvacuationPanel, setShowEvacuationPanel] = useState(true);
+  const [routingMode, setRoutingMode] = useState('balanced'); // 'safest', 'balanced', 'fastest'
 
   const { isConnected, systemStatus } = useWebSocketContext();
 
@@ -100,7 +138,7 @@ export default function Home() {
   };
 
   const handleFindRoute = async () => {
-    await findRoute(startPoint, endPoint, setRoutePath, setRouteMeta, setMessage, setLoading);
+    await findRoute(startPoint, endPoint, setRoutePath, setRouteMeta, setMessage, setLoading, routingMode);
   };
 
   const handleReset = () => {
@@ -352,6 +390,58 @@ export default function Home() {
           margin-top: 0.25rem;
         }
 
+        /* Routing Mode Selection */
+        .routing-mode-group {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 0.5rem;
+        }
+
+        .routing-mode-btn {
+          padding: 0.75rem 0.5rem;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: rgba(255,255,255,0.03);
+          color: var(--text-muted);
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.25rem;
+        }
+
+        .routing-mode-btn:hover {
+          background: rgba(255,255,255,0.08);
+          border-color: rgba(255,255,255,0.1);
+        }
+
+        .routing-mode-btn.active {
+          background: rgba(36, 142, 168, 0.25);
+          border-color: var(--primary);
+          color: white;
+        }
+
+        .routing-mode-btn.active .mode-icon {
+          transform: scale(1.1);
+        }
+
+        .mode-icon {
+          font-size: 1.5rem;
+          transition: transform 0.2s;
+        }
+
+        .mode-label {
+          font-size: 0.8rem;
+          font-weight: 600;
+        }
+
+        .mode-desc {
+          font-size: 0.65rem;
+          opacity: 0.7;
+        }
+
         /* Status Box */
         .status-box {
           margin-top: auto; /* Pushes to bottom */
@@ -600,15 +690,49 @@ export default function Home() {
                 </button>
               </div>
 
-              <button 
+              {/* Routing Mode Selection */}
+              <div style={{ marginTop: '0.5rem' }}>
+                <div className="section-title" style={{ marginBottom: '0.75rem' }}>Routing Algorithm</div>
+                <div className="routing-mode-group">
+                  <button
+                    className={`routing-mode-btn ${routingMode === 'safest' ? 'active' : ''}`}
+                    onClick={() => setRoutingMode('safest')}
+                  >
+                    <div className="mode-icon">🛡️</div>
+                    <div className="mode-label">Safest</div>
+                    <div className="mode-desc">Avoid floods</div>
+                  </button>
+                  <button
+                    className={`routing-mode-btn ${routingMode === 'balanced' ? 'active' : ''}`}
+                    onClick={() => setRoutingMode('balanced')}
+                  >
+                    <div className="mode-icon">⚖️</div>
+                    <div className="mode-label">Balanced</div>
+                    <div className="mode-desc">Safety + Speed</div>
+                  </button>
+                  <button
+                    className={`routing-mode-btn ${routingMode === 'fastest' ? 'active' : ''}`}
+                    onClick={() => setRoutingMode('fastest')}
+                  >
+                    <div className="mode-icon">⚡</div>
+                    <div className="mode-label">Fastest</div>
+                    <div className="mode-desc">Risk-tolerant</div>
+                  </button>
+                </div>
+              </div>
+
+              <button
                 className="btn btn-primary"
                 onClick={handleFindRoute}
                 disabled={loading || !startPoint || !endPoint}
                 style={{ marginTop: '0.5rem' }}
               >
-                {loading ? 'Calculating...' : '🚗 Find Safest Route'}
+                {loading ? 'Calculating...' : `🚗 Find ${routingMode === 'safest' ? 'Safest' : routingMode === 'fastest' ? 'Fastest' : 'Best'} Route`}
               </button>
             </div>
+
+            {/* Risk Legend */}
+            <RiskLegend />
 
             <button className="btn btn-accent" onClick={handleOpenFeedback}>
               ⚠️ Report Flood / Road Issue
@@ -628,10 +752,55 @@ export default function Home() {
                     <span>Distance</span>
                     <strong>{formatDistance(routeMeta.distance)}</strong>
                   </div>
-                  <div className="stat-item">
+                  {/* <div className="stat-item">
                     <span>Est. Time</span>
                     <strong>{formatDuration(routeMeta.duration)}</strong>
+                  </div> */}
+                  <div className="stat-item" style={{ gridColumn: '1 / -1' }}>
+                    <span>Provider</span>
+                    <strong style={{
+                      color: routeMeta.provider === 'backend' ? '#10b981' : '#f59e0b',
+                      fontSize: '0.85rem'
+                    }}>
+                      {routeMeta.provider === 'backend' ? '🤖 MAS-FRO Backend' : '🗺️ Mapbox (Fallback)'}
+                    </strong>
                   </div>
+                  {routeMeta.riskLevel !== null && routeMeta.riskLevel !== undefined && (
+                    <div className="stat-item" style={{ gridColumn: '1 / -1' }}>
+                      <span>Average Risk</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <div style={{
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          backgroundColor: getRiskInfo(routeMeta.riskLevel).color,
+                          boxShadow: `0 0 8px ${getRiskInfo(routeMeta.riskLevel).color}66`
+                        }} />
+                        <strong style={{ color: getRiskInfo(routeMeta.riskLevel).color }}>
+                          {getRiskInfo(routeMeta.riskLevel).label}
+                        </strong>
+                        <span style={{ fontSize: '0.85rem', opacity: 0.7, marginLeft: 'auto' }}>
+                          ({(routeMeta.riskLevel * 100).toFixed(0)}%)
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.7, marginTop: '0.25rem' }}>
+                        {getRiskInfo(routeMeta.riskLevel).description}
+                      </div>
+                    </div>
+                  )}
+                  {routeMeta.provider === 'mapbox' && (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      fontSize: '0.7rem',
+                      opacity: 0.7,
+                      padding: '0.5rem',
+                      background: 'rgba(245, 158, 11, 0.1)',
+                      borderRadius: '6px',
+                      color: '#f59e0b'
+                    }}>
+                      ⚠️ Using Mapbox fallback - Backend may be unavailable. Check browser console for errors.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -648,7 +817,7 @@ export default function Home() {
         )}
 
         {/* Map Overlay - Shows summary when route is active, useful if panel is hidden */}
-        <div className="map-overlay" style={{ display: !hasRoute && !isPanelCollapsed ? 'none' : 'block' }}>
+        {/* <div className="map-overlay" style={{ display: !hasRoute && !isPanelCollapsed ? 'none' : 'block' }}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem'}}>
                 <strong style={{textTransform:'uppercase', letterSpacing:'1px', fontSize:'0.8rem', color:'var(--primary)'}}>
                     Route Status
@@ -675,9 +844,17 @@ export default function Home() {
                         <span>Time</span>
                         <strong>{formatDuration(routeMeta.duration)}</strong>
                     </div>
+                    {routeMeta.riskLevel !== null && routeMeta.riskLevel !== undefined && (
+                      <div className="stat-item" style={{ gridColumn: '1 / -1' }}>
+                        <span>Risk</span>
+                        <strong style={{ color: getRiskInfo(routeMeta.riskLevel).color }}>
+                          {getRiskInfo(routeMeta.riskLevel).label}
+                        </strong>
+                      </div>
+                    )}
                 </div>
             )}
-        </div>
+        </div> */}
 
         <MapboxMap
           startPoint={startPoint}

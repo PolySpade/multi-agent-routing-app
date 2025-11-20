@@ -118,7 +118,7 @@ def risk_aware_astar(
     end: Any,
     risk_weight: float = 0.5,
     distance_weight: float = 0.5,
-    max_risk_threshold: float = 0.2 #modify to make it more sensitive
+    max_risk_threshold: float = 0.9  # Only block critical/extreme risk roads (90%+)
 ) -> Optional[List[Any]]:
     """
     Find the safest path using risk-aware A* algorithm.
@@ -141,7 +141,7 @@ def risk_aware_astar(
         risk_weight: Weight for risk component (default: 0.5)
         distance_weight: Weight for distance component (default: 0.5)
         max_risk_threshold: Maximum acceptable risk (default: 0.9)
-            Edges with risk >= threshold are impassable
+            Edges with risk >= 90% are considered impassable (critical flood danger)
 
     Returns:
         List of node IDs representing the path, or None if no path exists
@@ -292,7 +292,7 @@ def calculate_path_metrics(
         }
 
     total_distance = 0.0
-    total_risk = 0.0
+    total_weighted_risk = 0.0  # Changed: Now weighted by distance
     max_risk = 0.0
     num_segments = 0
 
@@ -309,11 +309,12 @@ def calculate_path_metrics(
             risk = edge_data.get('risk_score', 0.0)
 
             total_distance += length
-            total_risk += risk
+            total_weighted_risk += risk * length  # Weight risk by segment length
             max_risk = max(max_risk, risk)
             num_segments += 1
 
-    average_risk = total_risk / num_segments if num_segments > 0 else 0.0
+    # Calculate distance-weighted average risk
+    average_risk = total_weighted_risk / total_distance if total_distance > 0 else 0.0
 
     # Estimate time assuming 30 km/h average speed
     # Adjust for high-risk areas (slower travel)
