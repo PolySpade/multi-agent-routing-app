@@ -132,16 +132,46 @@ export const findRoute = async (startPoint, endPoint, setRoutePath, setRouteMeta
         const data = await response.json();
         console.log('[Routing] Backend response data:', data);
 
+        // Handle impassable or no safe route status
+        if (data.status === 'impassable') {
+          setRoutePath(null);
+          setRouteMeta({
+            status: 'impassable',
+            warnings: data.warnings || [],
+            provider: 'backend',
+            routingMode: routingMode,
+          });
+          setMessage('⛔ IMPASSABLE: No route exists - all roads are critically flooded.');
+          setLoading(false);
+          return;
+        }
+
+        if (data.status === 'no_safe_route') {
+          setRoutePath(null);
+          setRouteMeta({
+            status: 'no_safe_route',
+            warnings: data.warnings || [],
+            provider: 'backend',
+            routingMode: routingMode,
+          });
+          setMessage('⚠️ No safe route found. Try "Fastest" mode or choose different locations.');
+          setLoading(false);
+          return;
+        }
+
+        // Handle successful route
         if (!data?.path || !Array.isArray(data.path) || data.path.length === 0) {
           throw new Error('Backend response did not contain a valid path');
         }
 
         setRoutePath(data.path);
         setRouteMeta({
+          status: data.status || 'success',
           distance: data.distance || data.summary?.distance,
           duration: data.estimated_time || data.summary?.duration,
           riskLevel: data.risk_level !== undefined ? data.risk_level : null,
           maxRisk: data.max_risk !== undefined ? data.max_risk : null,
+          warnings: data.warnings || [],
           provider: 'backend',
           routingMode: routingMode,
         });

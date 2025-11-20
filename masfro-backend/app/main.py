@@ -53,7 +53,7 @@ from app.database import get_db, FloodDataRepository, check_connection, init_db
 from app.core.logging_config import setup_logging, get_logger
 
 # API Routes
-from app.api import graph_router, set_graph_environment
+from app.api import graph_router, set_graph_environment, evacuation_router
 
 # Initialize structured logging (will be called again in startup event for safety)
 setup_logging()
@@ -390,6 +390,7 @@ app.mount("/data", StaticFiles(directory="app/data"), name="data")
 
 # Include API routers
 app.include_router(graph_router)
+app.include_router(evacuation_router)
 
 # --- 3. Initialize Multi-Agent System ---
 
@@ -487,6 +488,66 @@ async def startup_event():
         init_db()
     else:
         logger.error("Database connection failed - historical data storage disabled")
+
+    # Load initial flood data to populate risk scores
+    logger.info("Loading initial flood risk data...")
+    try:
+        # Load default GeoTIFF data (light scenario, time step 1)
+        from pathlib import Path
+        geotiff_path = Path(__file__).parent / "data" / "geotiff_data" / "rr01" / "rr01_step_01.tif"
+
+        if geotiff_path.exists() and hazard_agent:
+            logger.info(f"Loading initial risk data from {geotiff_path}")
+
+            # Process GeoTIFF to get flood data
+            import rasterio
+            with rasterio.open(geotiff_path) as src:
+                flood_array = src.read(1)
+                transform = src.transform
+
+            # Convert to edge risk scores (simplified version)
+            edge_updates = {}
+            for u, v, key, data in environment.graph.edges(keys=True, data=True):
+                # Get edge midpoint coordinates
+                u_coords = environment.graph.nodes[u]
+                v_coords = environment.graph.nodes[v]
+                mid_lat = (u_coords['y'] + v_coords['y']) / 2
+                mid_lon = (u_coords['x'] + v_coords['x']) / 2
+
+                # Sample flood depth at edge location
+                row, col = ~transform * (mid_lon, mid_lat)
+                row, col = int(row), int(col)
+
+                if 0 <= row < flood_array.shape[0] and 0 <= col < flood_array.shape[1]:
+                    flood_depth = float(flood_array[row, col])
+                    # Convert depth to risk score (0-1)
+                    if flood_depth < 0.1:
+                        risk_score = 0.0
+                    elif flood_depth < 0.5:
+                        risk_score = 0.3
+                    elif flood_depth < 1.0:
+                        risk_score = 0.6
+                    elif flood_depth < 2.0:
+                        risk_score = 0.8
+                    else:
+                        risk_score = 0.95  # Near impassable
+
+                    edge_updates[(u, v, key)] = risk_score
+
+            # Apply updates to graph
+            environment.update_edge_risks(edge_updates)
+            logger.info(f"Initial flood data loaded: Updated {len(edge_updates)} edges with risk scores")
+
+            # Log sample of high-risk edges
+            high_risk_count = sum(1 for risk in edge_updates.values() if risk >= 0.7)
+            logger.info(f"High-risk edges (>= 70%): {high_risk_count}")
+
+        else:
+            logger.warning(f"GeoTIFF data not found at {geotiff_path} - graph will start with zero risk")
+
+    except Exception as e:
+        logger.error(f"Failed to load initial flood data: {e}")
+        logger.warning("Continuing with zero risk scores - all roads passable")
 
     # Start scheduler
     logger.info("Starting background scheduler...")
@@ -2100,6 +2161,89 @@ async def get_simulation_events_debug():
             "time_step": simulation_manager.current_time_step,
             "is_running": simulation_manager.is_running,
             "is_paused": simulation_manager.is_paused
+        }
+    }
+
+
+@app.get("/api/debug/graph-risk-scores", tags=["Debug"])
+async def get_graph_risk_scores_debug():
+    """
+    Debug endpoint to check current risk scores on graph edges.
+
+    Helps verify that flood data is loaded and roads are being blocked correctly.
+
+    Returns:
+        Risk score statistics and samples of high-risk edges
+    """
+    if not environment or not environment.graph:
+        raise HTTPException(
+            status_code=503,
+            detail="Graph environment not initialized"
+        )
+
+    graph = environment.graph
+    total_edges = graph.number_of_edges()
+
+    # Collect risk score statistics
+    risk_scores = []
+    high_risk_edges = []  # risk >= 0.7
+    impassable_edges = []  # risk >= 0.9
+
+    for u, v, key, data in graph.edges(keys=True, data=True):
+        risk = data.get('risk_score', 0.0)
+        risk_scores.append(risk)
+
+        if risk >= 0.9:
+            # Get edge coordinates
+            u_coords = graph.nodes[u]
+            v_coords = graph.nodes[v]
+            impassable_edges.append({
+                "edge": f"({u}, {v}, {key})",
+                "risk_score": round(risk, 3),
+                "length": round(data.get('length', 0), 1),
+                "start": {"lat": round(u_coords['y'], 5), "lon": round(u_coords['x'], 5)},
+                "end": {"lat": round(v_coords['y'], 5), "lon": round(v_coords['x'], 5)}
+            })
+        elif risk >= 0.7:
+            u_coords = graph.nodes[u]
+            v_coords = graph.nodes[v]
+            high_risk_edges.append({
+                "edge": f"({u}, {v}, {key})",
+                "risk_score": round(risk, 3),
+                "length": round(data.get('length', 0), 1),
+                "start": {"lat": round(u_coords['y'], 5), "lon": round(u_coords['x'], 5)},
+                "end": {"lat": round(v_coords['y'], 5), "lon": round(v_coords['x'], 5)}
+            })
+
+    # Calculate statistics
+    risk_scores = sorted(risk_scores, reverse=True)
+    safe_edges = sum(1 for r in risk_scores if r < 0.3)
+    moderate_edges = sum(1 for r in risk_scores if 0.3 <= r < 0.7)
+    high_risk_count = len(high_risk_edges)
+    impassable_count = len(impassable_edges)
+
+    return {
+        "status": "success",
+        "timestamp": datetime.now().isoformat(),
+        "graph_stats": {
+            "total_edges": total_edges,
+            "safe_edges": safe_edges,
+            "moderate_risk_edges": moderate_edges,
+            "high_risk_edges": high_risk_count,
+            "impassable_edges": impassable_count
+        },
+        "risk_distribution": {
+            "min_risk": round(min(risk_scores) if risk_scores else 0, 3),
+            "max_risk": round(max(risk_scores) if risk_scores else 0, 3),
+            "avg_risk": round(sum(risk_scores) / len(risk_scores) if risk_scores else 0, 3),
+            "median_risk": round(risk_scores[len(risk_scores)//2] if risk_scores else 0, 3)
+        },
+        "sample_impassable_edges": impassable_edges[:10],  # First 10
+        "sample_high_risk_edges": high_risk_edges[:10],  # First 10
+        "blocking_info": {
+            "max_risk_threshold": 0.9,
+            "edges_that_will_block": impassable_count,
+            "percentage_blocked": round((impassable_count / total_edges * 100) if total_edges > 0 else 0, 2)
         }
     }
 

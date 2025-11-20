@@ -801,6 +801,93 @@ export default function Home() {
                       ⚠️ Using Mapbox fallback - Backend may be unavailable. Check browser console for errors.
                     </div>
                   )}
+
+                  {/* Display warnings from backend */}
+                  {routeMeta.warnings && routeMeta.warnings.length > 0 && (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      marginTop: '0.5rem'
+                    }}>
+                      {routeMeta.warnings.map((warning, idx) => {
+                        const isImpassable = warning.includes('IMPASSABLE');
+                        const isCritical = warning.includes('CRITICAL');
+                        const isWarning = warning.includes('WARNING');
+                        const isFastestMode = warning.includes('FASTEST MODE ACTIVE');
+
+                        let bgColor = 'rgba(156, 163, 175, 0.1)';
+                        let textColor = '#9ca3af';
+                        let icon = '💬';
+
+                        if (isImpassable) {
+                          bgColor = 'rgba(239, 68, 68, 0.15)';
+                          textColor = '#ef4444';
+                          icon = '⛔';
+                        } else if (isCritical) {
+                          bgColor = 'rgba(239, 68, 68, 0.1)';
+                          textColor = '#f87171';
+                          icon = '🚨';
+                        } else if (isFastestMode) {
+                          bgColor = 'rgba(251, 191, 36, 0.15)';
+                          textColor = '#fbbf24';
+                          icon = '⚡';
+                        } else if (isWarning) {
+                          bgColor = 'rgba(251, 146, 60, 0.1)';
+                          textColor = '#fb923c';
+                          icon = '⚠️';
+                        }
+
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '0.5rem',
+                              background: bgColor,
+                              borderRadius: '6px',
+                              color: textColor,
+                              marginBottom: idx < routeMeta.warnings.length - 1 ? '0.5rem' : '0',
+                              lineHeight: '1.4',
+                              borderLeft: `3px solid ${textColor}`
+                            }}
+                          >
+                            <span style={{ marginRight: '0.3rem' }}>{icon}</span>
+                            {warning}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Status indicator for impassable/no_safe_route */}
+                  {routeMeta.status && routeMeta.status !== 'success' && (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      marginTop: '0.5rem',
+                      padding: '0.75rem',
+                      background: routeMeta.status === 'impassable'
+                        ? 'rgba(239, 68, 68, 0.2)'
+                        : 'rgba(251, 146, 60, 0.15)',
+                      borderRadius: '8px',
+                      border: `2px solid ${routeMeta.status === 'impassable' ? '#ef4444' : '#fb923c'}`,
+                      textAlign: 'center'
+                    }}>
+                      <div style={{
+                        fontSize: '1.5rem',
+                        marginBottom: '0.25rem'
+                      }}>
+                        {routeMeta.status === 'impassable' ? '⛔' : '⚠️'}
+                      </div>
+                      <div style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 'bold',
+                        color: routeMeta.status === 'impassable' ? '#ef4444' : '#fb923c',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        {routeMeta.status === 'impassable' ? 'All Roads Impassable' : 'No Safe Route'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

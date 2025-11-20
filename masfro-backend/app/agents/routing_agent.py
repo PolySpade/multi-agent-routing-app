@@ -126,13 +126,20 @@ class RoutingAgent(BaseAgent):
         Returns:
             Dict containing route information:
                 {
+                    "status": "success" | "impassable" | "no_safe_route",
                     "path": List of (lat, lon) coordinates,
                     "distance": Total distance in meters,
                     "estimated_time": Estimated time in minutes,
                     "risk_level": Average risk score (0-1),
                     "max_risk": Maximum risk score on route,
+                    "num_segments": Number of road segments,
                     "warnings": List of warning messages
                 }
+
+            Status values:
+                - "success": Route found successfully
+                - "impassable": No route exists (fastest mode, all roads blocked)
+                - "no_safe_route": No safe route found (safest/balanced mode)
 
         Raises:
             ValueError: If coordinates are invalid or graph not loaded
@@ -199,20 +206,23 @@ class RoutingAgent(BaseAgent):
         )
 
         if not path_nodes:
-            # Determine appropriate warning based on mode
+            # Determine appropriate warning and status based on mode
             if preferences and preferences.get("fastest"):
+                status = "impassable"
                 warning_msg = (
                     "IMPASSABLE: No route found. All paths contain critically flooded "
                     "or impassable roads (risk >= 90%). Consider waiting for conditions "
                     "to improve or using evacuation assistance."
                 )
             else:
+                status = "no_safe_route"
                 warning_msg = (
                     "No safe route found. Try 'Fastest' mode to see if any path exists, "
                     "or consider evacuation to a nearby shelter."
                 )
 
             return {
+                "status": status,
                 "path": [],
                 "distance": 0,
                 "estimated_time": 0,
@@ -237,6 +247,7 @@ class RoutingAgent(BaseAgent):
         )
 
         return {
+            "status": "success",
             "path": path_coords,
             "distance": metrics["total_distance"],
             "estimated_time": metrics["estimated_time"],

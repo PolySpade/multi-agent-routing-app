@@ -172,7 +172,7 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
 
         .go-btn {
           position: absolute;
-          top: 1rem;
+          bottom: 1rem;
           right: 1rem;
           background: rgba(36, 142, 168, 0.2);
           border: 1px solid rgba(36, 142, 168, 0.4);
@@ -423,12 +423,12 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
 
                   <div className="center-header">
                     <div className="center-name">{center.name}</div>
-                    {/* <div
+                    <div
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(center.status) }}
                     >
                       {getStatusLabel(center.status)}
-                    </div> */}
+                    </div>
                   </div>
 
                   <div className="center-details">
@@ -459,6 +459,32 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
                         </svg>
                         <span className="detail-value">
                           Capacity: {center.capacity} persons
+                          {center.current_occupancy !== undefined && (
+                            <span style={{
+                              marginLeft: '0.5rem',
+                              color: getStatusColor(center.status),
+                              fontWeight: 'bold'
+                            }}>
+                              ({center.current_occupancy}/{center.capacity} occupied - {center.occupancy_percentage}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+
+                    {center.available_slots !== undefined && center.status !== 'available' && (
+                      <div className="detail-row">
+                        <svg className="detail-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="detail-value" style={{
+                          color: center.status === 'full' ? '#ef4444' : '#eab308',
+                          fontWeight: '600'
+                        }}>
+                          {center.status === 'full'
+                            ? 'FULL - No available slots'
+                            : `${center.available_slots} slots remaining`
+                          }
                         </span>
                       </div>
                     )}
