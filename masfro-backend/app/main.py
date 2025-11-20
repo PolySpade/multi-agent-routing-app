@@ -432,20 +432,21 @@ flood_agent = FloodAgent(
 routing_agent = RoutingAgent("routing_agent_001", environment)
 evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
 
-# ScoutAgent in simulation mode (no Twitter/X credentials needed)
+# ScoutAgent in simulation mode with MAS communication
 # For simulation: uses synthetic data with ML processing enabled
 scout_agent = ScoutAgent(
     "scout_agent_001",
     environment,
-    hazard_agent=hazard_agent,  # ScoutAgent not yet refactored for MAS
+    message_queue=message_queue,    # MAS communication
+    hazard_agent_id="hazard_agent_001",  # Target agent for messages
     simulation_mode=True,          # Use synthetic data
     simulation_scenario=1,          # Light scenario
     use_ml_in_simulation=True       # Enable ML models for prediction
 )
 
-# NOTE: FloodAgent and HazardAgent now communicate via MessageQueue (MAS architecture)
+# NOTE: FloodAgent, HazardAgent, and ScoutAgent now communicate via MessageQueue (MAS architecture)
 # Old direct linking methods (set_hazard_agent) removed for these agents
-# ScoutAgent and EvacuationManager still use direct references (to be refactored later)
+# EvacuationManager still uses direct references (to be refactored later)
 evacuation_manager.set_hazard_agent(hazard_agent)
 evacuation_manager.set_routing_agent(routing_agent)
 

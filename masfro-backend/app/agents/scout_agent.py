@@ -21,10 +21,16 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from .base_agent import BaseAgent
 import logging
 
+# ACL Protocol imports for MAS communication
+try:
+    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
+except ImportError:
+    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
     from ..core.credentials import TwitterCredentials
-    from .hazard_agent import HazardAgent
+    from ..communication.message_queue import MessageQueue  # NEW: MAS communication
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +41,7 @@ class ScoutAgent(BaseAgent):
 
     This agent collects crowdsourced Volunteered Geographic Information (VGI)
     from social media, processes it using NLP, and forwards validated reports
-    to the HazardAgent for data fusion.
+    to the HazardAgent via MessageQueue using FIPA-ACL protocol.
 
     WARNING: This agent currently uses deprecated Selenium-based scraping.
     Migrate to Twitter API v2 for better reliability and security.
@@ -43,7 +49,8 @@ class ScoutAgent(BaseAgent):
     Attributes:
         agent_id: Unique identifier for this agent
         environment: Reference to DynamicGraphEnvironment
-        hazard_agent: Reference to HazardAgent for data forwarding
+        message_queue: MessageQueue for asynchronous MAS communication
+        hazard_agent_id: Target HazardAgent ID for message routing
         nlp_processor: NLP processor for tweet analysis
         _credentials: Optional TwitterCredentials for authentication (DEPRECATED)
     """
@@ -51,8 +58,9 @@ class ScoutAgent(BaseAgent):
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
+        message_queue: Optional["MessageQueue"] = None,
         credentials: Optional["TwitterCredentials"] = None,
-        hazard_agent: Optional["HazardAgent"] = None,
+        hazard_agent_id: str = "hazard_agent_001",
         simulation_mode: bool = False,
         simulation_scenario: int = 1,
         use_ml_in_simulation: bool = True
@@ -70,14 +78,27 @@ class ScoutAgent(BaseAgent):
         Args:
             agent_id: Unique identifier for this agent
             environment: Reference to the DynamicGraphEnvironment instance
+            message_queue: MessageQueue instance for MAS communication (NEW)
             credentials: Optional TwitterCredentials for authentication (NOT RECOMMENDED)
-            hazard_agent: Optional reference to HazardAgent for data forwarding
+            hazard_agent_id: Target HazardAgent ID for message routing (default: "hazard_agent_001")
             simulation_mode: If True, uses synthetic data instead of scraping (default: False)
             simulation_scenario: Which scenario to load (1-3) when in simulation mode
             use_ml_in_simulation: If True, process simulation tweets through ML models instead
                                  of using pre-computed ground truth (default: True)
         """
         super().__init__(agent_id, environment)
+
+        # Message queue for MAS communication
+        self.message_queue = message_queue
+        self.hazard_agent_id = hazard_agent_id
+
+        # Register with message queue
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError as e:
+                logger.warning(f"{self.agent_id} already registered: {e}")
 
         # Store credentials object (not individual fields) - only if provided
         self._credentials = credentials
@@ -88,7 +109,6 @@ class ScoutAgent(BaseAgent):
             )
 
         self.driver = None
-        self.hazard_agent = hazard_agent
 
         # Simulation mode settings
         self.simulation_mode = simulation_mode
@@ -142,16 +162,6 @@ class ScoutAgent(BaseAgent):
         else:
             self.logger.debug(f"  Master tweet file path: {self.master_file}")
             self.logger.debug(f"  Session file path: {self.session_file}")
-
-    def set_hazard_agent(self, hazard_agent) -> None:
-        """
-        Set reference to HazardAgent for data forwarding.
-
-        Args:
-            hazard_agent: HazardAgent instance
-        """
-        self.hazard_agent = hazard_agent
-        logger.info(f"{self.agent_id} linked to {hazard_agent.agent_id}")
 
     def setup(self) -> bool:
         """
@@ -235,8 +245,8 @@ class ScoutAgent(BaseAgent):
             logger.warning(f"{self.agent_id} has no NLP processor, skipping tweet processing")
             return
 
-        if not self.hazard_agent:
-            logger.warning(f"{self.agent_id} has no HazardAgent reference, data not forwarded")
+        if not self.message_queue:
+            logger.warning(f"{self.agent_id} has no MessageQueue, data not forwarded")
             return
 
         if not self.geocoder:
@@ -294,14 +304,41 @@ class ScoutAgent(BaseAgent):
                 logger.error(f"{self.agent_id} error processing tweet: {e}")
                 continue
 
-        # Forward all processed reports to HazardAgent using coordinate-based method
+        # Forward all processed reports to HazardAgent via MessageQueue (MAS architecture)
         if processed_reports:
             logger.info(
                 f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports with coordinates to HazardAgent "
+                f"flood reports with coordinates to {self.hazard_agent_id} via MessageQueue "
                 f"(skipped {skipped_no_coordinates} without coordinates)"
             )
-            self.hazard_agent.process_scout_data_with_coordinates(processed_reports)
+
+            try:
+                # Create ACL INFORM message with scout reports (with coordinates)
+                message = create_inform_message(
+                    sender=self.agent_id,
+                    receiver=self.hazard_agent_id,
+                    info_type="scout_report_batch",  # Standard message type
+                    data={
+                        "reports": processed_reports,
+                        "has_coordinates": True,  # Flag for HazardAgent to use coordinate-based processing
+                        "report_count": len(processed_reports),
+                        "skipped_count": skipped_no_coordinates
+                    }
+                )
+
+                # Send via message queue
+                self.message_queue.send_message(message)
+
+                logger.info(
+                    f"{self.agent_id} successfully sent INFORM message to "
+                    f"{self.hazard_agent_id} ({len(processed_reports)} reports with coordinates)"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+                )
+
         elif skipped_no_coordinates > 0:
             logger.warning(
                 f"{self.agent_id} all {skipped_no_coordinates} flood-related tweets "
@@ -352,13 +389,38 @@ class ScoutAgent(BaseAgent):
                 logger.error(f"{self.agent_id} error processing tweet: {e}")
                 continue
 
-        # Forward using legacy method without coordinates
+        # Forward via MessageQueue (MAS architecture) - legacy mode without coordinates
         if processed_reports:
             logger.info(
                 f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports to HazardAgent (legacy mode without coordinates)"
+                f"flood reports to {self.hazard_agent_id} via MessageQueue (legacy mode without coordinates)"
             )
-            self.hazard_agent.process_scout_data(processed_reports)
+
+            try:
+                # Create ACL INFORM message with scout reports (without coordinates)
+                message = create_inform_message(
+                    sender=self.agent_id,
+                    receiver=self.hazard_agent_id,
+                    info_type="scout_report_batch",  # Standard message type
+                    data={
+                        "reports": processed_reports,
+                        "has_coordinates": False,  # Flag for HazardAgent to use legacy processing
+                        "report_count": len(processed_reports)
+                    }
+                )
+
+                # Send via message queue
+                self.message_queue.send_message(message)
+
+                logger.info(
+                    f"{self.agent_id} successfully sent INFORM message to "
+                    f"{self.hazard_agent_id} ({len(processed_reports)} reports without coordinates)"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+                )
 
     def shutdown(self) -> None:
         """

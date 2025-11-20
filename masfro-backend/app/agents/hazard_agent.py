@@ -562,22 +562,35 @@ class HazardAgent(BaseAgent):
         # Use existing batch processing method
         self.process_flood_data_batch(data)
 
-    def _handle_scout_report_batch(self, data: List[Dict[str, Any]], sender: str) -> None:
+    def _handle_scout_report_batch(self, data: Dict[str, Any], sender: str) -> None:
         """
         Handle scout report batch from ScoutAgent.
 
         Args:
-            data: List of scout reports
+            data: Dict containing scout reports and metadata:
+                  - "reports": List of scout reports
+                  - "has_coordinates": Boolean flag indicating coordinate availability
+                  - "report_count": Number of reports
+                  - "skipped_count": Number of reports skipped (optional)
             sender: ID of sending agent
         """
+        reports = data.get("reports", [])
+        has_coordinates = data.get("has_coordinates", False)
+        report_count = data.get("report_count", len(reports))
+
         logger.info(
             f"{self.agent_id} received scout report batch from {sender}: "
-            f"{len(data)} reports"
+            f"{report_count} reports ({'with' if has_coordinates else 'without'} coordinates)"
         )
 
-        # Process each scout report
-        for report in data:
-            self.process_scout_data(report)
+        # Use appropriate processing method based on coordinate availability
+        if has_coordinates:
+            # Process reports with coordinates (spatial filtering enabled)
+            self.process_scout_data_with_coordinates(reports)
+        else:
+            # Process reports without coordinates (legacy method)
+            for report in reports:
+                self.process_scout_data(report)
 
     def process_and_update(self) -> Dict[str, Any]:
         """
