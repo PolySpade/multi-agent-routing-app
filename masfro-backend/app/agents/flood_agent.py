@@ -29,7 +29,13 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
-    from .hazard_agent import HazardAgent
+    from ..communication.message_queue import MessageQueue
+
+# ACL Protocol imports
+try:
+    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
+except ImportError:
+    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -80,9 +86,10 @@ class FloodAgent(BaseAgent):
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
-        hazard_agent: Optional["HazardAgent"] = None,
+        message_queue: Optional["MessageQueue"] = None,
         use_simulated: bool = False,
-        use_real_apis: bool = True
+        use_real_apis: bool = True,
+        hazard_agent_id: str = "hazard_agent_001"
     ) -> None:
         """
         Initialize the FloodAgent.
@@ -90,13 +97,23 @@ class FloodAgent(BaseAgent):
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
-            hazard_agent: Optional reference to HazardAgent for direct communication
+            message_queue: MessageQueue instance for MAS communication
             use_simulated: Use simulated data for testing (default: False)
             use_real_apis: Use real API services (default: True)
+            hazard_agent_id: ID of HazardAgent to send messages to
         """
         super().__init__(agent_id, environment)
-        self.hazard_agent = hazard_agent
+        self.message_queue = message_queue
+        self.hazard_agent_id = hazard_agent_id
         self.use_real_apis = use_real_apis
+
+        # Register with message queue
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError as e:
+                logger.warning(f"{self.agent_id} already registered: {e}")
 
         # Initialize real API services
         if use_real_apis:
@@ -156,41 +173,29 @@ class FloodAgent(BaseAgent):
             f"simulated={use_simulated}"
         )
 
-    def set_hazard_agent(self, hazard_agent) -> None:
-        """
-        Set reference to HazardAgent for data forwarding.
-
-        Args:
-            hazard_agent: HazardAgent instance
-        """
-        self.hazard_agent = hazard_agent
-        logger.info(f"{self.agent_id} linked to {hazard_agent.agent_id}")
-
     def step(self):
         """
         Perform one step of the agent's operation.
 
         Fetches latest official flood data from all configured sources,
-        validates the data, and forwards it to the HazardAgent for
-        risk assessment.
+        validates the data, and sends it to the HazardAgent via MessageQueue
+        using ACL protocol.
         """
         logger.debug(f"{self.agent_id} performing step at {datetime.now()}")
 
         # Check if update is needed
         if self._should_update():
-            self.collect_and_forward_data()
+            collected_data = self.collect_flood_data()
+            if collected_data:
+                self.send_flood_data_via_message(collected_data)
 
-    def collect_and_forward_data(self) -> Dict[str, Any]:
+    def collect_flood_data(self) -> Dict[str, Any]:
         """
         Collect flood data from ALL sources (real APIs + fallback simulated).
 
         Priority order:
         1. Real APIs (PAGASA river levels + OpenWeatherMap) if available
         2. Simulated data as fallback if no real data collected
-
-        NOTE: In tick-based architecture, this method RETURNS data instead of
-        forwarding it directly to HazardAgent. The SimulationManager handles
-        data forwarding in the fusion phase.
 
         Returns:
             Combined data that was collected
@@ -872,12 +877,12 @@ class FloodAgent(BaseAgent):
         else:
             return "torrential"
 
-    def send_to_hazard_agent(self, data: Dict[str, Any]) -> None:
+    def send_flood_data_via_message(self, data: Dict[str, Any]) -> None:
         """
-        Forward collected data to HazardAgent for processing.
+        Send collected flood data to HazardAgent via MessageQueue using ACL protocol.
 
-        Uses batch processing for optimal performance - sends all station data
-        at once instead of individually, reducing redundant calculations by 17x.
+        Uses INFORM performative to provide flood information to the HazardAgent.
+        The message contains batched data from all sources for optimal performance.
 
         Args:
             data: Combined flood data from all sources
@@ -886,31 +891,45 @@ class FloodAgent(BaseAgent):
                         "flood_depth": float,
                         "rainfall_1h": float,
                         "rainfall_24h": float,
-                        "timestamp": datetime
+                        "timestamp": datetime,
+                        "source": str
                     },
                     ...
                 }
         """
-        logger.info(
-            f"{self.agent_id} sending {len(data)} data points to HazardAgent (batched)"
-        )
-
-        if not self.hazard_agent:
-            logger.warning(f"{self.agent_id} has no HazardAgent reference, data not forwarded")
+        if not self.message_queue:
+            logger.warning(
+                f"{self.agent_id} has no MessageQueue - data not sent "
+                "(falling back to direct communication)"
+            )
             return
 
-        # Send data to HazardAgent using batch processing
+        logger.info(
+            f"{self.agent_id} sending flood data for {len(data)} locations "
+            f"to {self.hazard_agent_id} via MessageQueue"
+        )
+
         try:
-            # Use the optimized batch processing method
-            self.hazard_agent.process_flood_data_batch(data)
+            # Create ACL INFORM message with flood data
+            message = create_inform_message(
+                sender=self.agent_id,
+                receiver=self.hazard_agent_id,
+                info_type="flood_data_batch",
+                data=data
+            )
+
+            # Send via message queue
+            self.message_queue.send_message(message)
 
             logger.info(
-                f"{self.agent_id} successfully forwarded batched data to "
-                f"{self.hazard_agent.agent_id}"
+                f"{self.agent_id} successfully sent INFORM message to "
+                f"{self.hazard_agent_id} ({len(data)} locations)"
             )
 
         except Exception as e:
-            logger.error(f"{self.agent_id} failed to forward data to HazardAgent: {e}")
+            logger.error(
+                f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+            )
 
     def _combine_data(
         self,

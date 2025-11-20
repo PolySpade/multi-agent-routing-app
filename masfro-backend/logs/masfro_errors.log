@@ -1128,3 +1128,5 @@ starlette.websockets.WebSocketDisconnect
 2025-11-20 00:31:24 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
 2025-11-20 00:32:19 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
 2025-11-20 00:32:22 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
+2025-11-20 10:54:52 - app.agents.hazard_agent - ERROR - get_edge_flood_depths:933 - Invalid time_step: 0. Using default: 1
+2025-11-20 11:35:33 - app.services.flood_data_scheduler - ERROR - _collection_loop:258 - [ERROR] Scheduled collection error: 'FloodAgent' object has no attribute 'collect_and_forward_data'

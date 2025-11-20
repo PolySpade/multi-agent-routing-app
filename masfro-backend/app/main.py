@@ -411,44 +411,51 @@ set_graph_environment(environment)
 # Initialize message queue for agent communication
 message_queue = MessageQueue()
 
-# Initialize agents
-hazard_agent = HazardAgent("hazard_agent_001", environment)
+# Initialize agents with MessageQueue for MAS communication
+hazard_agent = HazardAgent(
+    "hazard_agent_001",
+    environment,
+    message_queue=message_queue,  # MAS communication
+    enable_geotiff=True
+)
 
-# FloodAgent with REAL API integration
+# FloodAgent with REAL API integration and MAS communication
 flood_agent = FloodAgent(
     "flood_agent_001",
     environment,
-    hazard_agent=hazard_agent,
+    message_queue=message_queue,  # MAS communication
     use_simulated=False,  # Disable simulated data
-    use_real_apis=True    # Enable PAGASA + OpenWeatherMap
+    use_real_apis=True,   # Enable PAGASA + OpenWeatherMap
+    hazard_agent_id="hazard_agent_001"  # Target agent for messages
 )
 
 routing_agent = RoutingAgent("routing_agent_001", environment)
 evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
 
-# ScoutAgent requires Twitter/X credentials - initialize when needed
-# Example:
-#   scout_agent = ScoutAgent(
-#       "scout_agent_001",
-#       environment,
-#       email="your_email@example.com",
-#       password="your_password",
-#       hazard_agent=hazard_agent
-#   )
-#   scout_agent.set_hazard_agent(hazard_agent)
-scout_agent = None
+# ScoutAgent in simulation mode (no Twitter/X credentials needed)
+# For simulation: uses synthetic data with ML processing enabled
+scout_agent = ScoutAgent(
+    "scout_agent_001",
+    environment,
+    hazard_agent=hazard_agent,  # ScoutAgent not yet refactored for MAS
+    simulation_mode=True,          # Use synthetic data
+    simulation_scenario=1,          # Light scenario
+    use_ml_in_simulation=True       # Enable ML models for prediction
+)
 
-# Link agents (create agent network)
-flood_agent.set_hazard_agent(hazard_agent)
+# NOTE: FloodAgent and HazardAgent now communicate via MessageQueue (MAS architecture)
+# Old direct linking methods (set_hazard_agent) removed for these agents
+# ScoutAgent and EvacuationManager still use direct references (to be refactored later)
 evacuation_manager.set_hazard_agent(hazard_agent)
 evacuation_manager.set_routing_agent(routing_agent)
 
-# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting and HazardAgent forwarding
+# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
+# NOTE: FloodAgent now sends data to HazardAgent via MessageQueue (MAS architecture)
 flood_scheduler = FloodDataScheduler(
     flood_agent,
     interval_seconds=300,
     ws_manager=ws_manager,
-    hazard_agent=hazard_agent
+    hazard_agent=None  # FloodAgent handles HazardAgent communication via MessageQueue
 )
 set_scheduler(flood_scheduler)
 

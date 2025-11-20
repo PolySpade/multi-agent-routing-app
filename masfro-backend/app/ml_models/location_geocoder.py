@@ -8,13 +8,15 @@ Maps location names to lat/lon coordinates for spatial risk analysis.
 
 Author: MAS-FRO Development Team
 Date: November 2025
-Version: 2.0 - CSV-based location database
+Version: 2.1 - Enhanced Fuzzy Search & Optimization (Complete Dataset)
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import logging
 import csv
 from pathlib import Path
+import difflib
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +29,17 @@ class LocationGeocoder:
     Provides coordinate lookup for barangays, landmarks, roads, schools,
     subdivisions, and other points of interest.
 
+    Features:
+    - CSV-based database loading
+    - Complete fallback database for critical locations
+    - Exact and case-insensitive lookup
+    - Fuzzy string matching for robust location finding
+    - Optimized spatial queries (bounding box + equirectangular distance)
+
     Attributes:
         location_coordinates: Dict mapping location names to (lat, lon) tuples
+        location_names: List of all registered location names (for fuzzy search)
         csv_path: Path to location.csv file
-
-    Example:
-        >>> geocoder = LocationGeocoder()
-        >>> coords = geocoder.get_coordinates("Nangka")
-        >>> print(coords)
-        (14.6728917, 121.109213)
     """
 
     def __init__(self, csv_path: Optional[Path] = None):
@@ -52,13 +56,20 @@ class LocationGeocoder:
             csv_path = Path(__file__).parent / "locations" / "location.csv"
 
         self.csv_path = csv_path
-        self.location_coordinates = {}
+        self.location_coordinates: Dict[str, Tuple[float, float]] = {}
+        self.location_names: List[str] = []
 
         # Load locations from CSV
         self._load_from_csv()
 
+        # Add complete fallback locations from initial version
+        self._add_fallback_locations()
+
+        # Index names for search
+        self.location_names = list(self.location_coordinates.keys())
+
         logger.info(
-            f"LocationGeocoder v2.0 initialized with {len(self.location_coordinates)} "
+            f"LocationGeocoder v2.1 initialized with {len(self.location_coordinates)} "
             f"locations from {csv_path.name}"
         )
 
@@ -66,7 +77,6 @@ class LocationGeocoder:
         """Load location coordinates from CSV file."""
         if not self.csv_path.exists():
             logger.error(f"Location CSV not found: {self.csv_path}")
-            logger.warning("Falling back to empty location database")
             return
 
         try:
@@ -97,12 +107,17 @@ class LocationGeocoder:
 
         except Exception as e:
             logger.error(f"Error loading location CSV: {e}")
-            logger.warning("Falling back to empty location database")
 
+    def _add_fallback_locations(self):
+        """
+        Add hardcoded fallback locations if missing from CSV.
+        Contains the COMPLETE dataset from the initial version.
+        """
+        
         # ===== LEGACY HARDCODED COORDINATES (FALLBACK) =====
-        # Keep these as fallback for critical locations not in CSV
         # Source: OpenStreetMap, Google Maps
-        # Coordinates represent approximate barangay centers
+        # Coordinates represent approximate barangay centers and landmarks
+
         fallback_barangays = {
             # District I
             "Barangka": (14.6386, 121.0978),
@@ -139,7 +154,6 @@ class LocationGeocoder:
             "Tumana": (14.6789, 121.1100),
         }
 
-        # Add fallback landmarks (if not in CSV)
         fallback_landmarks = {
             # Shopping Centers
             "SM Marikina": (14.6394, 121.1067),
@@ -183,7 +197,6 @@ class LocationGeocoder:
             "Provident": (14.6631, 121.0822),
         }
 
-        # Add fallback LRT stations (if not in CSV)
         fallback_lrt = {
             "Santolan Station": (14.6394, 121.1067),
             "Santolan LRT": (14.6394, 121.1067),
@@ -193,7 +206,6 @@ class LocationGeocoder:
             "Antipolo LRT": (14.6244, 121.1242),
         }
 
-        # Add fallback roads/highways (if not in CSV)
         fallback_roads = {
             "Marcos Highway": (14.6400, 121.1100),
             "Marikina-Infanta Highway": (14.6400, 121.1100),
@@ -219,7 +231,7 @@ class LocationGeocoder:
             "Dasdasan Street": (14.6319, 121.1156),
         }
 
-        # Merge fallback data (only add if not already in CSV)
+        # Merge complete fallback data
         fallback_data = {
             **fallback_barangays,
             **fallback_landmarks,
@@ -227,43 +239,65 @@ class LocationGeocoder:
             **fallback_roads
         }
 
-        added_fallbacks = 0
+        added_count = 0
         for name, coords in fallback_data.items():
             if name not in self.location_coordinates:
                 self.location_coordinates[name] = coords
-                added_fallbacks += 1
+                added_count += 1
+        
+        if added_count > 0:
+            logger.debug(f"Added {added_count} fallback locations not in CSV")
 
-        if added_fallbacks > 0:
-            logger.info(f"Added {added_fallbacks} fallback locations not in CSV")
-
-    def get_coordinates(self, location_name: str) -> Optional[Tuple[float, float]]:
+    def get_coordinates(
+        self, 
+        location_name: str, 
+        fuzzy: bool = True, 
+        threshold: float = 0.6
+    ) -> Optional[Tuple[float, float]]:
         """
         Get coordinates for a location name.
+        
+        Implements a 3-step lookup strategy:
+        1. Exact match (Fastest)
+        2. Case-insensitive match
+        3. Fuzzy string matching (difflib)
 
         Args:
             location_name: Name of location (from NLP processor)
+            fuzzy: Enable fuzzy matching if exact match fails (default: True)
+            threshold: Similarity threshold for fuzzy matching (0.0-1.0)
 
         Returns:
             (latitude, longitude) tuple, or None if not found
-
-        Example:
-            >>> coords = geocoder.get_coordinates("Nangka")
-            >>> print(coords)
-            (14.6507, 121.1009)
         """
         if not location_name:
             return None
 
-        # Direct lookup (case-insensitive)
+        # 1. Direct lookup (O(1))
         coords = self.location_coordinates.get(location_name)
         if coords:
             return coords
 
-        # Try case-insensitive match
+        # 2. Case-insensitive match
         location_lower = location_name.lower()
         for loc_name, loc_coords in self.location_coordinates.items():
             if loc_name.lower() == location_lower:
                 return loc_coords
+
+        # 3. Fuzzy matching
+        if fuzzy and self.location_names:
+            matches = difflib.get_close_matches(
+                location_name, 
+                self.location_names, 
+                n=1, 
+                cutoff=threshold
+            )
+            
+            if matches:
+                best_match = matches[0]
+                ratio = difflib.SequenceMatcher(None, location_name, best_match).ratio()
+                logger.info(f"Fuzzy match: '{location_name}' -> '{best_match}' (confidence: {ratio:.2f})")
+                return self.location_coordinates[best_match]
 
         logger.warning(f"No coordinates found for location: {location_name}")
         return None
@@ -277,18 +311,13 @@ class LocationGeocoder:
 
         Returns:
             Enhanced result with coordinates added
-
-        Example:
-            >>> nlp_result = {"location": "Nangka", "severity": 0.9, ...}
-            >>> enhanced = geocoder.geocode_nlp_result(nlp_result)
-            >>> print(enhanced["coordinates"])
-            {"lat": 14.6507, "lon": 121.1009}
         """
         enhanced_result = nlp_result.copy()
 
         location = nlp_result.get("location")
         if location:
-            coords = self.get_coordinates(location)
+            # Use fuzzy matching for NLP extracted text as it's often messy
+            coords = self.get_coordinates(location, fuzzy=True, threshold=0.6)
             if coords:
                 enhanced_result["coordinates"] = {
                     "lat": coords[0],
@@ -312,9 +341,8 @@ class LocationGeocoder:
     ) -> Dict[str, Tuple[float, float]]:
         """
         Find locations within radius of a point.
-
-        Simple distance calculation (not accounting for Earth curvature).
-        Good enough for small distances in Marikina.
+        
+        Optimized using a bounding box filter before distance calculation.
 
         Args:
             lat: Latitude of center point
@@ -323,24 +351,30 @@ class LocationGeocoder:
 
         Returns:
             Dict of location names to coordinates within radius
-
-        Example:
-            >>> nearby = geocoder.get_nearby_locations(14.6507, 121.1009, 2.0)
-            >>> print(nearby.keys())
-            ['Nangka', 'Concepcion Uno', 'Tumana', ...]
         """
         nearby = {}
 
-        # Simple distance calculation (Pythagoras)
-        # 1 degree ≈ 111 km at equator
-        # For Marikina (latitude ~14°), use 110 km for simplicity
-        km_per_degree = 110.0
+        # Conversion factors for Marikina (approx Lat 14.65)
+        # 1 deg Lat ~= 110.574 km
+        # 1 deg Lon ~= 111.320 * cos(lat) ~= 107.7 km
+        LAT_PER_KM = 1 / 110.574
+        LON_PER_KM = 1 / 107.7
+
+        # Bounding box limits
+        lat_min = lat - (radius_km * LAT_PER_KM)
+        lat_max = lat + (radius_km * LAT_PER_KM)
+        lon_min = lon - (radius_km * LON_PER_KM)
+        lon_max = lon + (radius_km * LON_PER_KM)
 
         for loc_name, (loc_lat, loc_lon) in self.location_coordinates.items():
-            # Calculate distance
-            lat_diff = abs(lat - loc_lat) * km_per_degree
-            lon_diff = abs(lon - loc_lon) * km_per_degree * 0.97  # Adjust for latitude
-            distance = (lat_diff**2 + lon_diff**2) ** 0.5
+            # Fast bounding box check
+            if not (lat_min <= loc_lat <= lat_max and lon_min <= loc_lon <= lon_max):
+                continue
+
+            # Detailed distance calculation (Equirectangular approximation)
+            x = (lon - loc_lon) * 107.7
+            y = (lat - loc_lat) * 110.6
+            distance = math.sqrt(x*x + y*y)
 
             if distance <= radius_km:
                 nearby[loc_name] = (loc_lat, loc_lon)
@@ -361,59 +395,54 @@ class LocationGeocoder:
 
         Returns:
             Name of nearest barangay, or None
-
-        Example:
-            >>> barangay = geocoder.get_barangay_for_point(14.6507, 121.1009)
-            >>> print(barangay)
-            'Nangka'
         """
-        # List of official Marikina barangays
-        official_barangays = [
+        # List of official Marikina barangays (Complete list)
+        official_barangays = {
             "Barangka", "Tañong", "Jesus dela Peña", "Jesus de la Peña",
             "Industrial Valley Complex", "IVC", "Kalumpang", "Calumpang",
             "San Roque", "Sta. Elena", "Santa Elena", "Sto. Niño", "Santo Niño",
-            "Malanday", "Concepcion Uno", "Concepcion Dos", "Nangka",
+            "Malanday", "Concepcion Uno", "Concepcion Dos", "Nangka", 
             "Parang", "Marikina Heights", "Fortune", "Tumana"
-        ]
+        }
 
         min_distance = float('inf')
         nearest_barangay = None
 
-        km_per_degree = 110.0
+        # Optimization: Only check known barangays/aliases if they exist in our DB
+        target_locations = [
+            (name, coords) for name, coords in self.location_coordinates.items() 
+            if name in official_barangays or 
+            any(b in name for b in official_barangays) 
+        ]
+        
+        # If filter too strict, fallback to checking all locations
+        if not target_locations:
+            target_locations = self.location_coordinates.items()
 
-        # Search through all locations for barangay matches
-        for loc_name, (loc_lat, loc_lon) in self.location_coordinates.items():
-            # Check if this location is a barangay
-            if loc_name in official_barangays:
-                lat_diff = abs(lat - loc_lat) * km_per_degree
-                lon_diff = abs(lon - loc_lon) * km_per_degree * 0.97
-                distance = (lat_diff**2 + lon_diff**2) ** 0.5
+        for loc_name, (loc_lat, loc_lon) in target_locations:
+            # Equirectangular approximation
+            x = (lon - loc_lon) * 107.7
+            y = (lat - loc_lat) * 110.6
+            distance = math.sqrt(x*x + y*y)
 
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest_barangay = loc_name
+            if distance < min_distance:
+                min_distance = distance
+                nearest_barangay = loc_name
 
         return nearest_barangay
 
 
 # Test the geocoder when run directly
 if __name__ == "__main__":
-    import json
-
     logging.basicConfig(level=logging.INFO)
 
-    print("=== Testing Location Geocoder ===\n")
+    print("=== Testing Location Geocoder (v2.1 - Complete Fallback) ===\n")
 
     geocoder = LocationGeocoder()
 
-    # Test coordinate lookup
+    # Test coordinate lookup with fuzzy matching
     test_locations = [
-        "Nangka",
-        "SM Marikina",
-        "Marikina Bridge",
-        "LRT Santolan",
-        "Gil Fernando Avenue",
-        "Unknown Location"
+        "A. Bonifacio Avenue"
     ]
 
     print("Testing coordinate lookup:\n")
@@ -423,47 +452,3 @@ if __name__ == "__main__":
             print(f"  {location}: {coords[0]:.4f}, {coords[1]:.4f}")
         else:
             print(f"  {location}: NOT FOUND")
-
-    # Test NLP integration
-    print("\n\nTesting NLP integration:\n")
-
-    from nlp_processor import NLPProcessor
-
-    nlp = NLPProcessor()
-
-    test_texts = [
-        "Baha sa Nangka! Tuhod level!",
-        "Flooded sa SM Marikina, waist deep",
-        "Clear na sa Tumana Bridge"
-    ]
-
-    for text in test_texts:
-        nlp_result = nlp.extract_flood_info(text)
-        enhanced = geocoder.geocode_nlp_result(nlp_result)
-
-        print(f"Text: {text}")
-        print(f"  Location: {enhanced.get('location')}")
-        print(f"  Coordinates: {enhanced.get('coordinates')}")
-        print(f"  Severity: {enhanced.get('severity'):.2f}")
-        print()
-
-    # Test nearby locations
-    print("\nTesting nearby locations (Nangka, 1km radius):\n")
-    nangka_coords = geocoder.get_coordinates("Nangka")
-    if nangka_coords:
-        nearby = geocoder.get_nearby_locations(nangka_coords[0], nangka_coords[1], 1.0)
-        print(f"  Found {len(nearby)} locations within 1km of Nangka:")
-        for loc_name in list(nearby.keys())[:5]:
-            print(f"    - {loc_name}")
-
-    # Test barangay identification
-    print("\n\nTesting barangay identification:\n")
-    test_points = [
-        (14.6507, 121.1009, "Near Nangka"),
-        (14.6394, 121.1067, "Near SM Marikina"),
-        (14.6789, 121.1100, "Near Tumana")
-    ]
-
-    for lat, lon, description in test_points:
-        barangay = geocoder.get_barangay_for_point(lat, lon)
-        print(f"  {description}: Barangay {barangay}")

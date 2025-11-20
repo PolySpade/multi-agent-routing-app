@@ -54,7 +54,8 @@ class ScoutAgent(BaseAgent):
         credentials: Optional["TwitterCredentials"] = None,
         hazard_agent: Optional["HazardAgent"] = None,
         simulation_mode: bool = False,
-        simulation_scenario: int = 1
+        simulation_scenario: int = 1,
+        use_ml_in_simulation: bool = True
     ) -> None:
         """
         Initialize ScoutAgent for crowdsourced flood data collection.
@@ -73,6 +74,8 @@ class ScoutAgent(BaseAgent):
             hazard_agent: Optional reference to HazardAgent for data forwarding
             simulation_mode: If True, uses synthetic data instead of scraping (default: False)
             simulation_scenario: Which scenario to load (1-3) when in simulation mode
+            use_ml_in_simulation: If True, process simulation tweets through ML models instead
+                                 of using pre-computed ground truth (default: True)
         """
         super().__init__(agent_id, environment)
 
@@ -93,6 +96,7 @@ class ScoutAgent(BaseAgent):
         self.simulation_tweets = []
         self.simulation_index = 0
         self.simulation_batch_size = 10  # Default batch size
+        self.use_ml_in_simulation = use_ml_in_simulation  # NEW: ML processing flag
 
         # Initialize NLP processor
         try:
@@ -133,6 +137,8 @@ class ScoutAgent(BaseAgent):
         self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in {mode_str}")
         if self.simulation_mode:
             self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+            ml_mode = "ML PREDICTION" if self.use_ml_in_simulation else "PRE-COMPUTED GROUND TRUTH"
+            self.logger.info(f"  Simulation processing mode: {ml_mode}")
         else:
             self.logger.debug(f"  Master tweet file path: {self.master_file}")
             self.logger.debug(f"  Session file path: {self.session_file}")
@@ -190,21 +196,28 @@ class ScoutAgent(BaseAgent):
         if self.simulation_mode:
             # Simulation mode: Get next batch of tweets
             raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+
+            # NEW: Prepare simulation tweets for ML processing
+            # This strips ground truth if use_ml_in_simulation is True
+            prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
         else:
             # Scraping mode: Search Twitter
             raw_tweets = self._search_tweets()
+            prepared_tweets = raw_tweets
 
         if not self.simulation_mode:
             # In scraping mode, track which tweets are new
-            newly_added_tweets = self._add_new_tweets_to_master(raw_tweets)
+            newly_added_tweets = self._add_new_tweets_to_master(prepared_tweets)
         else:
             # In simulation mode, all tweets are "new"
-            newly_added_tweets = raw_tweets
+            newly_added_tweets = prepared_tweets
 
         if newly_added_tweets:
             self.logger.info(f"{self.agent_id} found {len(newly_added_tweets)} new tweets")
 
             # Process tweets with NLP and forward to HazardAgent
+            # For simulation with ML: tweets have no ground truth, models will predict
+            # For simulation without ML: tweets keep ground truth (legacy mode)
             self._process_and_forward_tweets(newly_added_tweets)
         else:
             self.logger.debug(f"{self.agent_id} no new tweets found in this step")
@@ -436,6 +449,47 @@ class ScoutAgent(BaseAgent):
         )
 
         return batch
+
+    def _prepare_simulation_tweets_for_ml(self, tweets: list) -> list:
+        """
+        Prepare simulation tweets for ML processing by stripping ground truth.
+
+        When use_ml_in_simulation is True, this method removes pre-computed
+        values from simulation tweets so they are processed through NLP models
+        instead of using ground truth.
+
+        Args:
+            tweets: List of raw simulation tweet dictionaries
+
+        Returns:
+            list: Tweets with ground truth removed, ready for ML processing
+        """
+        if not self.use_ml_in_simulation:
+            # Return tweets as-is if not using ML (use ground truth)
+            return tweets
+
+        prepared_tweets = []
+        for tweet in tweets:
+            # Create a copy without ground truth
+            clean_tweet = {
+                "tweet_id": tweet.get("tweet_id"),
+                "username": tweet.get("username"),
+                "text": tweet.get("text"),  # Raw text for ML processing
+                "timestamp": tweet.get("timestamp"),
+                "url": tweet.get("url"),
+                "replies": tweet.get("replies"),
+                "retweets": tweet.get("retweets"),
+                "likes": tweet.get("likes"),
+                "scraped_at": tweet.get("scraped_at")
+            }
+            prepared_tweets.append(clean_tweet)
+
+        self.logger.debug(
+            f"{self.agent_id} prepared {len(prepared_tweets)} simulation tweets "
+            f"for ML processing (ground truth stripped)"
+        )
+
+        return prepared_tweets
 
     def reset_simulation(self) -> None:
         """

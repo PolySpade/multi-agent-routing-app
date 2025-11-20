@@ -412,7 +412,7 @@ class SimulationManager:
     async def _simulation_loop(self):
         """The main simulation loop that runs as a background task."""
         while self._state == SimulationState.RUNNING:
-            self.run_tick()
+            await self.run_tick()
             if self.ws_manager:
                 await self.ws_manager.broadcast({
                     "type": "simulation_state",
@@ -422,7 +422,7 @@ class SimulationManager:
                 })
             await asyncio.sleep(1) # Tick every second
 
-    def run_tick(self, time_step: Optional[int] = None) -> Dict[str, Any]:
+    async def run_tick(self, time_step: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute one simulation tick with ordered agent execution.
 
@@ -455,15 +455,15 @@ class SimulationManager:
         self._last_tick_time = now
 
         # Update time step
-        if time_step is not None:
-            if not 1 <= time_step <= 18:
-                raise ValueError(
-                    f"Invalid time_step {time_step}. Must be between 1 and 18"
-                )
-            self.current_time_step = time_step
-        else:
-            # Auto-increment, wrap around at 18
-            self.current_time_step = (self.current_time_step % 18) + 1
+        # if time_step is not None:
+        #     if not 1 <= time_step <= 18:
+        #         raise ValueError(
+        #             f"Invalid time_step {time_step}. Must be between 1 and 18"
+        #         )
+        #     self.current_time_step = time_step
+        # else:
+        #     # Auto-increment, wrap around at 18
+        #     self.current_time_step = (self.current_time_step % 18) + 1
 
         self.tick_count += 1
 
@@ -490,7 +490,7 @@ class SimulationManager:
 
             # === PHASE 2: DATA FUSION & GRAPH UPDATE ===
             logger.info("--- Phase 2: Data Fusion & Graph Update ---")
-            fusion_result = self._run_fusion_phase()
+            fusion_result = await self._run_fusion_phase()
             tick_result["phases"]["fusion"] = fusion_result
 
             # === PHASE 3: ROUTING ===
@@ -565,7 +565,31 @@ class SimulationManager:
 
             elif agent == "scout_agent":
                 # ENHANCED: Log scout data structure
-                logger.debug(f"Scout report payload: {payload}")
+                logger.debug(f"Scout report payload (raw): {payload}")
+
+                # Process scout data through ML pipeline if scout agent available
+                if self.scout_agent and hasattr(self.scout_agent, 'nlp_processor') and self.scout_agent.nlp_processor:
+                    # Extract flood info using NLP processor
+                    text = payload.get("text", "")
+                    if text:
+                        logger.debug(f"Processing scout text through ML: '{text}'")
+                        flood_info = self.scout_agent.nlp_processor.extract_flood_info(text)
+
+                        # Geocode the result
+                        if self.scout_agent.geocoder:
+                            enhanced_info = self.scout_agent.geocoder.geocode_nlp_result(flood_info)
+                        else:
+                            enhanced_info = flood_info
+
+                        # Merge ML predictions with original payload
+                        payload.update({
+                            "coordinates": enhanced_info.get("coordinates"),
+                            "severity": enhanced_info.get("severity", 0),
+                            "confidence": enhanced_info.get("confidence", 0),
+                            "report_type": enhanced_info.get("report_type", "unknown"),
+                            "is_flood_related": enhanced_info.get("is_flood_related", False)
+                        })
+                        logger.debug(f"ML enhanced payload: coordinates={payload.get('coordinates')}, severity={payload.get('severity'):.2f}")
 
                 # FIX: Update timestamp to current time for simulation data
                 # This ensures reports pass the time-based filtering in the API
@@ -578,8 +602,9 @@ class SimulationManager:
                 # Log key scout data fields
                 location = payload.get("location", "Unknown")
                 severity = payload.get("severity", 0)
+                has_coords = "coordinates" in payload and payload["coordinates"] is not None
                 logger.info(
-                    f"✓ Scout report collected: location='{location}', severity={severity:.2f}"
+                    f"✓ Scout report collected: location='{location}', severity={severity:.2f}, has_coords={has_coords}"
                 )
                 events_processed_details.append(f"scout_agent@{time_offset}s[{location}]")
 
@@ -594,13 +619,10 @@ class SimulationManager:
             f"Events processed: {phase_result['events_processed']} "
             f"({', '.join(events_processed_details) if events_processed_details else 'none'}), "
             f"Flood data: {phase_result['flood_data_collected']}, "
-            f"Scout reports: {phase_result['scout_reports_collected']}, "
-            f"Remaining in queue: {len(self._event_queue)}"
-        )
-
+            f"Scout reports: {phase_result['scout_reports_collected']}")
         return phase_result
 
-    def _run_fusion_phase(self) -> Dict[str, Any]:
+    async def _run_fusion_phase(self) -> Dict[str, Any]:
         """
         Phase 2: Data fusion and graph update by HazardAgent.
 
@@ -642,6 +664,9 @@ class SimulationManager:
             phase_result["edges_updated"] = update_result.get("edges_updated", 0)
             self.shared_data_bus["graph_updated"] = True
 
+            if update_result.get("edges_updated", 0) > 0:
+                await self._broadcast_graph_update(update_result)
+
             logger.info(
                 f"HazardAgent updated {phase_result['edges_updated']} edges "
                 f"(time_step={self.current_time_step})"
@@ -652,6 +677,23 @@ class SimulationManager:
             phase_result["errors"].append(f"HazardAgent: {str(e)}")
 
         return phase_result
+
+    async def _broadcast_graph_update(self, update_result: Dict[str, Any]):
+        """Broadcast graph risk update to WebSocket clients."""
+        if not self.ws_manager:
+            return
+
+        await self.ws_manager.broadcast({
+            "type": "risk_update",
+            "data": {
+                "edges_updated": update_result.get("edges_updated", 0),
+                "average_risk": update_result.get("average_risk", 0.0),
+                "risk_trend": update_result.get("risk_trend", "stable"),
+                "time_step": update_result.get("time_step", 1)
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+
 
     def _run_routing_phase(self) -> Dict[str, Any]:
         """

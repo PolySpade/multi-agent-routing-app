@@ -190,8 +190,9 @@ class FloodDataScheduler:
                 start_time = datetime.now()
 
                 # Call FloodAgent data collection (synchronous call in async context)
+                # NOTE: Using new MAS architecture - collect data then send via MessageQueue
                 data = await asyncio.to_thread(
-                    self.flood_agent.collect_and_forward_data
+                    self.flood_agent.collect_flood_data
                 )
 
                 end_time = datetime.now()
@@ -227,7 +228,17 @@ class FloodDataScheduler:
                         except Exception as ws_error:
                             logger.error(f"WebSocket broadcast error: {ws_error}")
 
-                    # Forward to HazardAgent cache for frontend API endpoints
+                    # Send data to HazardAgent via MessageQueue (MAS architecture)
+                    try:
+                        await asyncio.to_thread(
+                            self.flood_agent.send_flood_data_via_message,
+                            data
+                        )
+                        logger.debug("Flood data sent to HazardAgent via MessageQueue")
+                    except Exception as msg_error:
+                        logger.error(f"MessageQueue send error: {msg_error}")
+
+                    # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
                     if self.hazard_agent:
                         try:
                             await asyncio.to_thread(
@@ -352,8 +363,9 @@ class FloodDataScheduler:
 
         try:
             start_time = datetime.now()
+            # NOTE: Using new MAS architecture - collect data then send via MessageQueue
             data = await asyncio.to_thread(
-                self.flood_agent.collect_and_forward_data
+                self.flood_agent.collect_flood_data
             )
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -375,7 +387,18 @@ class FloodDataScheduler:
                 except Exception as ws_error:
                     logger.error(f"WebSocket broadcast error: {ws_error}")
 
-            # Forward to HazardAgent cache for frontend API endpoints
+            # Send data to HazardAgent via MessageQueue (MAS architecture)
+            if data:
+                try:
+                    await asyncio.to_thread(
+                        self.flood_agent.send_flood_data_via_message,
+                        data
+                    )
+                    logger.debug("Manual collection: Flood data sent to HazardAgent via MessageQueue")
+                except Exception as msg_error:
+                    logger.error(f"MessageQueue send error: {msg_error}")
+
+            # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
             if data and self.hazard_agent:
                 try:
                     await asyncio.to_thread(

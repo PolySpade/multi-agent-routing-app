@@ -277,7 +277,7 @@ class NLPProcessor:
                 proba = self.flood_classifier.predict_proba([text])[0]
                 confidence = float(max(proba))
             else:
-                confidence = 0.8  # Default confidence if no proba
+                confidence = 0.5  # Default confidence if no proba
 
             is_flood = (prediction == "flood")
 
