@@ -1130,3 +1130,6 @@ starlette.websockets.WebSocketDisconnect
 2025-11-20 00:32:22 - app.main - ERROR - get_flood_agent_status:1715 - Error retrieving flood status: 0
 2025-11-20 10:54:52 - app.agents.hazard_agent - ERROR - get_edge_flood_depths:933 - Invalid time_step: 0. Using default: 1
 2025-11-20 11:35:33 - app.services.flood_data_scheduler - ERROR - _collection_loop:258 - [ERROR] Scheduled collection error: 'FloodAgent' object has no attribute 'collect_and_forward_data'
+2025-11-20 17:58:11 - app.main - ERROR - get_route:651 - Route calculation validation error: Could not map coordinates to road network
+2025-11-20 17:58:24 - app.main - ERROR - get_route:651 - Route calculation validation error: Could not map coordinates to road network
+2025-11-20 19:36:33 - app.main - ERROR - get_route:651 - Route calculation validation error: Could not map coordinates to road network

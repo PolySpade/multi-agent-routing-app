@@ -734,9 +734,9 @@ export default function Home() {
             {/* Risk Legend */}
             <RiskLegend />
 
-            <button className="btn btn-accent" onClick={handleOpenFeedback}>
+            {/* <button className="btn btn-accent" onClick={handleOpenFeedback}>
               ⚠️ Report Flood / Road Issue
-            </button>
+            </button> */}
 
             {/* Status Bar */}
             <div className="status-box">
