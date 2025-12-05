@@ -50,7 +50,8 @@
       "mcp__gemini-cli__ping",
       "Bash(app/main.py)",
       "Bash(start /B uv run:*)",
-      "Bash(masfro-backend/logs/masfro.log)"
+      "Bash(masfro-backend/logs/masfro.log)",
+      "Bash(nul)"
     ],
     "deny": []
   }

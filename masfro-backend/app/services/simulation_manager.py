@@ -357,6 +357,15 @@ class SimulationManager:
                 edge_count += 1
             logger.info(f"Reset {edge_count} edges to baseline risk")
 
+        # Reset evacuation center occupancy
+        try:
+            from app.services.evacuation_service import get_evacuation_service
+            evacuation_service = get_evacuation_service()
+            evacuation_service.reset_all_occupancy()
+            logger.info("Evacuation center occupancy reset to 0")
+        except Exception as e:
+            logger.error(f"Failed to reset evacuation centers: {e}")
+
         logger.info(
             f"Simulation RESET - Previous state: {previous_state.value}, "
             f"Previous mode: {previous_mode.value}, "
@@ -430,7 +439,8 @@ class SimulationManager:
         1. Collection Phase: FloodAgent and ScoutAgent collect data
         2. Fusion Phase: HazardAgent fuses data and updates graph
         3. Routing Phase: EvacuationManager processes route requests
-        4. Time Step Advancement
+        4. Evacuation Update Phase: Update evacuation center occupancy
+        5. Time Step Advancement
 
         Args:
             time_step: Optional explicit time step (1-18). If None, auto-increment.
@@ -498,8 +508,13 @@ class SimulationManager:
             routing_result = self._run_routing_phase()
             tick_result["phases"]["routing"] = routing_result
 
-            # === PHASE 4: TIME ADVANCEMENT ===
-            logger.info("--- Phase 4: Time Advancement ---")
+            # === PHASE 4: EVACUATION CENTER UPDATE ===
+            logger.info("--- Phase 4: Evacuation Center Update ---")
+            evacuation_result = self._run_evacuation_update_phase()
+            tick_result["phases"]["evacuation"] = evacuation_result
+
+            # === PHASE 5: TIME ADVANCEMENT ===
+            logger.info("--- Phase 5: Time Advancement ---")
             advancement_result = self._run_advancement_phase()
             tick_result["phases"]["advancement"] = advancement_result
 
@@ -747,9 +762,85 @@ class SimulationManager:
 
         return phase_result
 
+    def _run_evacuation_update_phase(self) -> Dict[str, Any]:
+        """
+        Phase 4: Evacuation center occupancy update.
+
+        Simulates gradual filling of evacuation centers as flood conditions
+        worsen. The filling rate depends on:
+        - Simulation mode (more filling in heavier floods)
+        - Current time step (more filling as time progresses)
+        - Current flood severity
+
+        Returns:
+            Dict with evacuation update phase results
+        """
+        from app.services.evacuation_service import get_evacuation_service
+
+        phase_result = {
+            "centers_updated": 0,
+            "total_evacuees_added": 0,
+            "errors": []
+        }
+
+        try:
+            service = get_evacuation_service()
+            all_centers = service.get_all_centers()
+
+            # Calculate evacuation rate based on mode and time step
+            # More severe floods = more people evacuating
+            mode_multiplier = {
+                SimulationMode.LIGHT: 1.0,    # 2-year: light flooding
+                SimulationMode.MEDIUM: 2.0,   # 5-year: moderate flooding
+                SimulationMode.HEAVY: 3.5     # 25-year: severe flooding
+            }.get(self._mode, 1.0)
+
+            # Time progression multiplier (more people evacuate as flood persists)
+            time_multiplier = 1.0 + (self.current_time_step / 18.0) * 1.5
+
+            # Base evacuation rate per tick (people per center per tick)
+            base_rate = 5  # Conservative rate
+
+            # Calculate evacuation rate
+            evacuation_rate = int(base_rate * mode_multiplier * time_multiplier)
+
+            logger.info(
+                f"Evacuation rate: {evacuation_rate} people/center "
+                f"(mode={mode_multiplier}x, time={time_multiplier:.2f}x)"
+            )
+
+            # Add evacuees to centers that aren't full
+            for center in all_centers:
+                if center['status'] == 'full':
+                    continue  # Skip full centers
+
+                # Add evacuees to this center
+                result = service.add_evacuees(center['name'], evacuation_rate)
+
+                if result['success']:
+                    phase_result["centers_updated"] += 1
+                    phase_result["total_evacuees_added"] += evacuation_rate
+                    logger.debug(
+                        f"Added {evacuation_rate} evacuees to {center['name']} "
+                        f"({result['center']['current_occupancy']}/{result['center']['capacity']})"
+                    )
+
+            logger.info(
+                f"Evacuation update complete: "
+                f"Updated {phase_result['centers_updated']} centers, "
+                f"Added {phase_result['total_evacuees_added']} total evacuees"
+            )
+
+        except Exception as e:
+            error_msg = f"Error updating evacuation centers: {e}"
+            logger.error(error_msg)
+            phase_result["errors"].append(error_msg)
+
+        return phase_result
+
     def _run_advancement_phase(self) -> Dict[str, Any]:
         """
-        Phase 4: Time advancement and cleanup.
+        Phase 5: Time advancement and cleanup.
 
         Perform any necessary cleanup and prepare for next tick.
 

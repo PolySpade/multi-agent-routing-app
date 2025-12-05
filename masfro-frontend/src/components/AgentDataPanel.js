@@ -585,7 +585,7 @@ export default function AgentDataPanel() {
                     Flood
                   </div>
                   {/* Simulation status indicator */}
-                  {simulationState && (
+                  {/* {simulationState && (
                     <div className="status-item">
                       <div className={`status-dot ${
                         simulationState.state === 'running' ? 'status-active status-pulse' :
@@ -596,7 +596,7 @@ export default function AgentDataPanel() {
                             simulationState.state === 'paused' ? 'PAUSED' :
                             'OFF'}
                     </div>
-                  )}
+                  )} */}
                 </>
               )}
               {lastUpdate && (
