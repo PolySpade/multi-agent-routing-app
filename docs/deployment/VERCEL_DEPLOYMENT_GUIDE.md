@@ -31,7 +31,7 @@ Add these variables for **Production, Preview, and Development**:
 #### **Required Variables:**
 
 ```env
-NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=pk.eyJ1IjoiZG9uYWxkeHUiLCJhIjoiY21nZ2Rjdm0zMGdkMDJqczlpc3hpczFsdyJ9.g1wQPW81J4CJvF-m7kpyHw
+NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=<INSERT>
 ```
 
 #### **Optional Variables (for backend integration):**
@@ -59,7 +59,7 @@ NEXT_PUBLIC_DISABLE_BACKEND_ROUTING=false
 #### **Optional (if using Google Places):**
 
 ```env
-GOOGLE_MAPS_API_KEY=AIzaSyBEseOgZAWQfI1z5OnQMVTpFGypUYwv_mo
+GOOGLE_MAPS_API_KEY=<INSERT>
 ```
 
 ---
@@ -269,7 +269,7 @@ If you just want to deploy the frontend without backend:
 
 1. **Set only required env var in Vercel:**
    ```env
-   NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=pk.eyJ1IjoiZG9uYWxkeHUiLCJhIjoiY21nZ2Rjdm0zMGdkMDJqczlpc3hpczFsdyJ9.g1wQPW81J4CJvF-m7kpyHw
+   NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=<INSERT>
    ```
 
 2. **Deploy** - that's it!
