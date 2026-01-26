@@ -119,7 +119,7 @@ def risk_aware_astar(
     risk_weight: float = 0.5,
     distance_weight: float = 0.5,
     max_risk_threshold: float = 0.9  # Only block critical/extreme risk roads (90%+)
-) -> Optional[List[Any]]:
+) -> Tuple[Optional[List[Any]], Optional[List[int]]]:
     """
     Find the safest path using risk-aware A* algorithm.
 
@@ -144,14 +144,16 @@ def risk_aware_astar(
             Edges with risk >= 90% are considered impassable (critical flood danger)
 
     Returns:
-        List of node IDs representing the path, or None if no path exists
+        Tuple of (path, edge_keys):
+            path: List of node IDs representing the path, or None if no path exists
+            edge_keys: List of edge keys (integers) corresponding to selected parallel edges, or None
 
     Raises:
         nx.NetworkXNoPath: If no path exists between start and end
         KeyError: If required node/edge attributes are missing
 
     Example:
-        >>> path = risk_aware_astar(
+        >>> path, edge_keys = risk_aware_astar(
         ...     graph,
         ...     start_node,
         ...     end_node,
@@ -178,6 +180,9 @@ def risk_aware_astar(
     # Track weight function calls for debugging
     blocked_edges_count = [0]  # Use list to allow modification in nested function
 
+    # Track which edge key was selected for each (u,v) pair
+    selected_edges = {}
+
     # Define weight function that combines distance and risk
     def weight_function(u, v, edge_data):
         """
@@ -197,6 +202,7 @@ def risk_aware_astar(
         # Find the edge with lowest risk among all parallel edges between u and v
         best_length = 1.0
         best_risk = 1.0
+        best_key = 0
 
         if v in graph[u]:
             # Get all parallel edges between u and v
@@ -208,6 +214,10 @@ def risk_aware_astar(
                 if edge_risk < best_risk or (edge_risk == best_risk and edge_length < best_length):
                     best_length = edge_length
                     best_risk = edge_risk
+                    best_key = key
+
+        # RECORD the selected edge key for this (u,v) pair
+        selected_edges[(u, v)] = best_key
 
         length = best_length
         risk_score = best_risk
@@ -236,18 +246,24 @@ def risk_aware_astar(
             weight=weight_function
         )
 
+        # Extract the edge keys that were actually selected by A*
+        edge_keys = []
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            edge_keys.append(selected_edges.get((u, v), 0))
+
         logger.info(
             f"Path found with {len(path)} nodes. "
             f"Blocked {blocked_edges_count[0]} edges during search."
         )
-        return path
+        return path, edge_keys
 
     except nx.NetworkXNoPath:
         logger.warning(
             f"No path exists from {start} to {end}. "
             f"Blocked {blocked_edges_count[0]} edges."
         )
-        return None
+        return None, None
     except Exception as e:
         logger.error(f"Error in A* pathfinding: {e}")
         raise
@@ -255,10 +271,11 @@ def risk_aware_astar(
 
 def calculate_path_metrics(
     graph: nx.MultiDiGraph,
-    path: List[Any]
+    path: List[Any],
+    edge_keys: List[int] = None
 ) -> Dict[str, float]:
     """
-    Calculate metrics for a computed path.
+    Calculate metrics for a computed path using the ACTUAL edges selected by A*.
 
     Computes total distance, average risk level, and estimated travel time
     for a given path through the road network.
@@ -266,6 +283,7 @@ def calculate_path_metrics(
     Args:
         graph: NetworkX graph containing the path
         path: List of node IDs representing the path
+        edge_keys: List of edge keys (integers) for parallel edges (REQUIRED for accurate metrics)
 
     Returns:
         Dict containing path metrics:
@@ -278,7 +296,8 @@ def calculate_path_metrics(
             }
 
     Example:
-        >>> metrics = calculate_path_metrics(graph, path)
+        >>> path, edge_keys = risk_aware_astar(graph, start, end)
+        >>> metrics = calculate_path_metrics(graph, path, edge_keys)
         >>> print(f"Distance: {metrics['total_distance']:.0f}m")
         >>> print(f"Avg Risk: {metrics['average_risk']:.2f}")
     """
@@ -300,10 +319,11 @@ def calculate_path_metrics(
     for i in range(len(path) - 1):
         u, v = path[i], path[i + 1]
 
-        # Get edge data (handle MultiDiGraph with multiple edges)
+        # Get edge data using the CORRECT edge key selected by A*
         if graph.has_edge(u, v):
-            # Get first edge if multiple exist
-            edge_data = graph[u][v][0]
+            # Use the edge key that was actually selected by A* (not always 0!)
+            key = edge_keys[i] if edge_keys and i < len(edge_keys) else 0
+            edge_data = graph[u][v][key]
 
             length = edge_data.get('length', 0.0)
             risk = edge_data.get('risk_score', 0.0)

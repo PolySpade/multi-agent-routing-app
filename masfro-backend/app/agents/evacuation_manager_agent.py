@@ -65,7 +65,8 @@ class EvacuationManagerAgent(BaseAgent):
     def __init__(
         self,
         agent_id: str,
-        environment: "DynamicGraphEnvironment"
+        environment: "DynamicGraphEnvironment",
+        message_queue: Optional[Any] = None
     ) -> None:
         """
         Initialize the EvacuationManagerAgent.
@@ -73,12 +74,17 @@ class EvacuationManagerAgent(BaseAgent):
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
+            message_queue: MessageQueue for agent communication (NEW)
         """
         super().__init__(agent_id, environment)
 
         # Agent references (set after initialization)
         self.routing_agent: Optional["RoutingAgent"] = None
-        self.hazard_agent: Optional["HazardAgent"] = None
+        # hazard_agent removed - now uses MessageQueue for communication
+
+        # MessageQueue for agent communication (MAS architecture)
+        self.message_queue = message_queue
+        self.hazard_agent_id = "hazard_agent_001"  # Target agent ID for messages
 
         # Request and feedback tracking
         self.route_history: List[Dict[str, Any]] = []
@@ -87,7 +93,7 @@ class EvacuationManagerAgent(BaseAgent):
         # Configuration
         self.max_history_size = 1000
 
-        logger.info(f"{self.agent_id} initialized")
+        logger.info(f"{self.agent_id} initialized with MessageQueue support")
 
     def step(self):
         """
@@ -115,15 +121,7 @@ class EvacuationManagerAgent(BaseAgent):
         self.routing_agent = routing_agent
         logger.info(f"{self.agent_id} linked to {routing_agent.agent_id}")
 
-    def set_hazard_agent(self, hazard_agent) -> None:
-        """
-        Set reference to HazardAgent.
-
-        Args:
-            hazard_agent: HazardAgent instance
-        """
-        self.hazard_agent = hazard_agent
-        logger.info(f"{self.agent_id} linked to {hazard_agent.agent_id}")
+    # set_hazard_agent method removed - now uses MessageQueue for communication
 
     def handle_route_request(
         self,
@@ -273,17 +271,19 @@ class EvacuationManagerAgent(BaseAgent):
 
     def forward_to_hazard_agent(self, feedback: Dict[str, Any]) -> None:
         """
-        Forward user feedback to HazardAgent for risk assessment updates.
+        Forward user feedback to HazardAgent for risk assessment updates via MessageQueue.
+
+        Uses ACL message passing for proper MAS communication architecture.
 
         Args:
             feedback: Feedback record to forward
         """
-        if not self.hazard_agent:
-            logger.warning("HazardAgent not configured, feedback not forwarded")
+        if not self.message_queue:
+            logger.warning("MessageQueue not configured, feedback not forwarded")
             return
 
         logger.debug(
-            f"{self.agent_id} forwarding feedback to HazardAgent: "
+            f"{self.agent_id} forwarding feedback to HazardAgent via MessageQueue: "
             f"{feedback.get('type')}"
         )
 
@@ -298,30 +298,28 @@ class EvacuationManagerAgent(BaseAgent):
             "feedback_id": feedback.get("feedback_id")
         }
 
-        # Option 1: Direct method call (synchronous, for same-process agents)
-        # This is the practical approach for the current implementation
+        # Use ACL message passing (MAS architecture)
         try:
-            if hasattr(self.hazard_agent, 'process_scout_data'):
-                self.hazard_agent.process_scout_data([scout_data_format])
-                logger.info(f"Feedback forwarded successfully to {self.hazard_agent.agent_id}")
+            from ..communication.acl_protocol import ACLMessage, Performative
+
+            # Create INFORM message with scout report batch
+            message = ACLMessage(
+                performative=Performative.INFORM,
+                sender=self.agent_id,
+                receiver=self.hazard_agent_id,
+                content={
+                    "scout_report_batch": [scout_data_format]
+                }
+            )
+
+            # Send via MessageQueue
+            self.message_queue.send_message(message)
+            logger.info(
+                f"Feedback forwarded successfully to {self.hazard_agent_id} via MessageQueue"
+            )
+
         except Exception as e:
-            logger.error(f"Failed to forward feedback to HazardAgent: {e}")
-
-        # Option 2: ACL message passing (for distributed systems)
-        # Uncomment below when MessageQueue is integrated into the agent framework
-        # from ..communication.acl_protocol import create_inform_message
-        # from ..communication.message_queue import MessageQueue
-        # 
-        # message_queue = MessageQueue()
-        # message = create_inform_message(
-        #     sender=self.agent_id,
-        #     receiver=self.hazard_agent.agent_id,
-        #     info_type="user_feedback",
-        #     data=scout_data_format
-        # )
-        # message_queue.send_message(message)
-
-        # self.hazard_agent.process_scout_data([scout_data_format])
+            logger.error(f"Failed to forward feedback to HazardAgent via MessageQueue: {e}")
 
     def find_nearest_evacuation_center(
         self,

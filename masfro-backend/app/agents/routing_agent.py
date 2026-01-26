@@ -197,7 +197,7 @@ class RoutingAgent(BaseAgent):
 
         # Calculate route using risk-aware A*
         # Note: risk_penalty is passed as risk_weight to maintain API compatibility
-        path_nodes = risk_aware_astar(
+        path_nodes, edge_keys = risk_aware_astar(
             self.environment.graph,
             start_node,
             end_node,
@@ -234,8 +234,8 @@ class RoutingAgent(BaseAgent):
         # Convert to coordinates
         path_coords = get_path_coordinates(self.environment.graph, path_nodes)
 
-        # Calculate metrics
-        metrics = calculate_path_metrics(self.environment.graph, path_nodes)
+        # Calculate metrics using the CORRECT edge keys selected by A*
+        metrics = calculate_path_metrics(self.environment.graph, path_nodes, edge_keys)
 
         # Generate warnings (pass preferences to customize warnings by mode)
         warnings = self._generate_warnings(metrics, preferences)

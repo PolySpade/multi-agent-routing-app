@@ -22,6 +22,7 @@ Date: November 2025
 from .base_agent import BaseAgent
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
+import time
 from datetime import datetime
 from app.core.timezone_utils import get_philippine_time
 import math
@@ -90,6 +91,11 @@ class HazardAgent(BaseAgent):
         >>> agent.process_scout_data(scout_reports)
         >>> agent.update_risk_scores()
     """
+
+    # Cache size limits to prevent memory leaks
+    MAX_FLOOD_CACHE_SIZE = 100
+    MAX_SCOUT_CACHE_SIZE = 1000
+    CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
 
     def __init__(
         self,
@@ -201,6 +207,15 @@ class HazardAgent(BaseAgent):
         self.spatial_index: Optional[Dict[Tuple[int, int], List[Tuple]]] = None
         self.spatial_index_grid_size = 0.01  # Grid cell size in degrees (~1.1km)
         self._build_spatial_index()
+
+        # Automatic cleanup tracking
+        self._last_cleanup = time.time()
+
+        # Dead letter queue for failed message processing
+        self.failed_messages = []  # List of failed message entries
+        self.max_failed_messages = 100  # Limit size to prevent memory issues
+        self._last_retry = time.time()  # Track when we last retried failed messages
+        self.retry_interval_seconds = 120  # Retry failed messages every 2 minutes
 
         logger.info(
             f"{self.agent_id} initialized with risk weights: {self.risk_weights}, "
@@ -323,18 +338,46 @@ class HazardAgent(BaseAgent):
 
         return False
 
-    def clean_expired_data(self) -> Dict[str, int]:
+    def _should_cleanup(self) -> bool:
         """
-        Remove expired data from caches based on TTL.
+        Check if periodic cleanup is due.
 
         Returns:
-            Dict with counts of expired items
+            True if cleanup should run, False otherwise
+        """
+        now = time.time()
+        if now - self._last_cleanup >= self.CLEANUP_INTERVAL_SECONDS:
+            self._last_cleanup = now
+            return True
+        return False
+
+    def _should_retry(self) -> bool:
+        """
+        Check if periodic retry of failed messages is due.
+
+        Returns:
+            True if retry should run, False otherwise
+        """
+        now = time.time()
+        if now - self._last_retry >= self.retry_interval_seconds:
+            self._last_retry = now
+            return True
+        return False
+
+    def clean_expired_data(self) -> Dict[str, int]:
+        """
+        Remove expired AND enforce size limits on caches.
+
+        Performs both time-based (TTL) and size-based (LRU) eviction.
+
+        Returns:
+            Dict with counts of expired/evicted items
         """
         from datetime import datetime
         current_time = datetime.now()
-        expired_counts = {"scouts": 0, "flood_locations": 0}
+        expired_counts = {"scouts": 0, "flood_locations": 0, "scouts_size_evicted": 0, "flood_size_evicted": 0}
 
-        # Clean expired scout reports
+        # Time-based eviction: Clean expired scout reports
         original_scout_count = len(self.scout_data_cache)
         self.scout_data_cache = [
             report for report in self.scout_data_cache
@@ -342,7 +385,19 @@ class HazardAgent(BaseAgent):
         ]
         expired_counts["scouts"] = original_scout_count - len(self.scout_data_cache)
 
-        # Clean expired flood data
+        # Size-based eviction: LRU for scout cache
+        if len(self.scout_data_cache) > self.MAX_SCOUT_CACHE_SIZE:
+            # Sort by timestamp (newest first) and keep only MAX_SCOUT_CACHE_SIZE entries
+            self.scout_data_cache.sort(
+                key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
+                reverse=True
+            )
+            evicted_count = len(self.scout_data_cache) - self.MAX_SCOUT_CACHE_SIZE
+            self.scout_data_cache = self.scout_data_cache[:self.MAX_SCOUT_CACHE_SIZE]
+            expired_counts["scouts_size_evicted"] = evicted_count
+            logger.warning(f"{self.agent_id} scout cache trimmed: {evicted_count} entries evicted (LRU)")
+
+        # Time-based eviction: Clean expired flood data
         expired_locations = []
         for location, data in self.flood_data_cache.items():
             age = self.calculate_data_age_minutes(data.get('timestamp'))
@@ -353,11 +408,26 @@ class HazardAgent(BaseAgent):
             del self.flood_data_cache[location]
         expired_counts["flood_locations"] = len(expired_locations)
 
-        if expired_counts["scouts"] > 0 or expired_counts["flood_locations"] > 0:
+        # Size-based eviction: LRU for flood cache
+        if len(self.flood_data_cache) > self.MAX_FLOOD_CACHE_SIZE:
+            # Sort by timestamp and keep newest entries
+            sorted_items = sorted(
+                self.flood_data_cache.items(),
+                key=lambda x: x[1].get('timestamp', datetime.min) if isinstance(x[1].get('timestamp'), datetime) else datetime.min,
+                reverse=True
+            )
+            evicted_count = len(self.flood_data_cache) - self.MAX_FLOOD_CACHE_SIZE
+            self.flood_data_cache = dict(sorted_items[:self.MAX_FLOOD_CACHE_SIZE])
+            expired_counts["flood_size_evicted"] = evicted_count
+            logger.warning(f"{self.agent_id} flood cache trimmed: {evicted_count} entries evicted (LRU)")
+
+        if any(v > 0 for v in expired_counts.values()):
             logger.info(
-                f"{self.agent_id} cleaned expired data: "
-                f"{expired_counts['scouts']} scout reports, "
-                f"{expired_counts['flood_locations']} flood locations"
+                f"{self.agent_id} cleaned data: "
+                f"{expired_counts['scouts']} scout reports expired, "
+                f"{expired_counts['scouts_size_evicted']} scout evicted (size), "
+                f"{expired_counts['flood_locations']} flood locations expired, "
+                f"{expired_counts['flood_size_evicted']} flood evicted (size)"
             )
 
         return expired_counts
@@ -418,10 +488,13 @@ class HazardAgent(BaseAgent):
         In each step, the agent:
         1. Polls message queue for incoming messages
         2. Dispatches messages to appropriate handlers
-        3. Processes any cached data
-        4. Fuses data from multiple sources
-        5. Calculates risk scores
-        6. Updates the graph environment
+        3. Periodically cleans expired/oversized caches (every 5 minutes)
+        4. Periodically retries failed messages from dead letter queue (every 2 minutes)
+        5. Processes any cached data
+        6. Fuses data from multiple sources
+        7. Calculates risk scores
+        8. Updates the graph environment
+        9. Saves graph state snapshot (every 10 minutes)
         """
         logger.debug(f"{self.agent_id} performing step at {get_philippine_time()}")
 
@@ -429,9 +502,26 @@ class HazardAgent(BaseAgent):
         if self.message_queue:
             self._process_pending_messages()
 
-        # Step 2: Process cached data and update risk scores
+        # Step 2: Automatic periodic cleanup (every 5 minutes)
+        if self._should_cleanup():
+            self.clean_expired_data()
+
+        # Step 3: Automatic periodic retry of failed messages (every 2 minutes)
+        if self.failed_messages and self._should_retry():
+            retry_stats = self.retry_failed_messages()
+            if retry_stats["retried"] > 0:
+                logger.info(
+                    f"{self.agent_id} automatic retry completed: "
+                    f"{retry_stats['succeeded']} succeeded, "
+                    f"{retry_stats['failed']} failed"
+                )
+
+        # Step 4: Process cached data and update risk scores
         if self.flood_data_cache or self.scout_data_cache:
             self.process_and_update()
+
+        # Step 5: Periodic graph state snapshot (every 10 minutes)
+        self.environment.maybe_snapshot()
 
     def _process_pending_messages(self) -> None:
         """
@@ -475,13 +565,111 @@ class HazardAgent(BaseAgent):
             except Exception as e:
                 logger.error(
                     f"{self.agent_id} error processing message from "
-                    f"{message.sender}: {e}"
+                    f"{message.sender}: {e}",
+                    exc_info=True
                 )
+
+                # Save to dead letter queue for later retry
+                self.failed_messages.append({
+                    'message': message,
+                    'error': str(e),
+                    'timestamp': datetime.now(),
+                    'retry_count': 0
+                })
+
+                # Limit dead letter queue size to prevent memory issues
+                if len(self.failed_messages) > self.max_failed_messages:
+                    # Remove oldest entry
+                    removed = self.failed_messages.pop(0)
+                    logger.warning(
+                        f"{self.agent_id} dead letter queue full, "
+                        f"dropped message from {removed['message'].sender}"
+                    )
 
         if messages_processed > 0:
             logger.info(
                 f"{self.agent_id} processed {messages_processed} messages from queue"
             )
+
+    def retry_failed_messages(self) -> Dict[str, int]:
+        """
+        Retry messages from dead letter queue.
+
+        Attempts to reprocess messages that previously failed, with a maximum
+        of 3 retry attempts per message. Messages that fail after 3 retries
+        are permanently discarded.
+
+        Returns:
+            Dict with retry statistics:
+                {
+                    "retried": int,  # Number of messages attempted
+                    "succeeded": int,  # Number of successful retries
+                    "failed": int,  # Number of messages that failed again
+                    "discarded": int  # Number of messages permanently discarded
+                }
+        """
+        if not self.failed_messages:
+            return {"retried": 0, "succeeded": 0, "failed": 0, "discarded": 0}
+
+        logger.info(
+            f"{self.agent_id} attempting to retry {len(self.failed_messages)} "
+            f"failed messages"
+        )
+
+        stats = {"retried": 0, "succeeded": 0, "failed": 0, "discarded": 0}
+
+        # Copy and clear the failed messages list
+        retry_list = self.failed_messages.copy()
+        self.failed_messages.clear()
+
+        for entry in retry_list:
+            stats["retried"] += 1
+            message = entry['message']
+            retry_count = entry['retry_count']
+
+            # Check if message has exceeded max retries
+            if retry_count >= 3:
+                stats["discarded"] += 1
+                logger.error(
+                    f"{self.agent_id} permanently discarding message from "
+                    f"{message.sender} after {retry_count} failed retries"
+                )
+                continue
+
+            # Attempt to reprocess the message
+            try:
+                if message.performative == Performative.INFORM:
+                    self._handle_inform_message(message)
+                elif message.performative == Performative.REQUEST:
+                    self._handle_request_message(message)
+                elif message.performative == Performative.QUERY:
+                    self._handle_query_message(message)
+
+                stats["succeeded"] += 1
+                logger.info(
+                    f"{self.agent_id} successfully retried message from "
+                    f"{message.sender} (previous failures: {retry_count})"
+                )
+
+            except Exception as e:
+                stats["failed"] += 1
+                logger.warning(
+                    f"{self.agent_id} retry failed for message from "
+                    f"{message.sender}: {e}"
+                )
+
+                # Increment retry count and re-add to failed messages
+                entry['retry_count'] += 1
+                entry['error'] = str(e)
+                entry['timestamp'] = datetime.now()
+                self.failed_messages.append(entry)
+
+        logger.info(
+            f"{self.agent_id} retry complete: {stats['succeeded']} succeeded, "
+            f"{stats['failed']} failed again, {stats['discarded']} discarded"
+        )
+
+        return stats
 
     def _handle_inform_message(self, message: ACLMessage) -> None:
         """

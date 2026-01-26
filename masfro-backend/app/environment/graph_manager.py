@@ -2,8 +2,11 @@
 import osmnx as ox
 import networkx as nx
 import os # Import the os module to check for file existence
+import pickle
+import time
 from pathlib import Path
 from threading import Lock
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,11 @@ class DynamicGraphEnvironment:
         if not candidate.exists():
             candidate = (base.parent / "data" / "marikina_graph.graphml").resolve()
         self.filepath = str(candidate)
+
+        # State persistence file path
+        data_dir = Path(self.filepath).parent
+        self.state_file = data_dir / "graph_state.pkl"
+
         # print(f"Graph file path set to: {self.filepath}")
         self.graph = None
 
@@ -32,7 +40,14 @@ class DynamicGraphEnvironment:
         self._lock = Lock()
         self._is_updating = False
 
-        self._load_graph_from_file()
+        # Snapshot tracking
+        self._last_snapshot_time = time.time()
+
+        # Try to recover state first, otherwise load fresh graph
+        if self.state_file.exists():
+            self._recover_state()
+        else:
+            self._load_graph_from_file()
 
     def _load_graph_from_file(self):
         """
@@ -76,6 +91,88 @@ class DynamicGraphEnvironment:
         except Exception as e:
             print(f"\n❌ An error occurred while loading or processing the graph file: {e}")
             self.graph = None
+
+    def _recover_state(self):
+        """
+        Recover graph with risk scores from last session.
+
+        Loads the base graph structure and restores previously computed
+        risk scores from the state file.
+        """
+        logger.info(f"Recovering graph state from {self.state_file}")
+        try:
+            with open(self.state_file, 'rb') as f:
+                state = pickle.load(f)
+
+            # Load base graph structure first
+            self._load_graph_from_file()
+
+            if self.graph is None:
+                logger.error("Failed to load base graph, cannot recover state")
+                return
+
+            # Restore risk scores
+            restored_count = 0
+            for (u, v, k), edge_state in state['edges'].items():
+                if self.graph.has_edge(u, v, k):
+                    edge_data = self.graph[u][v][k]
+                    edge_data['risk_score'] = edge_state['risk']
+                    # Recalculate weight with restored risk
+                    edge_data['weight'] = edge_data['length'] * (1.0 + edge_state['risk'])
+                    restored_count += 1
+
+            logger.info(
+                f"✓ Restored {restored_count} edge risk scores from "
+                f"{state['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
+        except Exception as e:
+            logger.error(f"State recovery failed: {e}, loading fresh graph")
+            self._load_graph_from_file()
+
+    def _save_snapshot(self):
+        """
+        Save current risk scores to disk.
+
+        Only saves edges with non-zero risk to minimize storage.
+        Uses atomic write pattern (write to temp, then rename).
+        """
+        try:
+            # Only save edges with non-zero risk
+            state = {
+                'edges': {},
+                'timestamp': datetime.now()
+            }
+
+            for u, v, k in self.graph.edges(keys=True):
+                risk = self.graph[u][v][k].get('risk_score', 0.0)
+                if risk > 0:
+                    state['edges'][(u, v, k)] = {'risk': risk}
+
+            # Atomic write (write to temp, then rename)
+            temp_file = self.state_file.with_suffix('.tmp')
+            with open(temp_file, 'wb') as f:
+                pickle.dump(state, f)
+
+            # Atomic rename
+            temp_file.replace(self.state_file)
+
+            logger.info(
+                f"✓ Saved graph state: {len(state['edges'])} edges with risk"
+            )
+            self._last_snapshot_time = time.time()
+
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}")
+
+    def maybe_snapshot(self):
+        """
+        Save snapshot if enough time has passed (10 minutes).
+
+        This method should be called periodically by agents or scheduler.
+        """
+        if time.time() - self._last_snapshot_time > 600:  # 10 minutes
+            self._save_snapshot()
 
     def update_edge_risk(self, u, v, key, risk_factor: float):
         """

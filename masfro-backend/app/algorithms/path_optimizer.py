@@ -199,9 +199,9 @@ def optimize_evacuation_route(
             continue
 
         try:
-            path = risk_aware_astar(graph, start_node, center_node)
+            path, edge_keys = risk_aware_astar(graph, start_node, center_node)
             if path:
-                metrics = calculate_path_metrics(graph, path)
+                metrics = calculate_path_metrics(graph, path, edge_keys)
                 routes.append({
                     "center": center,
                     "path": path,

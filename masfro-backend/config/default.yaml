@@ -1,0 +1,77 @@
+# MAS-FRO Backend Configuration
+# Default configuration values for development environment
+
+# Agent Configuration
+agents:
+  hazard:
+    # Risk calculation weights
+    risk_weights:
+      flood_depth: 0.5      # Weight for flood depth data from GeoTIFF
+      crowdsourced: 0.3     # Weight for crowdsourced scout reports
+      historical: 0.2       # Weight for historical flood data
+
+    # Risk decay rates (how quickly risk scores fade over time)
+    decay_rates:
+      scout_fast: 0.10      # Fast decay for real-time scout reports (10% per update)
+      scout_slow: 0.03      # Slow decay for validated reports (3% per update)
+      flood: 0.05           # Decay for flood agent data (5% per update)
+
+    # Cache size limits
+    cache:
+      max_scout: 1000       # Maximum scout reports to cache
+      max_flood: 100        # Maximum flood data entries to cache
+      cleanup_interval: 300  # Cleanup interval in seconds (5 minutes)
+
+    # Dead letter queue for failed messages
+    dead_letter_queue:
+      max_size: 100         # Maximum failed messages to retain
+      retry_interval: 120    # Retry interval in seconds (2 minutes)
+      max_retries: 3        # Maximum retry attempts per message
+
+  routing:
+    risk_weight: 0.5                    # Weight for risk in pathfinding
+    distance_weight: 0.5                 # Weight for distance in pathfinding
+    max_risk_threshold: 0.9              # Maximum acceptable risk (0-1)
+
+    # Virtual meter penalties for different routing preferences
+    virtual_meter_penalty:
+      safest: 100000       # Add 100km virtual distance for unsafe roads (safest route)
+      balanced: 2000       # Add 2km virtual distance (balanced route)
+      fastest: 0           # No penalty (fastest route, ignores risk)
+
+  scout:
+    report_ttl_minutes: 60  # Time-to-live for scout reports (1 hour)
+    simulation_scenarios:
+      light: 1    # Light flooding scenario
+      medium: 2   # Medium flooding scenario
+      heavy: 3    # Heavy flooding scenario
+
+# Scheduler Configuration
+scheduler:
+  flood_data_interval: 300   # Flood data collection interval in seconds (5 minutes)
+  max_stats_history: 100     # Maximum collection history entries to retain
+
+# Database Configuration
+database:
+  pool_size: 10           # Connection pool size
+  max_overflow: 20        # Maximum overflow connections
+  retention_days: 90      # Days to retain historical data
+  connection_timeout: 30  # Connection timeout in seconds
+
+# Simulation Configuration
+simulation:
+  tick_interval: 1.0      # Simulation tick interval in seconds
+  max_events: 10000       # Maximum events in queue
+  time_acceleration: 1.0  # Time acceleration factor (1.0 = real-time)
+
+# API Configuration
+api:
+  pagination:
+    default_page_size: 50   # Default items per page
+    max_page_size: 100      # Maximum items per page
+
+# Logging Configuration
+logging:
+  level: "INFO"           # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  max_file_size_mb: 10    # Maximum log file size in MB
+  backup_count: 5         # Number of backup log files to keep

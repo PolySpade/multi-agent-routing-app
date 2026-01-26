@@ -49,8 +49,10 @@ from app.services.simulation_manager import get_simulation_manager, SimulationMa
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
 
-# Logging configuration
+# Logging and configuration
 from app.core.logging_config import setup_logging, get_logger
+from app.core.config import settings
+from app.core.auth import verify_api_key
 
 # API Routes
 from app.api import graph_router, set_graph_environment, evacuation_router
@@ -375,14 +377,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration - Allow all origins for development
-# TODO: Restrict origins in production
+# CORS configuration - Explicit whitelist only
+origins = settings.ALLOWED_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins temporarily for debugging
-    allow_credentials=False,  # Must be False when using wildcard origins
+    allow_origins=origins,  # Explicit whitelist only
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    max_age=3600
 )
 
 # Serve static files (flood maps, data)
@@ -424,7 +427,11 @@ flood_agent = FloodAgent(
 )
 
 routing_agent = RoutingAgent("routing_agent_001", environment)
-evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
+evacuation_manager = EvacuationManagerAgent(
+    "evac_manager_001",
+    environment,
+    message_queue=message_queue  # Use MessageQueue for HazardAgent communication
+)
 
 # ScoutAgent in simulation mode with MAS communication
 # For simulation: uses synthetic data with ML processing enabled
@@ -438,10 +445,10 @@ scout_agent = ScoutAgent(
     use_ml_in_simulation=True       # Enable ML models for prediction
 )
 
-# NOTE: FloodAgent, HazardAgent, and ScoutAgent now communicate via MessageQueue (MAS architecture)
-# Old direct linking methods (set_hazard_agent) removed for these agents
-# EvacuationManager still uses direct references (to be refactored later)
-evacuation_manager.set_hazard_agent(hazard_agent)
+# NOTE: FloodAgent, HazardAgent, ScoutAgent, and EvacuationManager now communicate via MessageQueue (MAS architecture)
+# Direct agent references removed - all communication through MessageQueue
+# EvacuationManager → HazardAgent: Uses MessageQueue
+# EvacuationManager → RoutingAgent: Still uses direct reference (routing is synchronous, not message-based)
 evacuation_manager.set_routing_agent(routing_agent)
 
 # Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
@@ -750,7 +757,7 @@ async def get_nearest_evacuation_center(
             detail=f"Error finding evacuation center: {str(e)}"
         )
 
-@app.post("/api/admin/collect-flood-data", tags=["Admin"])
+@app.post("/api/admin/collect-flood-data", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def trigger_flood_data_collection():
     """
     Manually trigger flood data collection from FloodAgent.
@@ -778,7 +785,7 @@ async def trigger_flood_data_collection():
             detail=f"Error collecting flood data: {str(e)}"
         )
 
-@app.post("/api/admin/geotiff/enable", tags=["Admin"])
+@app.post("/api/admin/geotiff/enable", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def enable_geotiff_simulation():
     """
     Enable GeoTIFF flood simulation in HazardAgent.
@@ -806,7 +813,7 @@ async def enable_geotiff_simulation():
             detail=f"Error enabling GeoTIFF simulation: {str(e)}"
         )
 
-@app.post("/api/admin/geotiff/disable", tags=["Admin"])
+@app.post("/api/admin/geotiff/disable", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def disable_geotiff_simulation():
     """
     Disable GeoTIFF flood simulation in HazardAgent.
@@ -866,7 +873,7 @@ async def get_geotiff_status():
             detail=f"Error getting GeoTIFF status: {str(e)}"
         )
 
-@app.post("/api/admin/geotiff/set-scenario", tags=["Admin"])
+@app.post("/api/admin/geotiff/set-scenario", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def set_flood_scenario(
     return_period: str,
     time_step: int
@@ -928,7 +935,7 @@ async def set_flood_scenario(
 # Simulation Control Endpoints
 # ============================================================================
 
-@app.post("/api/simulation/start", tags=["Simulation"])
+@app.post("/api/simulation/start", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
 async def start_simulation(
     mode: str = Query(
         "light",
@@ -985,7 +992,7 @@ async def start_simulation(
         )
 
 
-@app.post("/api/simulation/stop", tags=["Simulation"])
+@app.post("/api/simulation/stop", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
 async def stop_simulation():
     """
     Stop (pause) the currently running simulation.
@@ -1034,7 +1041,7 @@ async def stop_simulation():
         )
 
 
-@app.post("/api/simulation/reset", tags=["Simulation"])
+@app.post("/api/simulation/reset", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
 async def reset_simulation():
     """
     Reset the simulation to initial state.
@@ -1421,6 +1428,8 @@ async def get_latest_flood_data(db: Session = Depends(get_db)):
 
 @app.get("/api/flood-data/history", tags=["Flood Data History"])
 async def get_flood_data_history(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     hours: int = 24,
     success_only: bool = True,
     db: Session = Depends(get_db)
@@ -1429,11 +1438,13 @@ async def get_flood_data_history(
     Get historical flood data collections within a time range.
 
     Args:
+        page: Page number (1-indexed)
+        page_size: Number of collections per page (1-100)
         hours: Number of hours of history (default: 24)
         success_only: Only return successful collections (default: True)
 
     Returns:
-        List of flood data collections
+        Paginated list of flood data collections
     """
     try:
         repo = FloodDataRepository(db)
@@ -1446,25 +1457,35 @@ async def get_flood_data_history(
             success_only=success_only
         )
 
+        # Convert to list of dicts for pagination
+        collections_list = [
+            {
+                "collection_id": str(c.id),
+                "collected_at": c.collected_at.isoformat(),
+                "success": c.success,
+                "duration_seconds": c.duration_seconds,
+                "river_stations_count": c.river_stations_count,
+                "weather_data_available": c.weather_data_available,
+                "error_message": c.error_message if not c.success else None
+            }
+            for c in collections
+        ]
+
+        # Apply pagination
+        from app.core.pagination import paginate
+        paginated = paginate(collections_list, page=page, page_size=page_size)
+
         return {
             "time_range": {
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat(),
                 "hours": hours
             },
-            "total_collections": len(collections),
-            "collections": [
-                {
-                    "collection_id": str(c.id),
-                    "collected_at": c.collected_at.isoformat(),
-                    "success": c.success,
-                    "duration_seconds": c.duration_seconds,
-                    "river_stations_count": c.river_stations_count,
-                    "weather_data_available": c.weather_data_available,
-                    "error_message": c.error_message if not c.success else None
-                }
-                for c in collections
-            ]
+            "items": paginated.items,
+            "total": paginated.total,
+            "page": paginated.page,
+            "page_size": paginated.page_size,
+            "total_pages": paginated.total_pages
         }
 
     except Exception as e:
@@ -1614,7 +1635,8 @@ async def get_database_statistics(
 
 @app.get("/api/agents/scout/reports", tags=["Agent Data"])
 async def get_scout_reports(
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of reports"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """
@@ -1624,11 +1646,12 @@ async def get_scout_reports(
     that have been processed and validated by the NLP system.
 
     Args:
-        limit: Maximum number of reports to return (1-200)
+        page: Page number (1-indexed)
+        page_size: Number of reports per page (1-100)
         hours: Number of hours of history to include (1-168)
 
     Returns:
-        List of validated flood reports with location, severity, and timestamp
+        Paginated list of validated flood reports with location, severity, and timestamp
     """
     try:
         if not hazard_agent:
@@ -1659,14 +1682,18 @@ async def get_scout_reports(
                 # Include reports without timestamps
                 filtered_reports.append(report)
 
-        # Apply limit
-        limited_reports = filtered_reports[:limit]
+        # Apply pagination
+        from app.core.pagination import paginate
+        paginated = paginate(filtered_reports, page=page, page_size=page_size)
 
         return {
             "status": "success",
-            "total_reports": len(limited_reports),
             "time_range_hours": hours,
-            "reports": limited_reports,
+            "items": paginated.items,
+            "total": paginated.total,
+            "page": paginated.page,
+            "page_size": paginated.page_size,
+            "total_pages": paginated.total_pages,
             "scout_agent_active": scout_agent is not None,
             "note": "Reports are from crowdsourced social media data processed by NLP"
         }
