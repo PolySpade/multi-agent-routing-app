@@ -7,6 +7,8 @@ import pickle
 import hashlib
 import csv
 from datetime import datetime
+from pathlib import Path
+from typing import Optional, TYPE_CHECKING
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -17,17 +19,126 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from .base_agent import BaseAgent
+import logging
+
+# ACL Protocol imports for MAS communication
+try:
+    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
+except ImportError:
+    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
+    from ..core.credentials import TwitterCredentials
+    from ..communication.message_queue import MessageQueue  # NEW: MAS communication
+
+logger = logging.getLogger(__name__)
 
 class ScoutAgent(BaseAgent):
     """
     The ScoutAgent is responsible for scraping real-time data from social media
     (X.com/Twitter) to identify flood-related events in Marikina City.
+
+    This agent collects crowdsourced Volunteered Geographic Information (VGI)
+    from social media, processes it using NLP, and forwards validated reports
+    to the HazardAgent via MessageQueue using FIPA-ACL protocol.
+
+    WARNING: This agent currently uses deprecated Selenium-based scraping.
+    Migrate to Twitter API v2 for better reliability and security.
+
+    Attributes:
+        agent_id: Unique identifier for this agent
+        environment: Reference to DynamicGraphEnvironment
+        message_queue: MessageQueue for asynchronous MAS communication
+        hazard_agent_id: Target HazardAgent ID for message routing
+        nlp_processor: NLP processor for tweet analysis
+        _credentials: Optional TwitterCredentials for authentication (DEPRECATED)
     """
-    def __init__(self, agent_id: str, environment, email: str, password: str):
+    def __init__(
+        self,
+        agent_id: str,
+        environment: "DynamicGraphEnvironment",
+        message_queue: Optional["MessageQueue"] = None,
+        credentials: Optional["TwitterCredentials"] = None,
+        hazard_agent_id: str = "hazard_agent_001",
+        simulation_mode: bool = False,
+        simulation_scenario: int = 1,
+        use_ml_in_simulation: bool = True
+    ) -> None:
+        """
+        Initialize ScoutAgent for crowdsourced flood data collection.
+
+        WARNING: This agent currently uses Selenium-based web scraping which is:
+        - Fragile and prone to breaking when Twitter/X updates their UI
+        - Slow and resource-intensive
+        - Security risk if credentials are used
+
+        RECOMMENDED: Migrate to Twitter API v2 instead.
+
+        Args:
+            agent_id: Unique identifier for this agent
+            environment: Reference to the DynamicGraphEnvironment instance
+            message_queue: MessageQueue instance for MAS communication (NEW)
+            credentials: Optional TwitterCredentials for authentication (NOT RECOMMENDED)
+            hazard_agent_id: Target HazardAgent ID for message routing (default: "hazard_agent_001")
+            simulation_mode: If True, uses synthetic data instead of scraping (default: False)
+            simulation_scenario: Which scenario to load (1-3) when in simulation mode
+            use_ml_in_simulation: If True, process simulation tweets through ML models instead
+                                 of using pre-computed ground truth (default: True)
+        """
         super().__init__(agent_id, environment)
-        self.email = email
-        self.password = password
+
+        # Message queue for MAS communication
+        self.message_queue = message_queue
+        self.hazard_agent_id = hazard_agent_id
+
+        # Register with message queue
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError as e:
+                logger.warning(f"{self.agent_id} already registered: {e}")
+
+        # Store credentials object (not individual fields) - only if provided
+        self._credentials = credentials
+        if credentials and (credentials.twitter_email or credentials.twitter_password):
+            self.logger.warning(
+                "ScoutAgent initialized with plain-text credentials. "
+                "This is a SECURITY RISK. Consider using Twitter API v2 instead."
+            )
+
         self.driver = None
+
+        # Simulation mode settings
+        self.simulation_mode = simulation_mode
+        self.simulation_scenario = simulation_scenario
+        self.simulation_tweets = []
+        self.simulation_index = 0
+        self.simulation_batch_size = 10  # Default batch size
+        self.use_ml_in_simulation = use_ml_in_simulation  # NEW: ML processing flag
+
+        # Initialize NLP processor
+        try:
+            from ..ml_models.nlp_processor import NLPProcessor
+            self.nlp_processor = NLPProcessor()
+            self.logger.info(f"{self.agent_id} initialized with NLP processor")
+        except Exception as e:
+            self.logger.warning(
+                f"{self.agent_id} failed to initialize NLP processor: {e}"
+            )
+            self.nlp_processor = None
+
+        # Initialize LocationGeocoder for coordinate extraction
+        try:
+            from ..ml_models.location_geocoder import LocationGeocoder
+            self.geocoder = LocationGeocoder()
+            self.logger.info(f"{self.agent_id} initialized with LocationGeocoder")
+        except Exception as e:
+            self.logger.warning(
+                f"{self.agent_id} failed to initialize LocationGeocoder: {e}"
+            )
+            self.geocoder = None
         
         # --- CENTRALIZED FILE PATHS ---
         # Define the path to the data directory relative to the project root.
@@ -40,87 +151,456 @@ class ScoutAgent(BaseAgent):
         self.session_file = os.path.join(data_directory, "twitter_session.pkl")
         
         self.master_tweets = {}
-        print(f"ScoutAgent '{self.agent_id}' initialized.")
-        print(f"  -> Master tweet file path: {self.master_file}")
-        print(f"  -> Session file path: {self.session_file}")
 
-        
+        # Log initialization
+        mode_str = "SIMULATION MODE" if self.simulation_mode else "SCRAPING MODE"
+        self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in {mode_str}")
+        if self.simulation_mode:
+            self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+            ml_mode = "ML PREDICTION" if self.use_ml_in_simulation else "PRE-COMPUTED GROUND TRUTH"
+            self.logger.info(f"  Simulation processing mode: {ml_mode}")
+        else:
+            self.logger.debug(f"  Master tweet file path: {self.master_file}")
+            self.logger.debug(f"  Session file path: {self.session_file}")
+
     def setup(self) -> bool:
         """
-        Initializes the Selenium WebDriver and logs into X.com.
-        This should be called once before the agent starts its monitoring cycle.
+        Initializes the agent for operation.
+        - In scraping mode: Sets up Selenium WebDriver and logs into X.com
+        - In simulation mode: Loads synthetic data from file
 
         Returns:
-            bool: True if setup and login were successful, False otherwise.
+            bool: True if setup was successful, False otherwise.
         """
-        print(f"[{self.agent_id}] Setting up WebDriver and logging in...")
-        self.driver = self._login_to_twitter()
-        if self.driver:
-            self.master_tweets = self._load_master_tweets()
-            return True
-        return False
+        if self.simulation_mode:
+            # Simulation mode: Load synthetic data
+            self.logger.info(f"{self.agent_id} loading synthetic data")
+            return self._load_simulation_data()
+        else:
+            # Scraping mode: Login to Twitter
+            self.logger.info(f"{self.agent_id} setting up WebDriver and logging in")
+            self.driver = self._login_to_twitter()
+            if self.driver:
+                self.master_tweets = self._load_master_tweets()
+                self.logger.info(f"{self.agent_id} setup completed successfully")
+                return True
+            self.logger.error(f"{self.agent_id} setup failed - could not login")
+            return False
 
 
     def step(self) -> list:
         """
-        Performs one cycle of the agent's primary task: searching for,
-        extracting, and processing new tweets. This method is designed to be
-        called repeatedly by the main simulation loop.
+        Performs one cycle of the agent's primary task.
+        - In scraping mode: Searches for, extracts, and processes new tweets
+        - In simulation mode: Returns the next batch of synthetic tweets
+
+        This method is designed to be called repeatedly by the main simulation loop.
 
         Returns:
             list: A list of newly found tweet dictionaries.
         """
-        print(f"\n[{self.agent_id}] Performing step at {datetime.now().strftime('%H:%M:%S')}")
-        
-        # 1. Search for recent tweets
-        raw_tweets = self._search_tweets()
-        
-        # 2. Add new tweets to our master list and get only the new ones back
-        newly_added_tweets = self._add_new_tweets_to_master(raw_tweets)
+        self.logger.info(
+            f"{self.agent_id} performing step at {datetime.now().strftime('%H:%M:%S')}"
+        )
+
+        if self.simulation_mode:
+            # Simulation mode: Get next batch of tweets
+            raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+
+            # NEW: Prepare simulation tweets for ML processing
+            # This strips ground truth if use_ml_in_simulation is True
+            prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
+        else:
+            # Scraping mode: Search Twitter
+            raw_tweets = self._search_tweets()
+            prepared_tweets = raw_tweets
+
+        if not self.simulation_mode:
+            # In scraping mode, track which tweets are new
+            newly_added_tweets = self._add_new_tweets_to_master(prepared_tweets)
+        else:
+            # In simulation mode, all tweets are "new"
+            newly_added_tweets = prepared_tweets
 
         if newly_added_tweets:
-            print(f"[{self.agent_id}] Found {len(newly_added_tweets)} new tweets.")
-            # --- CRITICAL MAS LOGIC ---
-            # TODO: Implement the logic to parse these tweets.
-            # For each tweet, identify keywords (e.g., "baha", "flood") and
-            # street names or landmarks (e.g., "Tañong", "J.P. Rizal").
-            # Then, call the environment to update the risk scores.
-            #
-            # Example:
-            # for tweet in newly_added_tweets:
-            #     location, severity = self._parse_tweet_for_hazard(tweet)
-            #     if location:
-            #         # Find the corresponding edge(s) in the graph for the location
-            #         edge = self.environment.find_edge_by_location(location)
-            #         # Update the risk based on severity
-            #         self.environment.update_edge_risk(edge.u, edge.v, edge.key, severity)
-            pass
+            self.logger.info(f"{self.agent_id} found {len(newly_added_tweets)} new tweets")
+
+            # Process tweets with NLP and forward to HazardAgent
+            # For simulation with ML: tweets have no ground truth, models will predict
+            # For simulation without ML: tweets keep ground truth (legacy mode)
+            self._process_and_forward_tweets(newly_added_tweets)
         else:
-            print(f"[{self.agent_id}] No new tweets found in this step.")
-            
+            self.logger.debug(f"{self.agent_id} no new tweets found in this step")
+
         return newly_added_tweets
 
-    def shutdown(self):
+    def _process_and_forward_tweets(self, tweets: list) -> None:
+        """
+        Process tweets using NLP and forward to HazardAgent.
+
+        Args:
+            tweets: List of tweet dictionaries to process
+        """
+        if not self.nlp_processor:
+            logger.warning(f"{self.agent_id} has no NLP processor, skipping tweet processing")
+            return
+
+        if not self.message_queue:
+            logger.warning(f"{self.agent_id} has no MessageQueue, data not forwarded")
+            return
+
+        if not self.geocoder:
+            logger.warning(f"{self.agent_id} has no LocationGeocoder, using old method")
+            self._process_and_forward_tweets_without_coordinates(tweets)
+            return
+
+        processed_reports = []
+        skipped_no_coordinates = 0
+
+        for tweet in tweets:
+            try:
+                # Extract flood info using NLP
+                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+
+                # Enhance with coordinates using geocoder
+                enhanced_info = self.geocoder.geocode_nlp_result(flood_info)
+
+                # Only process flood-related reports with coordinates
+                if enhanced_info['is_flood_related'] and enhanced_info.get('has_coordinates'):
+                    # Create scout report for HazardAgent with coordinates
+                    report = {
+                        "location": enhanced_info['location'] or "Marikina",
+                        "coordinates": enhanced_info['coordinates'],  # NEW: Critical field
+                        "severity": enhanced_info['severity'],
+                        "report_type": enhanced_info['report_type'],
+                        "confidence": enhanced_info['confidence'],
+                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
+                        "source": "twitter",
+                        "source_url": tweet.get('url', ''),
+                        "username": tweet.get('username', ''),
+                        "text": tweet['text']
+                    }
+
+                    processed_reports.append(report)
+
+                    # Log the actual message content being sent
+                    logger.info(
+                        f"Message sent: {tweet['text']}"
+                    )
+
+                    logger.debug(
+                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
+                        f"{enhanced_info['location']} ({enhanced_info['coordinates']['lat']:.4f}, "
+                        f"{enhanced_info['coordinates']['lon']:.4f}) - severity {enhanced_info['severity']:.2f}"
+                    )
+                elif enhanced_info['is_flood_related'] and not enhanced_info.get('has_coordinates'):
+                    skipped_no_coordinates += 1
+                    logger.debug(
+                        f"{self.agent_id} skipped flood-related tweet without coordinates: "
+                        f"location '{enhanced_info.get('location')}'"
+                    )
+
+            except Exception as e:
+                logger.error(f"{self.agent_id} error processing tweet: {e}")
+                continue
+
+        # Forward all processed reports to HazardAgent via MessageQueue (MAS architecture)
+        if processed_reports:
+            logger.info(
+                f"{self.agent_id} forwarding {len(processed_reports)} "
+                f"flood reports with coordinates to {self.hazard_agent_id} via MessageQueue "
+                f"(skipped {skipped_no_coordinates} without coordinates)"
+            )
+
+            try:
+                # Create ACL INFORM message with scout reports (with coordinates)
+                message = create_inform_message(
+                    sender=self.agent_id,
+                    receiver=self.hazard_agent_id,
+                    info_type="scout_report_batch",  # Standard message type
+                    data={
+                        "reports": processed_reports,
+                        "has_coordinates": True,  # Flag for HazardAgent to use coordinate-based processing
+                        "report_count": len(processed_reports),
+                        "skipped_count": skipped_no_coordinates
+                    }
+                )
+
+                # Send via message queue
+                self.message_queue.send_message(message)
+
+                logger.info(
+                    f"{self.agent_id} successfully sent INFORM message to "
+                    f"{self.hazard_agent_id} ({len(processed_reports)} reports with coordinates)"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+                )
+
+        elif skipped_no_coordinates > 0:
+            logger.warning(
+                f"{self.agent_id} all {skipped_no_coordinates} flood-related tweets "
+                f"lacked coordinates and were skipped"
+            )
+
+    def _process_and_forward_tweets_without_coordinates(self, tweets: list) -> None:
+        """
+        Fallback method for processing tweets without geocoder (legacy).
+
+        Args:
+            tweets: List of tweet dictionaries to process
+        """
+        processed_reports = []
+
+        for tweet in tweets:
+            try:
+                # Extract flood info using NLP
+                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+
+                if flood_info['is_flood_related']:
+                    # Create scout report for HazardAgent (without coordinates)
+                    report = {
+                        "location": flood_info['location'] or "Marikina",
+                        "severity": flood_info['severity'],
+                        "report_type": flood_info['report_type'],
+                        "confidence": flood_info['confidence'],
+                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
+                        "source": "twitter",
+                        "source_url": tweet.get('url', ''),
+                        "username": tweet.get('username', ''),
+                        "text": tweet['text']
+                    }
+
+                    processed_reports.append(report)
+
+                    # Log the actual message content being sent
+                    logger.info(
+                        f"Message sent: {tweet['text']}"
+                    )
+
+                    logger.debug(
+                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
+                        f"{flood_info['location']} - severity {flood_info['severity']:.2f}"
+                    )
+
+            except Exception as e:
+                logger.error(f"{self.agent_id} error processing tweet: {e}")
+                continue
+
+        # Forward via MessageQueue (MAS architecture) - legacy mode without coordinates
+        if processed_reports:
+            logger.info(
+                f"{self.agent_id} forwarding {len(processed_reports)} "
+                f"flood reports to {self.hazard_agent_id} via MessageQueue (legacy mode without coordinates)"
+            )
+
+            try:
+                # Create ACL INFORM message with scout reports (without coordinates)
+                message = create_inform_message(
+                    sender=self.agent_id,
+                    receiver=self.hazard_agent_id,
+                    info_type="scout_report_batch",  # Standard message type
+                    data={
+                        "reports": processed_reports,
+                        "has_coordinates": False,  # Flag for HazardAgent to use legacy processing
+                        "report_count": len(processed_reports)
+                    }
+                )
+
+                # Send via message queue
+                self.message_queue.send_message(message)
+
+                logger.info(
+                    f"{self.agent_id} successfully sent INFORM message to "
+                    f"{self.hazard_agent_id} ({len(processed_reports)} reports without coordinates)"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+                )
+
+    def shutdown(self) -> None:
         """
         Gracefully closes the Selenium WebDriver and performs any final cleanup.
         """
-        print(f"[{self.agent_id}] Shutting down...")
+        self.logger.info(f"{self.agent_id} shutting down")
         if self.driver:
             self.driver.quit()
-            print(f"[{self.agent_id}] WebDriver closed.")
-        self._export_master_tweets_to_csv()
+            self.logger.info(f"{self.agent_id} WebDriver closed")
+
+        if not self.simulation_mode:
+            self._export_master_tweets_to_csv()
+
+    # --- SIMULATION MODE METHODS ---
+
+    def _load_simulation_data(self) -> bool:
+        """
+        Load synthetic tweet data for simulation mode.
+
+        Returns:
+            bool: True if data loaded successfully, False otherwise
+        """
+        try:
+            # Build path to synthetic data file
+            data_dir = Path(__file__).parent.parent / "data" / "synthetic"
+            tweet_file = data_dir / f"scout_tweets_{self.simulation_scenario}.json"
+
+            if not tweet_file.exists():
+                self.logger.error(
+                    f"Simulation data file not found: {tweet_file}\n"
+                    f"Run 'scripts/generate_scout_synthetic_data.py' to create synthetic data"
+                )
+                return False
+
+            # Load tweets from file
+            with open(tweet_file, 'r', encoding='utf-8') as f:
+                tweets_data = json.load(f)
+
+            # Convert dict to list if necessary
+            if isinstance(tweets_data, dict):
+                self.simulation_tweets = list(tweets_data.values())
+            else:
+                self.simulation_tweets = tweets_data
+
+            self.simulation_index = 0
+            self.logger.info(
+                f"{self.agent_id} loaded {len(self.simulation_tweets)} synthetic tweets "
+                f"from scenario {self.simulation_scenario}"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"{self.agent_id} error loading simulation data: {e}")
+            return False
+
+    def _get_simulation_tweets(self, batch_size: int = 10) -> list:
+        """
+        Get the next batch of simulation tweets.
+
+        Args:
+            batch_size: Number of tweets to return per step (default: 10)
+
+        Returns:
+            list: Next batch of tweet dictionaries
+        """
+        if not self.simulation_tweets:
+            self.logger.warning(f"{self.agent_id} no simulation data loaded")
+            return []
+
+        # Check if we've reached the end
+        if self.simulation_index >= len(self.simulation_tweets):
+            self.logger.info(
+                f"{self.agent_id} reached end of simulation data "
+                f"({self.simulation_index}/{len(self.simulation_tweets)} tweets processed)"
+            )
+            return []
+
+        # Get next batch
+        start_idx = self.simulation_index
+        end_idx = min(start_idx + batch_size, len(self.simulation_tweets))
+        batch = self.simulation_tweets[start_idx:end_idx]
+
+        self.simulation_index = end_idx
+
+        self.logger.debug(
+            f"{self.agent_id} returning simulation batch: "
+            f"tweets {start_idx+1}-{end_idx} of {len(self.simulation_tweets)}"
+        )
+
+        return batch
+
+    def _prepare_simulation_tweets_for_ml(self, tweets: list) -> list:
+        """
+        Prepare simulation tweets for ML processing by stripping ground truth.
+
+        When use_ml_in_simulation is True, this method removes pre-computed
+        values from simulation tweets so they are processed through NLP models
+        instead of using ground truth.
+
+        Args:
+            tweets: List of raw simulation tweet dictionaries
+
+        Returns:
+            list: Tweets with ground truth removed, ready for ML processing
+        """
+        if not self.use_ml_in_simulation:
+            # Return tweets as-is if not using ML (use ground truth)
+            return tweets
+
+        prepared_tweets = []
+        for tweet in tweets:
+            # Create a copy without ground truth
+            clean_tweet = {
+                "tweet_id": tweet.get("tweet_id"),
+                "username": tweet.get("username"),
+                "text": tweet.get("text"),  # Raw text for ML processing
+                "timestamp": tweet.get("timestamp"),
+                "url": tweet.get("url"),
+                "replies": tweet.get("replies"),
+                "retweets": tweet.get("retweets"),
+                "likes": tweet.get("likes"),
+                "scraped_at": tweet.get("scraped_at")
+            }
+            prepared_tweets.append(clean_tweet)
+
+        self.logger.debug(
+            f"{self.agent_id} prepared {len(prepared_tweets)} simulation tweets "
+            f"for ML processing (ground truth stripped)"
+        )
+
+        return prepared_tweets
+
+    def reset_simulation(self) -> None:
+        """
+        Reset simulation to the beginning.
+        Useful for running multiple simulation cycles.
+        """
+        self.simulation_index = 0
+        self.logger.info(f"{self.agent_id} simulation reset to beginning")
+
+    def set_batch_size(self, batch_size: int) -> None:
+        """
+        Set the batch size for simulation mode.
+
+        Args:
+            batch_size: Number of tweets to return per step
+        """
+        if batch_size < 1:
+            raise ValueError("Batch size must be at least 1")
+
+        self.simulation_batch_size = batch_size
+        self.logger.info(f"{self.agent_id} batch size set to {batch_size}")
 
     # --- PRIVATE HELPER METHODS (from your original script) ---
     # The following methods are encapsulated within the agent class.
 
-    def _login_to_twitter(self, use_saved_session=True):
+    def _login_to_twitter(self, use_saved_session: bool = True) -> Optional[webdriver.Chrome]:
         """
         Logs into Twitter/X.com using Selenium. Attempts to restore a saved session
         first, then performs a fresh login if needed.
         
+        WARNING: This method is deprecated and should be replaced with Twitter API v2.
+        
+        Args:
+            use_saved_session: Whether to attempt session restoration
+        
         Returns:
             WebDriver instance if successful, None otherwise.
+        
+        Raises:
+            MissingCredentialError: If credentials are not provided
         """
+        from ..exceptions import MissingCredentialError
+        
+        # Check if credentials are available
+        if not self._credentials or not self._credentials.twitter_email:
+            raise MissingCredentialError("TWITTER_EMAIL")
+        if not self._credentials or not self._credentials.twitter_password:
+            raise MissingCredentialError("TWITTER_PASSWORD")
+        
         chrome_options = Options()
         # Standard options
         chrome_options.add_argument("--no-sandbox")
@@ -147,98 +627,112 @@ class ScoutAgent(BaseAgent):
             # Try to restore saved session first
             if use_saved_session and self._load_cookies():
                 if self._verify_login_status():
-                    print(f"[{self.agent_id}] Successfully restored session.")
+                    self.logger.info(f"{self.agent_id} successfully restored session")
                     return self.driver
             
             # Perform fresh login
-            print(f"[{self.agent_id}] Performing fresh login...")
+            self.logger.info(f"{self.agent_id} performing fresh login")
             self.driver.get("https://x.com/i/flow/login")
             
             # Wait for and enter email/username
-            print(f"[{self.agent_id}] Entering email...")
+            self.logger.debug(f"{self.agent_id} entering email")
             email_input = WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[autocomplete='username']"))
             )
-            email_input.send_keys(self.email)
+            email_input.send_keys(self._credentials.twitter_email)
             email_input.send_keys(Keys.RETURN)
             time.sleep(2)
             
             # Sometimes Twitter asks for username verification (unusual activity)
             try:
-                print(f"[{self.agent_id}] Checking for username verification prompt...")
+                self.logger.debug(f"{self.agent_id} checking for username verification prompt")
                 username_input = WebDriverWait(self.driver, 5).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "input[data-testid='ocfEnterTextTextInput']"))
                 )
                 # Extract username from email (assumes email format: username@domain.com)
-                username = self.email.split('@')[0]
+                username = self._credentials.twitter_email.split('@')[0]
                 username_input.send_keys(username)
                 username_input.send_keys(Keys.RETURN)
                 time.sleep(2)
-                print(f"[{self.agent_id}] Username verification completed.")
+                self.logger.info(f"{self.agent_id} username verification completed")
             except TimeoutException:
-                print(f"[{self.agent_id}] No username verification required.")
+                self.logger.debug(f"{self.agent_id} no username verification required")
             
             # Wait for and enter password
-            print(f"[{self.agent_id}] Entering password...")
+            self.logger.debug(f"{self.agent_id} entering password")
             password_input = WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='password']"))
             )
-            password_input.send_keys(self.password)
+            password_input.send_keys(self._credentials.twitter_password)
             password_input.send_keys(Keys.RETURN)
             
             # Wait for successful login (home timeline appears)
-            print(f"[{self.agent_id}] Waiting for login to complete...")
+            self.logger.info(f"{self.agent_id} waiting for login to complete")
             WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "[aria-label='Home timeline']"))
             )
             
-            print(f"[{self.agent_id}] Fresh login successful!")
+            self.logger.info(f"{self.agent_id} fresh login successful")
             self._save_cookies()
             return self.driver
             
         except Exception as e:
-            print(f"[{self.agent_id}] An error occurred during login: {e}")
+            self.logger.error(
+                f"{self.agent_id} error during login: {e}",
+                exc_info=True
+            )
             if self.driver:
                 self.driver.quit()
             self.driver = None
             return None
 
 
-    def _search_tweets(self, search_url=None):
+    def _search_tweets(self, search_url: Optional[str] = None) -> list:
         """
         Searches for tweets, scrolls to load more, and triggers extraction.
+        
+        Args:
+            search_url: Optional custom search URL. If None, uses default Marikina flood query.
+        
+        Returns:
+            List of extracted tweet dictionaries
         """
         if search_url is None:
             date = datetime.now().strftime("%Y-%m-%d")
             search_url = f'https://x.com/search?q=%22Marikina%22%20(Baha%20OR%20Flood%20OR%20Ulan%20OR%20Rain%20OR%20pagbaha%20OR%20%22heavy%20rain%22%20OR%20%22water%20level%22)%20since:2025-10-01&f=live'
 
         try:
-            print(f"[{self.agent_id}] Navigating to search URL...")
+            self.logger.debug(f"{self.agent_id} navigating to search URL")
             self.driver.get(search_url)
             
             # Wait for at least one tweet to appear
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='tweet']"))
             )
-            print(f"[{self.agent_id}] Search results loaded.")
+            self.logger.debug(f"{self.agent_id} search results loaded")
             
             # Scroll down to load more tweets from the dynamic feed
-            print(f"[{self.agent_id}] Scrolling to load more tweets...")
+            self.logger.debug(f"{self.agent_id} scrolling to load more tweets")
             for i in range(3): # Scroll 3 times
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(2)
 
             tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid='tweet']")
-            print(f"[{self.agent_id}] Found {len(tweet_elements)} tweet elements on page.")
+            self.logger.info(f"{self.agent_id} found {len(tweet_elements)} tweet elements on page")
             
             extracted_tweets = [self._extract_tweet_data(t) for t in tweet_elements]
             return [t for t in extracted_tweets if t]  # Filter out None values
 
         except TimeoutException:
-            print(f"[{self.agent_id}] No tweets found on page or page took too long to load.")
+            self.logger.warning(
+                f"{self.agent_id} no tweets found on page or page took too long to load"
+            )
             return []
         except Exception as e:
-            print(f"[{self.agent_id}] Error during tweet search: {e}")
+            self.logger.error(
+                f"{self.agent_id} error during tweet search: {e}",
+                exc_info=True
+            )
             return []
 
     def _extract_tweet_data(self, tweet_element):
@@ -302,24 +796,34 @@ class ScoutAgent(BaseAgent):
         unique_string = f"{tweet_data.get('username', '')}_{tweet_data.get('text', '')}_{tweet_data.get('timestamp', '')}"
         return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
-    def _load_master_tweets(self):
+    def _load_master_tweets(self) -> dict:
         """
         Loads the master tweet dictionary from the JSON file.
+        
+        Returns:
+            Dictionary of tweets keyed by tweet ID
         """
         try:
             if os.path.exists(self.master_file):
                 with open(self.master_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    print(f"[{self.agent_id}] Loaded {len(data)} tweets from master file.")
+                    self.logger.info(
+                        f"{self.agent_id} loaded {len(data)} tweets from master file"
+                    )
                     return data
             else:
-                print(f"[{self.agent_id}] Master file not found. A new one will be created.")
+                self.logger.info(
+                    f"{self.agent_id} master file not found, will create new one"
+                )
                 return {}
         except (json.JSONDecodeError, IOError) as e:
-            print(f"[{self.agent_id}] Error loading master file: {e}. Starting fresh.")
+            self.logger.error(
+                f"{self.agent_id} error loading master file: {e}, starting fresh",
+                exc_info=True
+            )
             return {}
 
-    def _save_master_tweets(self):
+    def _save_master_tweets(self) -> None:
         """
         Saves the master tweet dictionary to a JSON file with a backup system.
         """
@@ -339,24 +843,36 @@ class ScoutAgent(BaseAgent):
             # Remove the backup if the save was successful
             if os.path.exists(backup_file):
                 os.remove(backup_file)
+            
+            self.logger.debug(
+                f"{self.agent_id} saved {len(self.master_tweets)} tweets to master file"
+            )
         except Exception as e:
-            print(f"[{self.agent_id}] Error saving master file: {e}. Restoring from backup.")
+            self.logger.error(
+                f"{self.agent_id} error saving master file: {e}, restoring from backup",
+                exc_info=True
+            )
             # Restore the backup if something went wrong
             if os.path.exists(backup_file):
                 os.rename(backup_file, self.master_file)
 
-    def _save_cookies(self):
+    def _save_cookies(self) -> None:
         """Saves the current session cookies to the defined session file path."""
         try:
             # MODIFIED: Uses the self.session_file path
             with open(self.session_file, 'wb') as f:
                 pickle.dump(self.driver.get_cookies(), f)
-            print(f"[{self.agent_id}] Session cookies saved to {self.session_file}")
+            self.logger.info(f"{self.agent_id} session cookies saved to {self.session_file}")
         except Exception as e:
-            print(f"[{self.agent_id}] Error saving cookies: {e}")
+            self.logger.error(f"{self.agent_id} error saving cookies: {e}", exc_info=True)
 
-    def _load_cookies(self):
-        """Loads session cookies from the defined session file path."""
+    def _load_cookies(self) -> bool:
+        """
+        Loads session cookies from the defined session file path.
+        
+        Returns:
+            True if cookies loaded successfully, False otherwise
+        """
         # MODIFIED: Uses the self.session_file path
         if not os.path.exists(self.session_file):
             return False
@@ -367,28 +883,33 @@ class ScoutAgent(BaseAgent):
             self.driver.get("https://x.com")
             for cookie in cookies:
                 self.driver.add_cookie(cookie)
-            print(f"[{self.agent_id}] Session cookies loaded from {self.session_file}")
+            self.logger.info(f"{self.agent_id} session cookies loaded from {self.session_file}")
             return True
         except Exception as e:
-            print(f"[{self.agent_id}] Error loading cookies: {e}")
+            self.logger.error(f"{self.agent_id} error loading cookies: {e}", exc_info=True)
             return False
 
-    def _verify_login_status(self):
-        """Verifies if the driver's session is currently logged in."""
+    def _verify_login_status(self) -> bool:
+        """
+        Verifies if the driver's session is currently logged in.
+        
+        Returns:
+            True if session is valid, False otherwise
+        """
         try:
             # FIX: Uses self.driver
             self.driver.get("https://x.com/home")
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "[aria-label='Home timeline']"))
             )
-            print(f"[{self.agent_id}] Session is valid.")
+            self.logger.info(f"{self.agent_id} session is valid")
             return True
         except TimeoutException:
-            print(f"[{self.agent_id}] Session is invalid or expired.")
+            self.logger.warning(f"{self.agent_id} session is invalid or expired")
             return False
 
 
-    def _export_master_tweets_to_csv(self):
+    def _export_master_tweets_to_csv(self) -> None:
         """Exports the entire master tweet list to a timestamped CSV file."""
         if not self.master_tweets:
             return
@@ -405,6 +926,8 @@ class ScoutAgent(BaseAgent):
                 writer = csv.DictWriter(f, fieldnames=tweets_list[0].keys())
                 writer.writeheader()
                 writer.writerows(tweets_list)
-            print(f"[{self.agent_id}] Exported {len(tweets_list)} tweets to {csv_filename}")
+            self.logger.info(
+                f"{self.agent_id} exported {len(tweets_list)} tweets to {csv_filename}"
+            )
         except Exception as e:
-            print(f"[{self.agent_id}] Error exporting to CSV: {e}")
+            self.logger.error(f"{self.agent_id} error exporting to CSV: {e}", exc_info=True)

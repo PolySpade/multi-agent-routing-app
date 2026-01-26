@@ -1,0 +1,25 @@
+{
+  "generated_at": "2025-11-13T17:49:13.722938",
+  "scenarios": [
+    {
+      "name": "Typhoon Scenario - Heavy Flooding",
+      "tweets": 100,
+      "flood_related": 78,
+      "start_time": "2025-11-13T08:00:00"
+    },
+    {
+      "name": "Monsoon Rain - Moderate Flooding",
+      "tweets": 50,
+      "flood_related": 40,
+      "start_time": "2025-11-12T14:00:00"
+    },
+    {
+      "name": "Light Rain - Minimal Impact",
+      "tweets": 30,
+      "flood_related": 24,
+      "start_time": "2025-11-11T10:00:00"
+    }
+  ],
+  "total_tweets": 180,
+  "total_flood_related": 142
+}

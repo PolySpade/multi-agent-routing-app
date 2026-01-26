@@ -1,524 +1,585 @@
+# filename: app/agents/routing_agent.py
+
 """
 Routing Agent for Multi-Agent System for Flood Route Optimization (MAS-FRO)
 
-This module implements the RoutingAgent class, which serves as the core pathfinding
-component in the MAS-FRO system. The agent performs risk-aware route optimization
-during flood scenarios, prioritizing safety over pure distance minimization.
+Updated version integrated with risk-aware A* algorithm and ACL communication.
 
-Key Features:
-- Risk-aware A* pathfinding algorithm
-- Real-time integration with Dynamic Graph Environment
-- GeoPandas-based spatial queries for evacuation centers
-- Agent Communication Protocol (ACP) compliance
-- Composite risk scoring with hydrological considerations
+VIRTUAL METERS APPROACH:
+This implementation uses a "Risk Penalty" system instead of traditional 0-1 weights
+to fix Heuristic Domination in A* search. Risk scores (0-1) are converted to
+"Virtual Meters" so they operate in the same units as distance:
 
-Research Foundation:
-- Hydrological risk based on energy head (h + v²/2g) from Kreibich et al. (2009)
-- Flow velocity as strong predictor of infrastructure damage
-- Multi-factor risk assessment combining flood, infrastructure, and congestion risks
+  - Safest Mode: risk_penalty = 100,000 (adds 100km per risk unit - prioritize safety)
+  - Balanced Mode: risk_penalty = 2,000 (adds 2km per risk unit - balance safety/speed)
+  - Fastest Mode: risk_penalty = 0 (ignores risk completely - pure shortest path)
+
+Note: All modes still block truly impassable roads (risk >= 0.9) automatically.
+
+This prevents the A* heuristic (pure distance in meters) from dominating the
+risk component and producing dangerous "shortest" routes.
 
 Author: MAS-FRO Development Team
-Date: September 2025
+Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from ..data.data_structures import RouteRequest
-import networkx as nx
-import geopandas as gpd
+from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 import logging
-import time
-from typing import Optional, Dict, Any, Tuple
-import math
+import pandas as pd
 import os
-import random
+from pathlib import Path
+
+if TYPE_CHECKING:
+    from ..environment.graph_manager import DynamicGraphEnvironment
 
 logger = logging.getLogger(__name__)
+
 
 class RoutingAgent(BaseAgent):
     """
     Agent responsible for pathfinding computations in MAS-FRO system.
 
-    This agent performs core pathfinding using a risk-aware A* search algorithm that
-    prioritizes safety by treating impassable roads as having infinite cost and
-    factoring risk scores (0-1 scale) for all other segments. It integrates with the
-    Dynamic Graph Environment for real-time network state updates and uses GeoPandas
-    for spatial queries to locate evacuation centers.
+    This agent performs risk-aware route optimization using the A* algorithm
+    integrated with real-time flood risk data from HazardAgent. It can calculate
+    routes to specific destinations or to nearest evacuation centers.
 
-    The agent follows the Agent Communication Protocol (ACP) for message exchange
-    with other agents in the MAS-FRO system, including Hazard, Flood, and Scout agents.
+    Uses "Virtual Meters" approach to prevent Heuristic Domination:
+    Risk penalties are expressed in virtual meters (not 0-1 weights), ensuring
+    the A* heuristic and risk penalties operate in compatible units.
 
     Attributes:
-        agent_id (str): Unique identifier for this agent instance
-        graph_env: Reference to DynamicGraphEnvironment for network state
-        evacuation_centers (gpd.GeoDataFrame): Loaded evacuation center data
-
-    Research Implementation:
-        - Hydrological Risk: Based on energy head (h + v²/2g) from Kreibich et al. (2009)
-        - Flow Velocity: Strong predictor of infrastructure damage per research findings
-        - Composite Risk: Weighted combination of hydrological, infrastructure, and congestion factors
+        agent_id: Unique identifier for this agent
+        environment: Reference to DynamicGraphEnvironment
+        evacuation_centers: DataFrame of evacuation center locations
+        risk_penalty: Virtual meters added per risk unit (e.g., 2000.0 for balanced)
+        distance_weight: Weight for distance component (always 1.0 for A* consistency)
 
     Example:
-        >>> # Initialize agent in multi-agent environment
-        >>> agent = RoutingAgent("routing_01", env, input_queue, output_queue, graph_env)
-        >>> # Agent will automatically start processing route requests
-
-    Note:
-        Risk scores are currently simulated with placeholders. Integration with Hazard Agent
-        will replace these with actual hydrological data from Flood and Scout agents.
+        >>> env = DynamicGraphEnvironment()
+        >>> agent = RoutingAgent("routing_001", env, risk_penalty=2000.0)
+        >>> route = agent.calculate_route((14.65, 121.10), (14.66, 121.11))
     """
 
-    def __init__(self, agent_id: str, env, input_queue, output_queue, graph_env):
+    def __init__(
+        self,
+        agent_id: str,
+        environment: "DynamicGraphEnvironment",
+        risk_penalty: float = 2000.0,  # BALANCED MODE: 2000 virtual meters per risk unit
+        distance_weight: float = 1.0   # Always 1.0 to preserve A* heuristic consistency
+    ) -> None:
         """
         Initialize the RoutingAgent.
 
-        Args:
-            agent_id (str): Unique identifier for this agent
-            env: SimPy environment for discrete event simulation
-            input_queue: Queue for receiving route requests from other agents
-            output_queue: Queue for sending route responses to other agents
-            graph_env: DynamicGraphEnvironment instance for network state access
+        Virtual Meters Approach:
+        Instead of 0-1 weights, we use a "Risk Penalty" system that converts risk
+        into "Virtual Meters" to fix Heuristic Domination in A* search. This ensures
+        the distance heuristic and risk penalties work in the same units.
 
-        Raises:
-            Exception: If evacuation center data cannot be loaded
+        Args:
+            agent_id: Unique identifier for this agent
+            environment: DynamicGraphEnvironment instance
+            risk_penalty: Virtual meters per risk unit (default: 2000.0 for balanced)
+                - Safest mode: 100000.0 (extreme penalty, prioritize safety)
+                - Balanced mode: 2000.0 (moderate penalty, balance safety/speed)
+                - Fastest mode: 0.0 (no penalty, ignore risk completely)
+            distance_weight: Weight for distance (always 1.0 for A* consistency)
         """
-        super().__init__(agent_id, env, input_queue, output_queue)
-        self.graph_env = graph_env
+        super().__init__(agent_id, environment)
+
+        # Pathfinding configuration using Virtual Meters approach
+        self.risk_penalty = risk_penalty
+        self.distance_weight = distance_weight
+
+        # Load evacuation centers
         self.evacuation_centers = self._load_evacuation_centers()
-        logger.info(f"{self.agent_id} initialized with {len(self.evacuation_centers)} evacuation centers")
-    
-    def _load_evacuation_centers(self) -> gpd.GeoDataFrame:
+
+        logger.info(
+            f"{self.agent_id} initialized with "
+            f"risk_penalty={risk_penalty}, distance_weight={distance_weight}, "
+            f"evacuation_centers={len(self.evacuation_centers)}"
+        )
+
+    def step(self):
         """
-        Load evacuation centers using GeoPandas for spatial operations.
+        Perform one step of agent's operation.
 
-        This method loads evacuation center data from a CSV file and converts it
-        into a GeoDataFrame with proper spatial geometry for efficient spatial
-        queries. The data includes center names, coordinates, capacity, and type.
-
-        Returns:
-            gpd.GeoDataFrame: GeoDataFrame containing evacuation center data with
-                columns: ['name', 'latitude', 'longitude', 'capacity', 'type', 'geometry']
-                Geometry is in EPSG:4326 (WGS84) coordinate system.
-
-        Raises:
-            FileNotFoundError: If evacuation_centers.csv is not found
-            Exception: For other data loading or processing errors
-
-        Note:
-            Falls back to empty GeoDataFrame if loading fails to prevent agent failure.
-            This allows the agent to continue operating even with missing evacuation data.
+        In this implementation, the RoutingAgent is stateless and responds
+        to route requests on-demand rather than running a continuous loop.
         """
-        try:
-            # Load from CSV file
-            data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
-            csv_path = os.path.join(data_dir, 'evacuation_centers.csv')
+        pass
 
-            df = gpd.read_file(csv_path)
-            # Convert to GeoDataFrame with proper geometry
-            df['geometry'] = gpd.points_from_xy(df.longitude, df.latitude)
-            df = gpd.GeoDataFrame(df, geometry='geometry')
-            df.set_crs('EPSG:4326', inplace=True)  # WGS84
-
-            logger.info(f"Loaded {len(df)} evacuation centers")
-            return df
-        except Exception as e:
-            logger.error(f"Failed to load evacuation centers: {e}")
-            # Return empty GeoDataFrame as fallback
-            return gpd.GeoDataFrame(columns=['name', 'latitude', 'longitude', 'capacity', 'type', 'geometry'])
-    
-    def run(self):
+    def calculate_route(
+        self,
+        start: Tuple[float, float],
+        end: Tuple[float, float],
+        preferences: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Process route requests using Agent Communication Protocol.
-
-        Main agent loop that continuously monitors the input queue for route requests,
-        processes them using risk-aware pathfinding, and sends responses via the output
-        queue. Uses SimPy's discrete event simulation framework for timing control.
-
-        The agent follows these steps for each request:
-        1. Check input queue for new messages
-        2. Parse route request messages
-        3. Calculate optimal route using risk-aware A*
-        4. Format response using Agent Communication Protocol
-        5. Send response to output queue
-        6. Wait before checking queue again
-
-        Message Format (ACP):
-            Request: {'type': 'route_request', 'data': RouteRequest, 'sender': str}
-            Response: {
-                'performative': 'inform',
-                'sender': agent_id,
-                'receiver': original_sender,
-                'content': {'type': 'route_response', 'request_id': str, 'route': dict},
-                'language': 'json',
-                'ontology': 'routing'
-            }
-
-        Note:
-            Agent sleeps for 10 seconds between queue checks to prevent excessive CPU usage.
-            Error handling ensures agent continues running even if individual requests fail.
-        """
-        while self.running:
-            try:
-                if self.input_queue and not self.input_queue.empty():
-                    message = self.input_queue.get()
-
-                    if message.get('type') == 'route_request':
-                        route_request = message['data']
-                        logger.info(f"{self.agent_id} processing route request {route_request.request_id}")
-
-                        route = self._calculate_route(route_request)
-
-                        # Use Agent Communication Protocol format
-                        response = {
-                            'performative': 'inform',
-                            'sender': self.agent_id,
-                            'receiver': message.get('sender', 'unknown'),
-                            'content': {
-                                'type': 'route_response',
-                                'request_id': route_request.request_id,
-                                'route': route,
-                                'timestamp': time.time()
-                            },
-                            'language': 'json',
-                            'ontology': 'routing'
-                        }
-                        if self.output_queue:
-                            self.output_queue.put(response)
-                            logger.info(f"{self.agent_id} sent route response for {route_request.request_id}")
-
-                yield self.env.timeout(10)  # Check every 10 seconds
-
-            except Exception as e:
-                logger.error(f"{self.agent_id} error in main loop: {e}")
-                yield self.env.timeout(30)
-    
-    def _calculate_route(self, route_request: RouteRequest) -> dict:
-        """
-        Calculate optimal route using risk-aware A* pathfinding algorithm.
-
-        This method implements the core pathfinding logic using NetworkX's A* algorithm
-        with a custom risk-aware cost function. The algorithm prioritizes safety by
-        treating impassable roads as having infinite cost and factoring risk scores
-        (0-1 scale) for all other segments.
-
-        Algorithm Steps:
-        1. Query current network state from DynamicGraphEnvironment
-        2. Find nearest graph nodes to origin and destination coordinates
-        3. Execute A* search with risk-aware edge weights
-        4. Calculate comprehensive route metrics (distance, risk, safety score)
-        5. Return structured route data or appropriate error messages
+        Calculate optimal route from start to end coordinates.
 
         Args:
-            route_request (RouteRequest): Request containing origin, destination, and metadata
+            start: Starting coordinates (latitude, longitude)
+            end: Ending coordinates (latitude, longitude)
+            preferences: Optional routing preferences
 
         Returns:
-            dict: Route calculation results with the following structure:
-                Success case:
+            Dict containing route information:
                 {
-                    'path': [node_ids],  # List of node IDs forming the route
-                    'total_distance': float,  # Total route distance in meters
-                    'total_risk': float,  # Sum of risk scores along route
-                    'average_risk': float,  # Average risk score (0-1)
-                    'max_risk': float,  # Maximum risk score encountered
-                    'safety_score': float,  # Safety score (1.0 = safest, 0.0 = riskiest)
-                    'computation_time': float,  # Time taken for calculation
-                    'estimated_travel_time': float,  # Estimated travel time in seconds
-                    'success': True,
-                    'request_id': str
+                    "status": "success" | "impassable" | "no_safe_route",
+                    "path": List of (lat, lon) coordinates,
+                    "distance": Total distance in meters,
+                    "estimated_time": Estimated time in minutes,
+                    "risk_level": Average risk score (0-1),
+                    "max_risk": Maximum risk score on route,
+                    "num_segments": Number of road segments,
+                    "warnings": List of warning messages
                 }
-                Error case:
-                {
-                    'error': str,  # User-friendly error message
-                    'success': False,
-                    'request_id': str
-                }
+
+            Status values:
+                - "success": Route found successfully
+                - "impassable": No route exists (fastest mode, all roads blocked)
+                - "no_safe_route": No safe route found (safest/balanced mode)
 
         Raises:
-            No explicit exceptions - all errors are caught and returned as dict
-
-        Note:
-            The safety_score is calculated as (1.0 - average_risk) to provide an
-            intuitive measure where higher values indicate safer routes.
+            ValueError: If coordinates are invalid or graph not loaded
         """
-        start_time = time.time()
+        from ..algorithms.risk_aware_astar import (
+            risk_aware_astar,
+            calculate_path_metrics,
+            get_path_coordinates
+        )
 
-        try:
-            # Get current network state from Dynamic Graph Environment
-            graph = self.graph_env.get_current_state()
+        logger.info(f"{self.agent_id} calculating route: {start} -> {end}")
 
-            # Find nearest graph nodes to origin and destination coordinates
-            origin_node = self._find_nearest_node(graph, route_request.origin)
-            dest_node = self._find_nearest_evacuation_center(graph, route_request.destination)
+        # Validate inputs
+        if not self.environment or not self.environment.graph:
+            raise ValueError("Graph environment not loaded")
 
-            if origin_node is None or dest_node is None:
-                logger.warning(f"No valid start/end points found for request {route_request.request_id}")
-                return {
-                    'error': 'Could not find valid start or end point. Please ensure your location and destination are accessible.',
-                    'success': False,
-                    'request_id': route_request.request_id
-                }
+        # Find nearest nodes in graph
+        start_node = self._find_nearest_node(start)
+        end_node = self._find_nearest_node(end)
 
-            # Execute A* pathfinding with risk-aware cost function
-            try:
-                path = nx.astar_path(
-                    graph,
-                    origin_node,
-                    dest_node,
-                    weight='risk_aware_weight',  # Custom risk-aware edge weight
-                    heuristic=self._distance_heuristic  # Euclidean distance heuristic
+        if not start_node or not end_node:
+            raise ValueError("Could not map coordinates to road network")
+
+        # Apply preferences using Virtual Meters approach
+        # Risk penalties convert risk (0-1) into "Virtual Meters" to match distance units
+        # This prevents the A* heuristic (pure distance) from dominating risk scores
+        risk_penalty = self.risk_penalty
+        distance_weight = self.distance_weight  # Always 1.0
+
+        if preferences:
+            if preferences.get("avoid_floods"):
+                # SAFEST MODE: Massive penalty makes risk dominate routing decisions
+                # 100,000 virtual meters = prefer 100km detour over 1.0 risk road
+                risk_penalty = 100000.0
+                distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
+                logger.info(
+                    f"SAFEST MODE: risk_penalty={risk_penalty}, "
+                    f"distance_weight={distance_weight}"
+                )
+            elif preferences.get("fastest"):
+                # FASTEST MODE: Ignore all risk, traverse any road
+                # risk_penalty = 0.0 means pure distance-based routing
+                # Note: Roads with risk >= 0.9 (impassable) are still blocked by A*
+                risk_penalty = 0.0
+                distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
+                logger.info(
+                    f"FASTEST MODE: risk_penalty={risk_penalty}, "
+                    f"distance_weight={distance_weight} (ignoring risk, blocking impassable only)"
+                )
+        else:
+            logger.info(
+                f"BALANCED MODE: risk_penalty={risk_penalty}, "
+                f"distance_weight={distance_weight}"
+            )
+
+        # Calculate route using risk-aware A*
+        # Note: risk_penalty is passed as risk_weight to maintain API compatibility
+        path_nodes = risk_aware_astar(
+            self.environment.graph,
+            start_node,
+            end_node,
+            risk_weight=risk_penalty,  # Virtual meters per risk unit
+            distance_weight=distance_weight  # Always 1.0
+        )
+
+        if not path_nodes:
+            # Determine appropriate warning and status based on mode
+            if preferences and preferences.get("fastest"):
+                status = "impassable"
+                warning_msg = (
+                    "IMPASSABLE: No route found. All paths contain critically flooded "
+                    "or impassable roads (risk >= 90%). Consider waiting for conditions "
+                    "to improve or using evacuation assistance."
+                )
+            else:
+                status = "no_safe_route"
+                warning_msg = (
+                    "No safe route found. Try 'Fastest' mode to see if any path exists, "
+                    "or consider evacuation to a nearby shelter."
                 )
 
-                # Calculate comprehensive route metrics
-                total_distance = 0
-                total_risk = 0
-                max_risk = 0
-
-                for i in range(len(path) - 1):
-                    u, v = path[i], path[i + 1]
-                    edge_data = graph[u][v][0]  # Get first edge (MultiDiGraph)
-                    total_distance += edge_data.get('length', 0)
-
-                    # Get risk score for this edge segment
-                    edge_id = f"{u}_{v}_0"
-                    risk_score = self._get_risk_score(edge_id)
-                    total_risk += risk_score
-                    max_risk = max(max_risk, risk_score)
-
-                computation_time = time.time() - start_time
-                avg_risk = total_risk / max(1, len(path) - 1)
-                safety_score = 1.0 - min(1.0, avg_risk)  # Convert risk to safety score
-
-                logger.info(f"Route calculated for {route_request.request_id}: {len(path)} nodes, {total_distance:.1f}m, safety: {safety_score:.2f}")
-
-                return {
-                    'path': path,
-                    'total_distance': total_distance,
-                    'total_risk': total_risk,
-                    'average_risk': avg_risk,
-                    'max_risk': max_risk,
-                    'safety_score': safety_score,
-                    'computation_time': computation_time,
-                    'estimated_travel_time': (total_distance / 1000) / 30 * 3600,  # Assuming 30 km/h average speed
-                    'success': True,
-                    'request_id': route_request.request_id
-                }
-
-            except nx.NetworkXNoPath:
-                logger.warning(f"No path found for request {route_request.request_id}")
-                return {
-                    'error': 'No safe route found to the evacuation center. Please seek alternative shelter or wait for updated conditions.',
-                    'success': False,
-                    'request_id': route_request.request_id
-                }
-
-        except Exception as e:
-            logger.error(f"Error calculating route for {route_request.request_id}: {e}")
             return {
-                'error': 'An unexpected error occurred while calculating your route. Please try again.',
-                'success': False,
-                'request_id': route_request.request_id
+                "status": status,
+                "path": [],
+                "distance": 0,
+                "estimated_time": 0,
+                "risk_level": 1.0,
+                "max_risk": 1.0,
+                "warnings": [warning_msg]
             }
-    
-    def _get_risk_score(self, edge_id: str) -> float:
+
+        # Convert to coordinates
+        path_coords = get_path_coordinates(self.environment.graph, path_nodes)
+
+        # Calculate metrics
+        metrics = calculate_path_metrics(self.environment.graph, path_nodes)
+
+        # Generate warnings (pass preferences to customize warnings by mode)
+        warnings = self._generate_warnings(metrics, preferences)
+
+        logger.info(
+            f"{self.agent_id} route calculated: "
+            f"distance={metrics['total_distance']:.0f}m, "
+            f"risk={metrics['average_risk']:.2f}"
+        )
+
+        return {
+            "status": "success",
+            "path": path_coords,
+            "distance": metrics["total_distance"],
+            "estimated_time": metrics["estimated_time"],
+            "risk_level": metrics["average_risk"],
+            "max_risk": metrics["max_risk"],
+            "num_segments": metrics["num_segments"],
+            "warnings": warnings
+        }
+
+    def find_nearest_evacuation_center(
+        self,
+        location: Tuple[float, float],
+        max_centers: int = 5
+    ) -> Optional[Dict[str, Any]]:
         """
-        Get composite risk score for a road segment.
-
-        This method calculates a composite risk score combining multiple risk factors
-        based on research from Kreibich et al. (2009) and other flood risk studies.
-        The score ranges from 0.0 (completely safe) to 1.0 (maximum risk), with
-        float('inf') indicating impassable roads.
-
-        Risk Factors (weighted combination):
-        1. Hydrological Risk (70% weight):
-           - Based on energy head: h + v²/2g (Kreibich et al., 2009)
-           - Water depth (h) and flow velocity (v) are critical predictors
-           - Flow velocity is particularly strong predictor of infrastructure damage
-
-        2. Infrastructure Vulnerability (20% weight):
-           - Road type, material, and condition
-           - Bridge and culvert capacity
-           - Historical damage patterns
-
-        3. Dynamic Congestion (10% weight):
-           - Current traffic density
-           - Emergency vehicle priority routes
-           - Crowd movement patterns
-
-        TODO: Replace placeholder implementation with actual Hazard Agent integration
-        Future implementation will query Hazard Agent which aggregates data from:
-        - Flood Agent: Real-time hydrological data (water levels, velocities)
-        - Scout Agent: Infrastructure assessments and crowd-sourced reports
+        Find nearest evacuation center and calculate route.
 
         Args:
-            edge_id (str): Unique identifier for the road segment (format: "u_v_key")
+            location: Current location (latitude, longitude)
+            max_centers: Maximum number of centers to evaluate
 
         Returns:
-            float: Risk score from 0.0 (safe) to 1.0 (high risk), or float('inf') for impassable
-
-        Note:
-            Current implementation uses placeholder simulation. In production, this will
-            be replaced with real-time data from the multi-agent system.
+            Dict with evacuation center info and route, or None if not found
         """
-        # Get base risk from Dynamic Graph Environment
-        base_risk = self.graph_env._risk_scores.get(edge_id, 0.0)
+        from ..algorithms.path_optimizer import optimize_evacuation_route
 
-        # Handle impassable roads (infinite cost for A* algorithm)
-        if base_risk == float('inf'):
-            return float('inf')  # Impassable road
+        logger.info(f"{self.agent_id} finding nearest evacuation center from {location}")
 
-        # PLACEHOLDER: Simulate flood risk based on edge location
-        # In real implementation, this would come from Hazard Agent
-        # which aggregates data from Flood Agent and Scout Agent
-        flood_risk = random.uniform(0, 0.3) if random.random() < 0.2 else 0.0
+        if self.evacuation_centers.empty:
+            logger.warning("No evacuation centers loaded")
+            return None
 
-        # Composite score: weighted combination of risk factors
-        # 70% hydrological/infrastructure, 30% dynamic factors
-        composite_risk = min(1.0, 0.7 * base_risk + 0.3 * flood_risk)
+        # Prepare evacuation center data
+        centers = []
+        for _, row in self.evacuation_centers.head(max_centers).iterrows():
+            center_location = (row['latitude'], row['longitude'])
+            center_node = self._find_nearest_node(center_location)
 
-        return composite_risk
-    
-    def _find_nearest_node(self, graph: nx.MultiDiGraph, location: Tuple[float, float]) -> Optional[int]:
+            if center_node:
+                centers.append({
+                    "name": row['name'],
+                    "location": center_location,
+                    "capacity": row.get('capacity', 0),
+                    "type": row.get('type', 'shelter'),
+                    "node_id": center_node
+                })
+
+        if not centers:
+            return None
+
+        # Use path optimizer to find best evacuation route
+        result = optimize_evacuation_route(
+            self.environment.graph,
+            location,
+            centers,
+            max_centers=max_centers
+        )
+
+        if result:
+            # Convert path to coordinates
+            from ..algorithms.risk_aware_astar import get_path_coordinates
+            path_coords = get_path_coordinates(self.environment.graph, result["path"])
+            result["path"] = path_coords
+
+        return result
+
+    def calculate_alternative_routes(
+        self,
+        start: Tuple[float, float],
+        end: Tuple[float, float],
+        k: int = 3
+    ) -> List[Dict[str, Any]]:
         """
-        Find the nearest graph node to given geographic coordinates.
-
-        This method maps user-provided coordinates (latitude, longitude) to the nearest
-        node in the road network graph. This is crucial for converting user locations
-        into graph nodes that can be used in pathfinding algorithms.
-
-        The method uses OSMnx's nearest_nodes function which efficiently finds the
-        closest node using spatial indexing. Falls back to simple node selection
-        if OSMnx is not available or fails.
+        Calculate k alternative routes.
 
         Args:
-            graph (nx.MultiDiGraph): The road network graph with geographic node coordinates
-            location (Tuple[float, float]): Geographic coordinates as (latitude, longitude)
+            start: Starting coordinates
+            end: Ending coordinates
+            k: Number of alternative routes to find
 
         Returns:
-            Optional[int]: Node ID of the nearest graph node, or None if not found
-
-        Note:
-            Coordinates should be in WGS84 (EPSG:4326) format as used by OpenStreetMap.
-            The graph nodes must have 'x' (longitude) and 'y' (latitude) attributes.
+            List of route dictionaries, sorted by combined score
         """
+        from ..algorithms.path_optimizer import find_k_shortest_paths
+        from ..algorithms.risk_aware_astar import get_path_coordinates
+
+        logger.info(f"{self.agent_id} finding {k} alternative routes")
+
+        start_node = self._find_nearest_node(start)
+        end_node = self._find_nearest_node(end)
+
+        if not start_node or not end_node:
+            return []
+
+        alternatives = find_k_shortest_paths(
+            self.environment.graph,
+            start_node,
+            end_node,
+            k=k,
+            risk_weight=self.risk_penalty,  # Virtual meters per risk unit
+            distance_weight=self.distance_weight  # Always 1.0
+        )
+
+        # Convert paths to coordinates and add warnings
+        result = []
+        for alt in alternatives:
+            path_coords = get_path_coordinates(self.environment.graph, alt["path"])
+            warnings = self._generate_warnings(alt["metrics"])
+
+            result.append({
+                "rank": alt["rank"],
+                "path": path_coords,
+                "distance": alt["metrics"]["total_distance"],
+                "estimated_time": alt["metrics"]["estimated_time"],
+                "risk_level": alt["metrics"]["average_risk"],
+                "max_risk": alt["metrics"]["max_risk"],
+                "warnings": warnings
+            })
+
+        return result
+
+    def _find_nearest_node(
+        self,
+        coords: Tuple[float, float],
+        max_distance: float = 500.0
+    ) -> Optional[Any]:
+        """
+        Find nearest graph node to given coordinates using osmnx.
+
+        Performance: O(log N) using spatial indexing instead of O(N) brute-force.
+
+        Args:
+            coords: Target coordinates (latitude, longitude)
+            max_distance: Maximum search distance in meters
+
+        Returns:
+            Nearest node ID or None if not found
+        """
+        if not self.environment or not self.environment.graph:
+            return None
+
+        target_lat, target_lon = coords
+
         try:
+            # Use osmnx for efficient nearest node lookup (O(log N) via spatial index)
             import osmnx as ox
-            # OSMnx expects (longitude, latitude) format
-            return ox.distance.nearest_nodes(graph, location[1], location[0])
-        except Exception as e:
-            logger.warning(f"OSMnx nearest node search failed: {e}")
-            # Fallback: return first available node
-            nodes = list(graph.nodes())
-            return nodes[0] if nodes else None
-    
-    def _find_nearest_evacuation_center(self, graph: nx.MultiDiGraph, destination: str) -> Optional[int]:
-        """
-        Find the nearest graph node to a specified evacuation center.
 
-        This method handles two types of destination specifications:
-        1. Evacuation center name (e.g., "Marikina Sports Center")
-        2. Geographic coordinates (e.g., "14.6507,121.1029")
+            nearest_node = ox.distance.nearest_nodes(
+                self.environment.graph,
+                X=target_lon,  # osmnx uses X=longitude, Y=latitude
+                Y=target_lat
+            )
 
-        For name-based lookups, it searches the evacuation_centers GeoDataFrame
-        using case-insensitive string matching. For coordinate-based lookups,
-        it parses the coordinate string and creates a GeoPandas point.
+            # Verify distance is within max_distance threshold
+            from ..algorithms.risk_aware_astar import haversine_distance
+            node_lat = self.environment.graph.nodes[nearest_node]['y']
+            node_lon = self.environment.graph.nodes[nearest_node]['x']
 
-        Once the destination point is determined, it finds the nearest graph node
-        using OSMnx's spatial indexing for efficient nearest-neighbor search.
+            distance = haversine_distance(
+                (target_lat, target_lon),
+                (node_lat, node_lon)
+            )
 
-        Args:
-            graph (nx.MultiDiGraph): The road network graph
-            destination (str): Either evacuation center name or "lat,lon" coordinates
-
-        Returns:
-            Optional[int]: Node ID of nearest graph node to destination, or None if not found
-
-        Raises:
-            No explicit exceptions - all errors are logged and handled gracefully
-
-        Note:
-            Falls back to last graph node if spatial queries fail, ensuring agent stability.
-            Coordinate format should be "latitude,longitude" (WGS84).
-        """
-        try:
-            if self.evacuation_centers.empty:
-                logger.warning("No evacuation centers loaded")
+            if distance > max_distance:
+                logger.warning(
+                    f"Nearest node is {distance:.0f}m away "
+                    f"(exceeds max_distance of {max_distance:.0f}m)"
+                )
                 return None
 
-            # Determine destination point based on input format
-            if ',' in destination:
-                # Coordinate format: "lat,lon"
-                try:
-                    lat, lon = map(float, destination.split(','))
-                    dest_point = gpd.points_from_xy([lon], [lat])[0]
-                    logger.debug(f"Using coordinate destination: {lat}, {lon}")
-                except ValueError:
-                    logger.error(f"Invalid destination coordinates: {destination}")
-                    return None
-            else:
-                # Name-based lookup
-                center_matches = self.evacuation_centers[
-                    self.evacuation_centers['name'].str.contains(destination, case=False)
-                ]
-                if center_matches.empty:
-                    logger.warning(f"Evacuation center '{destination}' not found")
-                    return None
-                dest_point = center_matches.iloc[0]['geometry']
-                logger.debug(f"Found evacuation center: {center_matches.iloc[0]['name']}")
-
-            # Find nearest graph node using spatial indexing
-            import osmnx as ox
-            nearest_node = ox.distance.nearest_nodes(graph, dest_point.x, dest_point.y)
-            logger.debug(f"Nearest graph node to destination: {nearest_node}")
             return nearest_node
 
         except Exception as e:
-            logger.error(f"Error finding nearest evacuation center: {e}")
-            # Fallback: return last available node to prevent agent failure
-            nodes = list(graph.nodes())
-            fallback_node = nodes[-1] if nodes else None
-            logger.warning(f"Using fallback node: {fallback_node}")
-            return fallback_node
-    
-    def _distance_heuristic(self, u: int, v: int) -> float:
+            # Fallback to brute-force if osmnx fails (should be rare)
+            logger.warning(
+                f"osmnx nearest_nodes failed ({e}), falling back to brute-force search"
+            )
+
+            from ..algorithms.risk_aware_astar import haversine_distance
+            nearest_node = None
+            min_distance = float('inf')
+
+            for node in self.environment.graph.nodes():
+                node_lat = self.environment.graph.nodes[node]['y']
+                node_lon = self.environment.graph.nodes[node]['x']
+
+                distance = haversine_distance(
+                    (target_lat, target_lon),
+                    (node_lat, node_lon)
+                )
+
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_node = node
+
+            if min_distance > max_distance:
+                logger.warning(
+                    f"Nearest node is {min_distance:.0f}m away "
+                    f"(exceeds max_distance of {max_distance:.0f}m)"
+                )
+                return None
+
+            return nearest_node
+
+    def _generate_warnings(
+        self,
+        metrics: Dict[str, float],
+        preferences: Optional[Dict[str, Any]] = None
+    ) -> List[str]:
         """
-        Calculate Euclidean distance heuristic for A* pathfinding.
-
-        This heuristic function estimates the straight-line distance between two graph nodes,
-        providing an admissible heuristic for the A* algorithm. The distance is calculated
-        using the Haversine formula approximation for geographic coordinates.
-
-        The heuristic is admissible (never overestimates) because it represents the minimum
-        possible distance between two points (straight line), while the actual path must
-        follow roads which may be longer.
+        Generate warning messages based on route metrics.
 
         Args:
-            u (int): Source node ID
-            v (int): Target node ID
+            metrics: Path metrics dictionary
+            preferences: Optional routing preferences (to customize warnings by mode)
 
         Returns:
-            float: Estimated distance in meters between nodes u and v
+            List of warning messages
+        """
+        warnings = []
 
-        Note:
-            - Uses graph node attributes 'x' (longitude) and 'y' (latitude)
-            - Converts degrees to meters using approximate conversion factor (111,000 m/degree)
-            - Returns 0.0 if coordinate data is unavailable (falls back to Dijkstra-like behavior)
-            - This is an admissible heuristic, ensuring A* finds optimal paths
+        avg_risk = metrics.get("average_risk", 0)
+        max_risk = metrics.get("max_risk", 0)
+        is_fastest_mode = preferences and preferences.get("fastest")
+
+        # Special warning for fastest mode with high risk
+        if is_fastest_mode and (max_risk >= 0.5 or avg_risk >= 0.3):
+            warnings.append(
+                "FASTEST MODE ACTIVE: This route ignores flood risk. "
+                f"Max risk: {max_risk:.1%}, Avg risk: {avg_risk:.1%}. "
+                "Expect flooded roads and hazardous conditions."
+            )
+
+        # Standard risk warnings (apply to all modes)
+        if max_risk >= 0.9:
+            warnings.append(
+                "CRITICAL: Route contains impassable or extremely dangerous roads. "
+                "Consider alternative route or evacuation."
+            )
+        elif max_risk >= 0.7:
+            warnings.append(
+                "WARNING: Route contains high-risk flood areas. "
+                "Exercise extreme caution and monitor conditions."
+            )
+        elif avg_risk >= 0.5 and not is_fastest_mode:
+            # Don't duplicate warning in fastest mode (already warned above)
+            warnings.append(
+                "CAUTION: Moderate flood risk on this route. "
+                "Drive slowly and be prepared for water on roads."
+            )
+
+        if metrics.get("total_distance", 0) > 10000:
+            warnings.append(
+                "This is a long route. Consider fuel and time requirements."
+            )
+
+        return warnings
+
+    def _load_evacuation_centers(self) -> pd.DataFrame:
+        """
+        Load evacuation center data from CSV file.
+
+        Returns:
+            DataFrame with evacuation center information
         """
         try:
-            graph = self.graph_env.graph
-            u_data = graph.nodes[u]
-            v_data = graph.nodes[v]
+            # Try multiple possible paths
+            possible_paths = [
+                Path(__file__).parent.parent / "data" / "evacuation_centers.csv",
+                Path(__file__).parent.parent.parent / "data" / "evacuation_centers.csv",
+            ]
 
-            # Extract coordinates (OSMnx format: x=longitude, y=latitude)
-            lat1, lon1 = u_data.get('y', 0), u_data.get('x', 0)
-            lat2, lon2 = v_data.get('y', 0), v_data.get('x', 0)
+            for csv_path in possible_paths:
+                if csv_path.exists():
+                    df = pd.read_csv(csv_path)
+                    logger.info(f"Loaded {len(df)} evacuation centers from {csv_path}")
+                    return df
 
-            # Euclidean distance approximation for geographic coordinates
-            # Convert to meters using 111,000 m/degree approximation
-            distance_meters = ((lat2 - lat1) ** 2 + (lon2 - lon1) ** 2) ** 0.5 * 111000
-
-            return distance_meters
+            # If no file found, create sample data
+            logger.warning("Evacuation centers file not found, creating sample data")
+            return self._create_sample_evacuation_centers()
 
         except Exception as e:
-            logger.warning(f"Error calculating distance heuristic for nodes {u}->{v}: {e}")
-            # Return 0 to fall back to Dijkstra-like behavior (uniform cost)
-            return 0.0
+            logger.error(f"Failed to load evacuation centers: {e}")
+            return pd.DataFrame(
+                columns=['name', 'latitude', 'longitude', 'capacity', 'type']
+            )
+
+    def _create_sample_evacuation_centers(self) -> pd.DataFrame:
+        """
+        Create sample evacuation center data for testing.
+
+        Returns:
+            DataFrame with sample evacuation centers
+        """
+        sample_data = [
+            {
+                "name": "Marikina Elementary School",
+                "latitude": 14.6507,
+                "longitude": 121.1029,
+                "capacity": 200,
+                "type": "school"
+            },
+            {
+                "name": "Marikina Sports Center",
+                "latitude": 14.6545,
+                "longitude": 121.1089,
+                "capacity": 500,
+                "type": "gymnasium"
+            },
+            {
+                "name": "Barangay Concepcion Covered Court",
+                "latitude": 14.6480,
+                "longitude": 121.0980,
+                "capacity": 150,
+                "type": "covered_court"
+            },
+        ]
+
+        return pd.DataFrame(sample_data)
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get routing agent statistics.
+
+        Returns:
+            Dict with agent statistics
+        """
+        return {
+            "agent_id": self.agent_id,
+            "risk_penalty": self.risk_penalty,  # Virtual meters per risk unit
+            "distance_weight": self.distance_weight,
+            "evacuation_centers": len(self.evacuation_centers),
+            "graph_loaded": bool(self.environment and self.environment.graph)
+        }
