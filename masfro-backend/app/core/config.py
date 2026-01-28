@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     TWITTER_EMAIL: str
     TWITTER_PASSWORD: str
+    OPENWEATHERMAP_API_KEY: str
 
     # Security settings
     ALLOWED_ORIGINS: str = "http://localhost:3000"

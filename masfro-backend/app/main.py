@@ -440,7 +440,6 @@ scout_agent = ScoutAgent(
     environment,
     message_queue=message_queue,    # MAS communication
     hazard_agent_id="hazard_agent_001",  # Target agent for messages
-    simulation_mode=True,          # Use synthetic data
     simulation_scenario=1,          # Light scenario
     use_ml_in_simulation=True       # Enable ML models for prediction
 )
