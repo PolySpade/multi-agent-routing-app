@@ -81,10 +81,10 @@ class TestScoutMLProcessing:
 
     def test_initialization_with_ml_enabled(self, mock_environment):
         """Test that scout agent initializes with ML processing enabled."""
+        # Note: simulation_mode is always True now (hardcoded in ScoutAgent)
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             simulation_scenario=1,
             use_ml_in_simulation=True  # Enable ML processing
         )
@@ -96,10 +96,10 @@ class TestScoutMLProcessing:
 
     def test_initialization_with_ml_disabled(self, mock_environment):
         """Test that scout agent initializes with ML processing disabled (legacy mode)."""
+        # Note: simulation_mode is always True now (hardcoded in ScoutAgent)
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             simulation_scenario=1,
             use_ml_in_simulation=False  # Disable ML, use ground truth
         )
@@ -111,7 +111,6 @@ class TestScoutMLProcessing:
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             use_ml_in_simulation=True
         )
 
@@ -130,7 +129,6 @@ class TestScoutMLProcessing:
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             use_ml_in_simulation=False
         )
 
@@ -151,11 +149,10 @@ class TestScoutMLProcessing:
         sample_simulation_tweets
     ):
         """Test that step() method processes tweets through ML when enabled."""
+        # Note: hazard_agent is no longer a parameter, uses message_queue instead
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            hazard_agent=mock_hazard_agent,
-            simulation_mode=True,
             use_ml_in_simulation=True
         )
 
@@ -182,7 +179,6 @@ class TestScoutMLProcessing:
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             use_ml_in_simulation=True
         )
 
@@ -207,7 +203,6 @@ class TestScoutMLProcessing:
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            simulation_mode=True,
             use_ml_in_simulation=True
         )
 
@@ -226,11 +221,10 @@ class TestScoutMLProcessing:
 
     def test_full_ml_pipeline(self, mock_environment, mock_hazard_agent):
         """Integration test: Full ML pipeline from raw text to processed report."""
+        # Note: hazard_agent is no longer a parameter, uses message_queue instead
         agent = ScoutAgent(
             agent_id="test_scout",
             environment=mock_environment,
-            hazard_agent=mock_hazard_agent,
-            simulation_mode=True,
             use_ml_in_simulation=True
         )
 

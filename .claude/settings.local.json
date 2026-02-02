@@ -60,7 +60,9 @@
       "mcp__plugin_serena_serena__get_symbols_overview",
       "mcp__plugin_serena_serena__find_symbol",
       "mcp__plugin_serena_serena__list_memories",
-      "Bash(.venvScriptsactivate)"
+      "Bash(.venvScriptsactivate)",
+      "Bash(if not exist \"C:\\Users\\Donald\\Documents\\Code\\multi-agent-routing-app\\masfro-backend\\tests\" mkdir \"C:\\Users\\Donald\\Documents\\Code\\multi-agent-routing-app\\masfro-backend\\tests\")",
+      "Bash(ping:*)"
     ],
     "deny": []
   }

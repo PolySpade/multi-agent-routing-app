@@ -22,6 +22,7 @@ Date: November 2025
 
 from .base_agent import BaseAgent
 from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
+from collections import deque
 import logging
 from datetime import datetime
 import uuid
@@ -86,12 +87,13 @@ class EvacuationManagerAgent(BaseAgent):
         self.message_queue = message_queue
         self.hazard_agent_id = "hazard_agent_001"  # Target agent ID for messages
 
-        # Request and feedback tracking
-        self.route_history: List[Dict[str, Any]] = []
-        self.feedback_history: List[Dict[str, Any]] = []
-
         # Configuration
         self.max_history_size = 1000
+
+        # Request and feedback tracking (use deque for O(1) automatic eviction)
+        # Issue #15 fix: Prevents memory leaks and O(N) list slicing
+        self.route_history: deque = deque(maxlen=self.max_history_size)
+        self.feedback_history: deque = deque(maxlen=self.max_history_size)
 
         logger.info(f"{self.agent_id} initialized with MessageQueue support")
 
@@ -104,12 +106,8 @@ class EvacuationManagerAgent(BaseAgent):
         """
         logger.debug(f"{self.agent_id} performing step at {datetime.now()}")
 
-        # Maintenance: Clean old history if needed
-        if len(self.route_history) > self.max_history_size:
-            self.route_history = self.route_history[-self.max_history_size:]
-
-        if len(self.feedback_history) > self.max_history_size:
-            self.feedback_history = self.feedback_history[-self.max_history_size:]
+        # Note: History cleanup is now automatic via deque(maxlen=...)
+        # No manual slicing needed - deque handles O(1) eviction
 
     def set_routing_agent(self, routing_agent) -> None:
         """

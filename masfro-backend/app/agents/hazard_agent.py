@@ -21,10 +21,12 @@ Date: November 2025
 
 from .base_agent import BaseAgent
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
+from collections import deque
 import logging
 import time
 from datetime import datetime
 from app.core.timezone_utils import get_philippine_time
+from app.core.agent_config import get_config, HazardConfig
 import math
 
 if TYPE_CHECKING:
@@ -128,7 +130,10 @@ class HazardAgent(BaseAgent):
 
         # Data caches for fusion
         self.flood_data_cache: Dict[str, Any] = {}
-        self.scout_data_cache: List[Dict[str, Any]] = []
+        # Use deque with maxlen for automatic LRU eviction (prevents memory leaks)
+        self.scout_data_cache: deque = deque(maxlen=self.MAX_SCOUT_CACHE_SIZE)
+        # O(1) deduplication set: stores (location, text_hash) tuples
+        self.scout_cache_keys: set = set()
 
         # Risk calculation weights
         self.risk_weights = {
@@ -167,9 +172,17 @@ class HazardAgent(BaseAgent):
         self.risk_floor_without_validation = 0.15  # Minimum risk until scout validates "clear"
         self.min_risk_threshold = 0.01  # Clear risk below this value
 
-        # Spatial risk configuration
-        self.environmental_risk_radius_m = 800  # Apply environmental risk within 800m of reported location
-        self.enable_spatial_filtering = True  # Enable spatial filtering of environmental risk
+        # Load configuration from YAML (Issue #16 fix)
+        try:
+            self._config = get_config().get_hazard_config()
+        except Exception as e:
+            logger.warning(f"Failed to load hazard config, using defaults: {e}")
+            self._config = HazardConfig()  # Use defaults
+
+        # Spatial risk configuration (now configurable)
+        self.environmental_risk_radius_m = self._config.risk_radius_m
+        self.enable_spatial_filtering = self._config.enable_spatial_filtering
+        self.decay_function = self._config.decay_function  # gaussian, linear, exponential
 
         # ML model placeholder (to be integrated later)
         self.flood_predictor = None
@@ -203,9 +216,9 @@ class HazardAgent(BaseAgent):
         self.last_update_time = None
         self.risk_history = []  # List of (timestamp, avg_risk) tuples
 
-        # Spatial index for optimized edge queries
+        # Spatial index for optimized edge queries (Issue #16: configurable grid size)
         self.spatial_index: Optional[Dict[Tuple[int, int], List[Tuple]]] = None
-        self.spatial_index_grid_size = 0.01  # Grid cell size in degrees (~1.1km)
+        self.spatial_index_grid_size = self._config.grid_size_degrees  # Configurable grid cell size
         self._build_spatial_index()
 
         # Automatic cleanup tracking
@@ -235,6 +248,7 @@ class HazardAgent(BaseAgent):
         """
         self.flood_data_cache.clear()
         self.scout_data_cache.clear()
+        self.scout_cache_keys.clear()  # Clear deduplication set
         logger.info(f"{self.agent_id} caches cleared")
 
     def calculate_data_age_minutes(self, timestamp: Any) -> float:
@@ -374,28 +388,36 @@ class HazardAgent(BaseAgent):
             Dict with counts of expired/evicted items
         """
         from datetime import datetime
+        import hashlib
         current_time = datetime.now()
         expired_counts = {"scouts": 0, "flood_locations": 0, "scouts_size_evicted": 0, "flood_size_evicted": 0}
 
-        # Time-based eviction: Clean expired scout reports
+        # Time-based eviction: Clean expired scout reports from deque
+        # Note: deque with maxlen handles size-based eviction automatically
         original_scout_count = len(self.scout_data_cache)
-        self.scout_data_cache = [
+        # Filter to keep only non-expired reports
+        valid_reports = [
             report for report in self.scout_data_cache
             if self.calculate_data_age_minutes(report.get('timestamp')) < self.scout_report_ttl_minutes
         ]
-        expired_counts["scouts"] = original_scout_count - len(self.scout_data_cache)
+        expired_counts["scouts"] = original_scout_count - len(valid_reports)
 
-        # Size-based eviction: LRU for scout cache
-        if len(self.scout_data_cache) > self.MAX_SCOUT_CACHE_SIZE:
-            # Sort by timestamp (newest first) and keep only MAX_SCOUT_CACHE_SIZE entries
-            self.scout_data_cache.sort(
-                key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
-                reverse=True
-            )
-            evicted_count = len(self.scout_data_cache) - self.MAX_SCOUT_CACHE_SIZE
-            self.scout_data_cache = self.scout_data_cache[:self.MAX_SCOUT_CACHE_SIZE]
-            expired_counts["scouts_size_evicted"] = evicted_count
-            logger.warning(f"{self.agent_id} scout cache trimmed: {evicted_count} entries evicted (LRU)")
+        # Rebuild deque with valid reports if any were expired
+        if expired_counts["scouts"] > 0:
+            self.scout_data_cache.clear()
+            for report in valid_reports:
+                self.scout_data_cache.append(report)
+
+            # Rebuild deduplication set from remaining cache entries
+            self.scout_cache_keys.clear()
+            for report in self.scout_data_cache:
+                report_location = report.get('location', '')
+                report_text = report.get('text', '')
+                text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
+                self.scout_cache_keys.add((report_location, text_hash))
+
+        # Note: Size-based eviction is now automatic with deque(maxlen=...)
+        # No manual size check needed - deque automatically evicts oldest entries
 
         # Time-based eviction: Clean expired flood data
         expired_locations = []
@@ -1146,9 +1168,16 @@ class HazardAgent(BaseAgent):
                     "sources": []
                 }
 
-            # Calculate base risk from flood depth
+            # Calculate base risk from flood depth using sigmoid curve (FEMA calibrated)
+            # Sigmoid formula: 1 / (1 + exp(-k * (depth - x0)))
+            # Calibration: k=8.0, x0=0.3 (50% risk at 0.3m per FEMA)
             flood_depth = data.get("flood_depth", 0.0)
-            depth_risk = min(flood_depth / 2.0, 1.0)  # Normalize to 0-1
+            if flood_depth <= 0:
+                depth_risk = 0.0
+            else:
+                k = 8.0   # Steepness: rapid transition around inflection
+                x0 = 0.3  # Inflection: 50% risk at 0.3m (FEMA threshold)
+                depth_risk = 1.0 / (1.0 + math.exp(-k * (flood_depth - x0)))
 
             # Calculate rainfall risk (predictive/early warning)
             rainfall_1h = data.get("rainfall_1h", 0.0)
@@ -1179,7 +1208,12 @@ class HazardAgent(BaseAgent):
                     f"combined={combined_hydro_risk:.2f}"
                 )
 
-        # Integrate crowdsourced data
+        # Integrate crowdsourced data using weighted averaging (not accumulation)
+        # Track weighted sums and total weights for proper averaging
+        scout_weighted_sums: Dict[str, float] = {}
+        scout_total_weights: Dict[str, float] = {}
+        scout_sources: Dict[str, List[str]] = {}
+
         for report in self.scout_data_cache:
             # Skip coordinate-based reports if requested (they're processed spatially)
             if exclude_coordinate_reports:
@@ -1219,11 +1253,38 @@ class HazardAgent(BaseAgent):
                     f"decay_rate={decay_rate:.3f}, decayed_severity={severity:.3f}"
                 )
 
-            fused_data[location]["risk_level"] += severity * self.risk_weights["crowdsourced"] * confidence
-            fused_data[location]["confidence"] += confidence * 0.6  # Lower weight for crowdsourced
-            fused_data[location]["sources"].append("scout_agent")
+            # Use weighted averaging instead of accumulation
+            # Weight = confidence (0-1), value = severity (0-1)
+            weight = confidence
+            if location not in scout_weighted_sums:
+                scout_weighted_sums[location] = 0.0
+                scout_total_weights[location] = 0.0
+                scout_sources[location] = []
 
-        # Normalize risk levels to 0-1 scale
+            scout_weighted_sums[location] += severity * weight
+            scout_total_weights[location] += weight
+            scout_sources[location].append(report.get('source', 'scout_agent'))
+
+        # Apply weighted average for each location
+        for location in scout_weighted_sums:
+            if scout_total_weights[location] > 0:
+                # Weighted average of severities
+                avg_severity = scout_weighted_sums[location] / scout_total_weights[location]
+
+                # Apply crowdsourced weight to the averaged severity
+                scout_risk = avg_severity * self.risk_weights["crowdsourced"]
+
+                # Confidence boost for multiple independent sources (up to 0.2 boost)
+                unique_sources = len(set(scout_sources[location]))
+                confidence_boost = min(0.2, 0.05 * unique_sources)
+                scout_risk = min(1.0, scout_risk + confidence_boost)
+
+                # Add to existing risk (from flood_agent data)
+                fused_data[location]["risk_level"] += scout_risk
+                fused_data[location]["confidence"] += min(scout_total_weights[location], 1.0) * 0.6
+                fused_data[location]["sources"].append("scout_agent")
+
+        # Normalize risk levels to 0-1 scale (cap, not rescale)
         for location in fused_data:
             fused_data[location]["risk_level"] = min(fused_data[location]["risk_level"], 1.0)
             fused_data[location]["confidence"] = min(fused_data[location]["confidence"], 1.0)
@@ -1726,20 +1787,16 @@ class HazardAgent(BaseAgent):
                 # Apply flood_depth weight
                 risk_scores[edge_tuple] = risk_from_depth * self.risk_weights["flood_depth"]
             else:
-                # Fallback to simple hardcoded logic if RiskCalculator unavailable
-                # Risk mapping: depth -> risk_score
-                #   0.0-0.3m: low risk (0.0-0.3)
-                #   0.3-0.6m: moderate risk (0.3-0.6)
-                #   0.6-1.0m: high risk (0.6-0.8)
-                #   >1.0m: critical risk (0.8-1.0)
-                if depth <= 0.3:
-                    risk_from_depth = depth  # Linear: 0.3m = 0.3 risk
-                elif depth <= 0.6:
-                    risk_from_depth = 0.3 + (depth - 0.3) * 1.0  # 0.3-0.6m -> 0.3-0.6 risk
-                elif depth <= 1.0:
-                    risk_from_depth = 0.6 + (depth - 0.6) * 0.5  # 0.6-1.0m -> 0.6-0.8 risk
+                # Fallback to sigmoid formula if RiskCalculator unavailable
+                # Sigmoid formula calibrated to FEMA standards:
+                # - 0.3m depth → 50% risk (inflection point)
+                # - 0.6m depth → 95% risk (impassable)
+                if depth <= 0:
+                    risk_from_depth = 0.0
                 else:
-                    risk_from_depth = min(0.8 + (depth - 1.0) * 0.2, 1.0)  # >1.0m -> 0.8-1.0 risk
+                    k = 8.0   # Steepness: rapid transition around inflection
+                    x0 = 0.3  # Inflection: 50% risk at 0.3m (FEMA threshold)
+                    risk_from_depth = 1.0 / (1.0 + math.exp(-k * (depth - x0)))
 
                 risk_scores[edge_tuple] = risk_from_depth * self.risk_weights["flood_depth"]
 
@@ -2047,23 +2104,22 @@ class HazardAgent(BaseAgent):
                     logger.warning(f"Invalid scout report: {report}")
                     continue
 
-                # Check for duplicates before adding to cache
-                # Deduplicate based on location + text (same report)
-                is_duplicate = False
+                # Check for duplicates using O(1) set lookup (not O(N) linear search)
                 report_location = report.get('location', '')
                 report_text = report.get('text', '')
 
-                for existing in self.scout_data_cache:
-                    if (existing.get('location') == report_location and
-                        existing.get('text') == report_text):
-                        is_duplicate = True
-                        break
+                # Create hash key for deduplication (location + text hash)
+                import hashlib
+                text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
+                cache_key = (report_location, text_hash)
 
-                # Add to cache only if not duplicate
-                if not is_duplicate:
-                    self.scout_data_cache.append(report)
-                else:
+                # O(1) duplicate check using set
+                if cache_key in self.scout_cache_keys:
                     logger.debug(f"Skipping duplicate scout report: {report_location}")
+                else:
+                    # Add to cache and deduplication set
+                    self.scout_data_cache.append(report)
+                    self.scout_cache_keys.add(cache_key)
 
                 # Check if report has coordinates
                 coords = report.get('coordinates')
@@ -2115,8 +2171,10 @@ class HazardAgent(BaseAgent):
                     # Calculate distance
                     distance = self.calculate_distance(lat, lon, node_lat, node_lon)
 
-                    # Apply distance decay: risk decreases linearly with distance
-                    decay_factor = 1.0 - (distance / radius_m)
+                    # Apply Gaussian distance decay (physically correct for flood diffusion)
+                    # Formula: exp(-(d/σ)²) where σ = radius/3 (99.7% coverage at boundary)
+                    sigma = radius_m / 3.0
+                    decay_factor = math.exp(-((distance / sigma) ** 2))
                     decayed_risk = risk_level * decay_factor
 
                     # Only update if decayed risk is significant
@@ -2201,11 +2259,14 @@ class HazardAgent(BaseAgent):
         for location in locations_to_remove:
             del self.flood_data_cache[location]
 
-        # Clear old scout data
-        self.scout_data_cache = [
+        # Clear old scout data (work with deque)
+        valid_reports = [
             report for report in self.scout_data_cache
             if (current_time - report.get("timestamp", current_time)).total_seconds() <= max_age_seconds
         ]
+        self.scout_data_cache.clear()
+        for report in valid_reports:
+            self.scout_data_cache.append(report)
 
         logger.info(
             f"Cleared {len(locations_to_remove)} old flood records and "

@@ -182,18 +182,56 @@ class ScoutAgent(BaseAgent):
                 # Extract flood info using NLP
                 flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
 
+                # Validate NLP result (Issue #9 fix)
+                if not flood_info or not isinstance(flood_info, dict):
+                    logger.warning(f"{self.agent_id} invalid NLP result for tweet: {tweet.get('id', 'unknown')}")
+                    continue
+
                 # Enhance with coordinates using geocoder
                 enhanced_info = self.geocoder.geocode_nlp_result(flood_info)
 
+                # Validate geocoder result (Issue #9 fix)
+                if not enhanced_info or not isinstance(enhanced_info, dict):
+                    logger.warning(f"{self.agent_id} invalid geocoder result for tweet: {tweet.get('id', 'unknown')}")
+                    continue
+
                 # Only process flood-related reports with coordinates
-                if enhanced_info['is_flood_related'] and enhanced_info.get('has_coordinates'):
+                if enhanced_info.get('is_flood_related') and enhanced_info.get('has_coordinates'):
+                    # Validate coordinates (Issue #9 fix)
+                    coords = enhanced_info.get('coordinates')
+                    if not coords or not isinstance(coords, dict):
+                        logger.warning(f"{self.agent_id} invalid coordinates format")
+                        continue
+
+                    lat = coords.get('lat')
+                    lon = coords.get('lon')
+                    if lat is None or lon is None:
+                        logger.warning(f"{self.agent_id} missing lat/lon in coordinates")
+                        continue
+
+                    # Validate coordinate ranges (Marikina area: ~14.6-14.7°N, ~121.0-121.2°E)
+                    try:
+                        lat, lon = float(lat), float(lon)
+                        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                            logger.warning(f"{self.agent_id} coordinates out of valid range: ({lat}, {lon})")
+                            continue
+                    except (TypeError, ValueError):
+                        logger.warning(f"{self.agent_id} invalid coordinate values: ({lat}, {lon})")
+                        continue
+
+                    # Validate severity range
+                    severity = enhanced_info.get('severity', 0)
+                    if not isinstance(severity, (int, float)) or not 0 <= severity <= 1:
+                        severity = max(0, min(1, float(severity) if severity else 0))
+                        enhanced_info['severity'] = severity
+
                     # Create scout report for HazardAgent with coordinates
                     report = {
-                        "location": enhanced_info['location'] or "Marikina",
-                        "coordinates": enhanced_info['coordinates'],  # NEW: Critical field
+                        "location": enhanced_info.get('location') or "Marikina",
+                        "coordinates": {"lat": lat, "lon": lon},  # Validated coordinates
                         "severity": enhanced_info['severity'],
-                        "report_type": enhanced_info['report_type'],
-                        "confidence": enhanced_info['confidence'],
+                        "report_type": enhanced_info.get('report_type', 'flood'),
+                        "confidence": enhanced_info.get('confidence', 0.5),
                         "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
                         "source": "twitter",
                         "source_url": tweet.get('url', ''),
@@ -272,12 +310,37 @@ class ScoutAgent(BaseAgent):
         Args:
             tweets: List of tweet dictionaries to process
         """
+        # Guard: Check NLP processor availability (Issue #9 fix)
+        if not self.nlp_processor:
+            logger.error(
+                f"{self.agent_id} cannot process tweets: NLP processor unavailable. "
+                "Check if nlp_processor initialization succeeded."
+            )
+            return
+
         processed_reports = []
 
         for tweet in tweets:
             try:
                 # Extract flood info using NLP
                 flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+
+                # Validate NLP result structure (Issue #9 fix)
+                if not flood_info or not isinstance(flood_info, dict):
+                    logger.warning(f"{self.agent_id} invalid NLP result for tweet: {tweet.get('id', 'unknown')}")
+                    continue
+
+                # Check required fields
+                required_fields = ['is_flood_related', 'severity', 'location']
+                if not all(field in flood_info for field in required_fields):
+                    logger.warning(f"{self.agent_id} missing required fields in NLP result")
+                    continue
+
+                # Validate severity is in valid range [0, 1]
+                severity = flood_info.get('severity', 0)
+                if not isinstance(severity, (int, float)) or not 0 <= severity <= 1:
+                    logger.warning(f"{self.agent_id} invalid severity value: {severity}")
+                    flood_info['severity'] = max(0, min(1, float(severity) if severity else 0))
 
                 if flood_info['is_flood_related']:
                     # Create scout report for HazardAgent (without coordinates)

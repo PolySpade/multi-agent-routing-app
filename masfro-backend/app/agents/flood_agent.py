@@ -512,8 +512,17 @@ class FloodAgent(BaseAgent):
                     depth_info = sim_data["flood_depth"]
                     flood_depth_m = depth_info.get("flood_depth_cm", 0.0) / 100.0
                     
-                    # Determine passability based on depth
-                    passability = "passable" if flood_depth_m < 0.5 else "impassable"
+                    # Determine passability based on depth (FEMA standards)
+                    # FEMA recommends 0.3m (12 inches) max for safe vehicle passage
+                    # 0.3-0.45m is dangerous, >0.45m is impassable
+                    if flood_depth_m < 0.15:
+                        passability = "safe"
+                    elif flood_depth_m < 0.3:
+                        passability = "passable"  # Caution required
+                    elif flood_depth_m < 0.45:
+                        passability = "dangerous"  # High risk
+                    else:
+                        passability = "impassable"
                     
                     flood_data["Marikina"] = {
                         "flood_depth": flood_depth_m,
