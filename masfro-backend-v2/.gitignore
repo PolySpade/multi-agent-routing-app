@@ -1,0 +1,116 @@
+# MAS-FRO Backend v2 .gitignore
+
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ========== Virtual Environments ==========
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# ========== IDE ==========
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ========== Testing ==========
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ========== Jupyter ==========
+.ipynb_checkpoints/
+*.ipynb
+
+# ========== Logs ==========
+*.log
+logs/
+
+# ========== Database ==========
+*.db
+*.sqlite3
+*.sqlite
+
+# ========== Secrets & Config ==========
+.env
+.env.local
+.env.*.local
+secrets.yaml
+credentials.json
+
+# ========== OS Files ==========
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========== Build & Cache ==========
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========== uv package manager ==========
+uv.lock
+
+# ========== Ollama/LLM ==========
+# Model cache (if stored locally)
+models/
+*.gguf
+
+# ========== Project Specific ==========
+# Large data files
+app/data/timed_floodmaps/*.tif
+app/data/timed_floodmaps/**/*.tif
+*.tif
+*.tiff
+
+# Graph files (can be regenerated)
+# Uncomment if you don't want to track the graph
+# data/marikina_graph.graphml
+
+# ML model pickles (large files)
+app/ml_models/*.pkl
+app/ml_models/*.joblib
+*.pkl
+*.joblib
+
+# Temporary files
+tmp/
+temp/
+scratch/
+
+# Test output
+test-results/
+test-output/

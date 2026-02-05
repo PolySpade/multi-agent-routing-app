@@ -1,0 +1,856 @@
+{
+  "2156623064862297837": {
+    "tweet_id": "2156623064862297837",
+    "username": "residents_ph",
+    "text": "Minor flooding in low-lying areas of Parang. Still passable.",
+    "timestamp": "2025-11-13T08:00:00Z",
+    "url": "https://x.com/residents_ph/status/2156623064862297837",
+    "replies": "16",
+    "retweets": "27",
+    "likes": "177",
+    "scraped_at": "2025-11-13T08:02:12",
+    "_ground_truth": {
+      "location": "Parang",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": true
+    },
+    "image_path": "app/data/sample_images/flood_levels/ankle_deep_01.jpg"
+  },
+  "6653141430870024203": {
+    "tweet_id": "6653141430870024203",
+    "username": "mmda_updates",
+    "text": "Ulan sa SM Marikina. Konti lang naman. Normal traffic flow pa.",
+    "timestamp": "2025-11-13T08:03:36Z",
+    "url": "https://x.com/mmda_updates/status/6653141430870024203",
+    "replies": "6",
+    "retweets": "26",
+    "likes": "118",
+    "scraped_at": "2025-11-13T08:04:31",
+    "_ground_truth": {
+      "location": "SM Marikina",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "7707948642563638763": {
+    "tweet_id": "7707948642563638763",
+    "username": "weather_ph",
+    "text": " FLOOD ALERT: SM Marikina heavily flooded! Residents evacuating. #Marikina #Emergency",
+    "timestamp": "2025-11-13T08:07:12Z",
+    "url": "https://x.com/weather_ph/status/7707948642563638763",
+    "replies": "11",
+    "retweets": "22",
+    "likes": "88",
+    "scraped_at": "2025-11-13T08:11:04",
+    "_ground_truth": {
+      "location": "SM Marikina",
+      "severity_level": "severe",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "5755629516589548658": {
+    "tweet_id": "5755629516589548658",
+    "username": "concerned_citizen",
+    "text": "Starting to rain in SM Marikina. Monitoring the situation. #MarikinaUpdates",
+    "timestamp": "2025-11-13T08:10:48Z",
+    "url": "https://x.com/concerned_citizen/status/5755629516589548658",
+    "replies": "19",
+    "retweets": "13",
+    "likes": "123",
+    "scraped_at": "2025-11-13T08:14:29",
+    "_ground_truth": {
+      "location": "SM Marikina",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "6786263375890566981": {
+    "tweet_id": "6786263375890566981",
+    "username": "gma_news",
+    "text": "Flooding in Loyola Heights border area. Water level rising. Avoid if possible. #Marikina",
+    "timestamp": "2025-11-13T08:14:24Z",
+    "url": "https://x.com/gma_news/status/6786263375890566981",
+    "replies": "1",
+    "retweets": "1",
+    "likes": "141",
+    "scraped_at": "2025-11-13T08:16:09",
+    "_ground_truth": {
+      "location": "Loyola Heights border",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "2959568538633226196": {
+    "tweet_id": "2959568538633226196",
+    "username": "manila_bulletin",
+    "text": "Water starting to accumulate in Industrial Valley. Be careful drivers!",
+    "timestamp": "2025-11-13T08:18:00Z",
+    "url": "https://x.com/manila_bulletin/status/2959568538633226196",
+    "replies": "10",
+    "retweets": "12",
+    "likes": "174",
+    "scraped_at": "2025-11-13T08:20:55",
+    "_ground_truth": {
+      "location": "Industrial Valley",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "7495074090120101186": {
+    "tweet_id": "7495074090120101186",
+    "username": "inquirer_news",
+    "text": "Konting baha sa Malanday. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T08:21:36Z",
+    "url": "https://x.com/inquirer_news/status/7495074090120101186",
+    "replies": "14",
+    "retweets": "20",
+    "likes": "184",
+    "scraped_at": "2025-11-13T08:26:17",
+    "_ground_truth": {
+      "location": "Malanday",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "9578761615026795633": {
+    "tweet_id": "9578761615026795633",
+    "username": "gma_news",
+    "text": "Non-stop rain since this morning in Industrial Valley. #MarikinaRain",
+    "timestamp": "2025-11-13T08:25:12Z",
+    "url": "https://x.com/gma_news/status/9578761615026795633",
+    "replies": "3",
+    "retweets": "8",
+    "likes": "67",
+    "scraped_at": "2025-11-13T08:26:52",
+    "_ground_truth": {
+      "location": "Industrial Valley",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "2672211464672337750": {
+    "tweet_id": "2672211464672337750",
+    "username": "marikina_alert",
+    "text": "Minor flooding in low-lying areas of Nangka. Still passable.",
+    "timestamp": "2025-11-13T08:28:48Z",
+    "url": "https://x.com/marikina_alert/status/2672211464672337750",
+    "replies": "8",
+    "retweets": "31",
+    "likes": "91",
+    "scraped_at": "2025-11-13T08:29:57",
+    "_ground_truth": {
+      "location": "Nangka",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": true
+    },
+    "image_path": "app/data/sample_images/flood_levels/ankle_deep_01.jpg"
+  },
+  "7831028283495876174": {
+    "tweet_id": "7831028283495876174",
+    "username": "barangay_nangka",
+    "text": "Minor flooding in low-lying areas of Sto. Nino. Still passable.",
+    "timestamp": "2025-11-13T08:32:24Z",
+    "url": "https://x.com/barangay_nangka/status/7831028283495876174",
+    "replies": "4",
+    "retweets": "27",
+    "likes": "137",
+    "scraped_at": "2025-11-13T08:34:09",
+    "_ground_truth": {
+      "location": "Sto. Nino",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "8589920130267923085": {
+    "tweet_id": "8589920130267923085",
+    "username": "barangay_watch",
+    "text": "Heavy rain in Marikina now. Everybody be careful! #Ulan #MarikinaWeather",
+    "timestamp": "2025-11-13T08:36:00Z",
+    "url": "https://x.com/barangay_watch/status/8589920130267923085",
+    "replies": "6",
+    "retweets": "35",
+    "likes": "81",
+    "scraped_at": "2025-11-13T08:37:15",
+    "_ground_truth": {
+      "location": "Loyola Heights border",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "5591122068009886935": {
+    "tweet_id": "5591122068009886935",
+    "username": "abs_cbn_news",
+    "text": "Konting baha sa Kalumpang. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T08:39:36Z",
+    "url": "https://x.com/abs_cbn_news/status/5591122068009886935",
+    "replies": "9",
+    "retweets": "34",
+    "likes": "182",
+    "scraped_at": "2025-11-13T08:42:11",
+    "_ground_truth": {
+      "location": "Kalumpang",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "585301602914750107": {
+    "tweet_id": "585301602914750107",
+    "username": "flood_watch_ph",
+    "text": "Baha na sa Marikina Sports Center! Ankle-deep water on some streets. Drive carefully!",
+    "timestamp": "2025-11-13T08:43:12Z",
+    "url": "https://x.com/flood_watch_ph/status/585301602914750107",
+    "replies": "8",
+    "retweets": "33",
+    "likes": "164",
+    "scraped_at": "2025-11-13T08:44:57",
+    "_ground_truth": {
+      "location": "Marikina Sports Center",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "8520748578354431664": {
+    "tweet_id": "8520748578354431664",
+    "username": "pagasa_updates",
+    "text": "Small puddles forming in J.P. Rizal. Nothing serious for now.",
+    "timestamp": "2025-11-13T08:46:48Z",
+    "url": "https://x.com/pagasa_updates/status/8520748578354431664",
+    "replies": "7",
+    "retweets": "1",
+    "likes": "7",
+    "scraped_at": "2025-11-13T08:49:50",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "3720152123004889423": {
+    "tweet_id": "3720152123004889423",
+    "username": "inquirer_news",
+    "text": "Malakas ang ulan dito sa Gil Fernando. Ingat sa mga motorista!",
+    "timestamp": "2025-11-13T08:50:24Z",
+    "url": "https://x.com/inquirer_news/status/3720152123004889423",
+    "replies": "15",
+    "retweets": "27",
+    "likes": "88",
+    "scraped_at": "2025-11-13T08:51:17",
+    "_ground_truth": {
+      "location": "Gil Fernando",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "3958619101015600700": {
+    "tweet_id": "3958619101015600700",
+    "username": "abs_cbn_news",
+    "text": "Malakas ang ulan dito sa Shoe Ave. Ingat sa mga motorista!",
+    "timestamp": "2025-11-13T08:54:00Z",
+    "url": "https://x.com/abs_cbn_news/status/3958619101015600700",
+    "replies": "10",
+    "retweets": "30",
+    "likes": "152",
+    "scraped_at": "2025-11-13T08:58:54",
+    "_ground_truth": {
+      "location": "Shoe Ave",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "3195017420495964181": {
+    "tweet_id": "3195017420495964181",
+    "username": "concerned_citizen",
+    "text": "Moderate rain in Nangka! Water starting to rise near the riverbanks. #MarikinaFlood",
+    "timestamp": "2025-11-13T08:57:36Z",
+    "url": "https://x.com/concerned_citizen/status/3195017420495964181",
+    "replies": "0",
+    "retweets": "38",
+    "likes": "165",
+    "scraped_at": "2025-11-13T09:00:48",
+    "_ground_truth": {
+      "location": "Nangka",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "3944379041202832818": {
+    "tweet_id": "3944379041202832818",
+    "username": "residents_ph",
+    "text": "Water on the road at J.P. Rizal. Slow down when passing.",
+    "timestamp": "2025-11-13T09:01:12Z",
+    "url": "https://x.com/residents_ph/status/3944379041202832818",
+    "replies": "0",
+    "retweets": "26",
+    "likes": "117",
+    "scraped_at": "2025-11-13T09:02:51",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "5884774495320707163": {
+    "tweet_id": "5884774495320707163",
+    "username": "marikina_lgu",
+    "text": "Ulan sa Gil Fernando. Konti lang naman. Normal traffic flow pa.",
+    "timestamp": "2025-11-13T09:04:48Z",
+    "url": "https://x.com/marikina_lgu/status/5884774495320707163",
+    "replies": "1",
+    "retweets": "15",
+    "likes": "153",
+    "scraped_at": "2025-11-13T09:07:29",
+    "_ground_truth": {
+      "location": "Gil Fernando",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "1843388818706436675": {
+    "tweet_id": "1843388818706436675",
+    "username": "marikinaresident",
+    "text": "J.P. Rizal residents, prepare! Water rising fast. #FloodAlert",
+    "timestamp": "2025-11-13T09:08:24Z",
+    "url": "https://x.com/marikinaresident/status/1843388818706436675",
+    "replies": "4",
+    "retweets": "28",
+    "likes": "195",
+    "scraped_at": "2025-11-13T09:09:49",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "2743699412328405430": {
+    "tweet_id": "2743699412328405430",
+    "username": "barangay_nangka",
+    "text": "Malakas ang ulan dito sa SM Marikina. Ingat sa mga motorista!",
+    "timestamp": "2025-11-13T09:12:00Z",
+    "url": "https://x.com/barangay_nangka/status/2743699412328405430",
+    "replies": "9",
+    "retweets": "29",
+    "likes": "78",
+    "scraped_at": "2025-11-13T09:13:26",
+    "_ground_truth": {
+      "location": "SM Marikina",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "8419100981451098877": {
+    "tweet_id": "8419100981451098877",
+    "username": "barangay_watch",
+    "text": "Starting to rain in Kalumpang. Monitoring the situation. #MarikinaUpdates",
+    "timestamp": "2025-11-13T09:15:36Z",
+    "url": "https://x.com/barangay_watch/status/8419100981451098877",
+    "replies": "1",
+    "retweets": "36",
+    "likes": "183",
+    "scraped_at": "2025-11-13T09:19:34",
+    "_ground_truth": {
+      "location": "Kalumpang",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "625152243554177443": {
+    "tweet_id": "625152243554177443",
+    "username": "inquirer_news",
+    "text": "Konting baha sa Parang. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T09:19:12Z",
+    "url": "https://x.com/inquirer_news/status/625152243554177443",
+    "replies": "15",
+    "retweets": "23",
+    "likes": "96",
+    "scraped_at": "2025-11-13T09:21:19",
+    "_ground_truth": {
+      "location": "Parang",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "2919830069677723714": {
+    "tweet_id": "2919830069677723714",
+    "username": "barangay_nangka",
+    "text": "Small puddles forming in Industrial Valley. Nothing serious for now.",
+    "timestamp": "2025-11-13T09:22:48Z",
+    "url": "https://x.com/barangay_nangka/status/2919830069677723714",
+    "replies": "8",
+    "retweets": "4",
+    "likes": "143",
+    "scraped_at": "2025-11-13T09:24:07",
+    "_ground_truth": {
+      "location": "Industrial Valley",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "5321585677095864298": {
+    "tweet_id": "5321585677095864298",
+    "username": "barangay_nangka",
+    "text": "Heavy rain in Marikina now. Everybody be careful! #Ulan #MarikinaWeather",
+    "timestamp": "2025-11-13T09:26:24Z",
+    "url": "https://x.com/barangay_nangka/status/5321585677095864298",
+    "replies": "3",
+    "retweets": "29",
+    "likes": "39",
+    "scraped_at": "2025-11-13T09:30:53",
+    "_ground_truth": {
+      "location": "Kalumpang",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "8624828004273919799": {
+    "tweet_id": "8624828004273919799",
+    "username": "weather_ph",
+    "text": "It's raining hard in Riverbanks. Traffic slower than usual.",
+    "timestamp": "2025-11-13T09:30:00Z",
+    "url": "https://x.com/weather_ph/status/8624828004273919799",
+    "replies": "10",
+    "retweets": "23",
+    "likes": "153",
+    "scraped_at": "2025-11-13T09:33:23",
+    "_ground_truth": {
+      "location": "Riverbanks",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "7726131577880691189": {
+    "tweet_id": "7726131577880691189",
+    "username": "barangay_nangka",
+    "text": "Ulan sa Malanday. Konti lang naman. Normal traffic flow pa.",
+    "timestamp": "2025-11-13T09:33:36Z",
+    "url": "https://x.com/barangay_nangka/status/7726131577880691189",
+    "replies": "4",
+    "retweets": "24",
+    "likes": "162",
+    "scraped_at": "2025-11-13T09:37:11",
+    "_ground_truth": {
+      "location": "Malanday",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "5768671208907495915": {
+    "tweet_id": "5768671208907495915",
+    "username": "floodwatch_ph",
+    "text": "Non-stop rain since this morning in Riverbanks. #MarikinaRain",
+    "timestamp": "2025-11-13T09:37:12Z",
+    "url": "https://x.com/floodwatch_ph/status/5768671208907495915",
+    "replies": "16",
+    "retweets": "11",
+    "likes": "40",
+    "scraped_at": "2025-11-13T09:40:23",
+    "_ground_truth": {
+      "location": "Riverbanks",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "8023601669427484319": {
+    "tweet_id": "8023601669427484319",
+    "username": "weather_ph",
+    "text": "Non-stop rain since this morning in Malanday. #MarikinaRain",
+    "timestamp": "2025-11-13T09:40:48Z",
+    "url": "https://x.com/weather_ph/status/8023601669427484319",
+    "replies": "1",
+    "retweets": "27",
+    "likes": "169",
+    "scraped_at": "2025-11-13T09:44:39",
+    "_ground_truth": {
+      "location": "Malanday",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "1565762694171884270": {
+    "tweet_id": "1565762694171884270",
+    "username": "manila_bulletin",
+    "text": "Konting baha sa Concepcion. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T09:44:24Z",
+    "url": "https://x.com/manila_bulletin/status/1565762694171884270",
+    "replies": "4",
+    "retweets": "38",
+    "likes": "69",
+    "scraped_at": "2025-11-13T09:47:57",
+    "_ground_truth": {
+      "location": "Concepcion",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "6101501572044594025": {
+    "tweet_id": "6101501572044594025",
+    "username": "floodwatch_ph",
+    "text": "Heavy rain in Kalumpang. Some streets already flooded. #MarikinaFlood #UpdatesPH",
+    "timestamp": "2025-11-13T09:48:00Z",
+    "url": "https://x.com/floodwatch_ph/status/6101501572044594025",
+    "replies": "16",
+    "retweets": "7",
+    "likes": "180",
+    "scraped_at": "2025-11-13T09:52:25",
+    "_ground_truth": {
+      "location": "Kalumpang",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "5742894576658993821": {
+    "tweet_id": "5742894576658993821",
+    "username": "pagasa_updates",
+    "text": " BREAKING: Massive flooding in Parang. Roads impassable. Stay safe! #Marikina",
+    "timestamp": "2025-11-13T09:51:36Z",
+    "url": "https://x.com/pagasa_updates/status/5742894576658993821",
+    "replies": "15",
+    "retweets": "15",
+    "likes": "43",
+    "scraped_at": "2025-11-13T09:55:47",
+    "_ground_truth": {
+      "location": "Parang",
+      "severity_level": "severe",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "6741418783678622247": {
+    "tweet_id": "6741418783678622247",
+    "username": "marikina_alert",
+    "text": "Heavy rain in Marikina now. Everybody be careful! #Ulan #MarikinaWeather",
+    "timestamp": "2025-11-13T09:55:12Z",
+    "url": "https://x.com/marikina_alert/status/6741418783678622247",
+    "replies": "3",
+    "retweets": "37",
+    "likes": "32",
+    "scraped_at": "2025-11-13T09:58:50",
+    "_ground_truth": {
+      "location": "Malanday",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "1764394687580703942": {
+    "tweet_id": "1764394687580703942",
+    "username": "marikina_lgu",
+    "text": "Water on the road at Sto. Nino. Slow down when passing.",
+    "timestamp": "2025-11-13T09:58:48Z",
+    "url": "https://x.com/marikina_lgu/status/1764394687580703942",
+    "replies": "5",
+    "retweets": "23",
+    "likes": "189",
+    "scraped_at": "2025-11-13T10:00:33",
+    "_ground_truth": {
+      "location": "Sto. Nino",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "2637446687621182792": {
+    "tweet_id": "2637446687621182792",
+    "username": "inquirer_news",
+    "text": "Small puddles forming in J.P. Rizal. Nothing serious for now.",
+    "timestamp": "2025-11-13T10:02:24Z",
+    "url": "https://x.com/inquirer_news/status/2637446687621182792",
+    "replies": "9",
+    "retweets": "27",
+    "likes": "151",
+    "scraped_at": "2025-11-13T10:07:06",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "3351191873704580646": {
+    "tweet_id": "3351191873704580646",
+    "username": "inquirer_news",
+    "text": "Drizzle in J.P. Rizal area. No flooding yet. Stay safe everyone! #Marikina",
+    "timestamp": "2025-11-13T10:06:00Z",
+    "url": "https://x.com/inquirer_news/status/3351191873704580646",
+    "replies": "1",
+    "retweets": "2",
+    "likes": "149",
+    "scraped_at": "2025-11-13T10:06:53",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "1708719981380620233": {
+    "tweet_id": "1708719981380620233",
+    "username": "abs_cbn_news",
+    "text": "Konting baha sa Nangka. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T10:09:36Z",
+    "url": "https://x.com/abs_cbn_news/status/1708719981380620233",
+    "replies": "9",
+    "retweets": "20",
+    "likes": "198",
+    "scraped_at": "2025-11-13T10:11:16",
+    "_ground_truth": {
+      "location": "Nangka",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "1788971971576817800": {
+    "tweet_id": "1788971971576817800",
+    "username": "marikina_alert",
+    "text": "Small puddles forming in Sto. Nino. Nothing serious for now.",
+    "timestamp": "2025-11-13T10:13:12Z",
+    "url": "https://x.com/marikina_alert/status/1788971971576817800",
+    "replies": "1",
+    "retweets": "17",
+    "likes": "21",
+    "scraped_at": "2025-11-13T10:16:18",
+    "_ground_truth": {
+      "location": "Sto. Nino",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "9360335901694674000": {
+    "tweet_id": "9360335901694674000",
+    "username": "weather_ph",
+    "text": "Starting to rain in Tumana. Monitoring the situation. #MarikinaUpdates",
+    "timestamp": "2025-11-13T10:16:48Z",
+    "url": "https://x.com/weather_ph/status/9360335901694674000",
+    "replies": "10",
+    "retweets": "4",
+    "likes": "79",
+    "scraped_at": "2025-11-13T10:18:06",
+    "_ground_truth": {
+      "location": "Tumana",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "9862270433975231865": {
+    "tweet_id": "9862270433975231865",
+    "username": "barangay_watch",
+    "text": "It's raining hard in Marikina Bridge. Traffic slower than usual.",
+    "timestamp": "2025-11-13T10:20:24Z",
+    "url": "https://x.com/barangay_watch/status/9862270433975231865",
+    "replies": "4",
+    "retweets": "12",
+    "likes": "129",
+    "scraped_at": "2025-11-13T10:22:11",
+    "_ground_truth": {
+      "location": "Marikina Bridge",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "6684656078463490724": {
+    "tweet_id": "6684656078463490724",
+    "username": "marikina_alert",
+    "text": "Moderate rain in Concepcion! Water starting to rise near the riverbanks. #MarikinaFlood",
+    "timestamp": "2025-11-13T10:24:00Z",
+    "url": "https://x.com/marikina_alert/status/6684656078463490724",
+    "replies": "5",
+    "retweets": "19",
+    "likes": "28",
+    "scraped_at": "2025-11-13T10:28:40",
+    "_ground_truth": {
+      "location": "Concepcion",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "1605056290078528184": {
+    "tweet_id": "1605056290078528184",
+    "username": "barangay_nangka",
+    "text": "Minor flooding in low-lying areas of Shoe Ave. Still passable.",
+    "timestamp": "2025-11-13T10:27:36Z",
+    "url": "https://x.com/barangay_nangka/status/1605056290078528184",
+    "replies": "4",
+    "retweets": "21",
+    "likes": "63",
+    "scraped_at": "2025-11-13T10:29:41",
+    "_ground_truth": {
+      "location": "Shoe Ave",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "9043292696515677970": {
+    "tweet_id": "9043292696515677970",
+    "username": "cnn_ph",
+    "text": "Minor flooding in low-lying areas of Gil Fernando. Still passable.",
+    "timestamp": "2025-11-13T10:31:12Z",
+    "url": "https://x.com/cnn_ph/status/9043292696515677970",
+    "replies": "3",
+    "retweets": "22",
+    "likes": "31",
+    "scraped_at": "2025-11-13T10:33:02",
+    "_ground_truth": {
+      "location": "Gil Fernando",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "7936109343309806440": {
+    "tweet_id": "7936109343309806440",
+    "username": "pagasa_updates",
+    "text": "Water starting to accumulate in Riverbanks. Be careful drivers!",
+    "timestamp": "2025-11-13T10:34:48Z",
+    "url": "https://x.com/pagasa_updates/status/7936109343309806440",
+    "replies": "19",
+    "retweets": "34",
+    "likes": "90",
+    "scraped_at": "2025-11-13T10:39:19",
+    "_ground_truth": {
+      "location": "Riverbanks",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "9566106872444883555": {
+    "tweet_id": "9566106872444883555",
+    "username": "flood_watch_ph",
+    "text": "Heavy rain in J.P. Rizal. Some streets already flooded. #MarikinaFlood #UpdatesPH",
+    "timestamp": "2025-11-13T10:38:24Z",
+    "url": "https://x.com/flood_watch_ph/status/9566106872444883555",
+    "replies": "10",
+    "retweets": "32",
+    "likes": "85",
+    "scraped_at": "2025-11-13T10:41:41",
+    "_ground_truth": {
+      "location": "J.P. Rizal",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "2616288702415182822": {
+    "tweet_id": "2616288702415182822",
+    "username": "concerned_citizen",
+    "text": "Minor flooding in low-lying areas of Riverbanks. Still passable.",
+    "timestamp": "2025-11-13T10:42:00Z",
+    "url": "https://x.com/concerned_citizen/status/2616288702415182822",
+    "replies": "2",
+    "retweets": "28",
+    "likes": "101",
+    "scraped_at": "2025-11-13T10:46:23",
+    "_ground_truth": {
+      "location": "Riverbanks",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": true
+    },
+    "image_path": "app/data/sample_images/flood_levels/ankle_deep_03.jpg"
+  },
+  "5185157928611990070": {
+    "tweet_id": "5185157928611990070",
+    "username": "gma_news",
+    "text": "Konting baha sa Nangka. Passable pa naman for cars.",
+    "timestamp": "2025-11-13T10:45:36Z",
+    "url": "https://x.com/gma_news/status/5185157928611990070",
+    "replies": "0",
+    "retweets": "27",
+    "likes": "28",
+    "scraped_at": "2025-11-13T10:47:32",
+    "_ground_truth": {
+      "location": "Nangka",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": true
+    },
+    "image_path": "app/data/sample_images/flood_levels/ankle_deep_01.jpg"
+  },
+  "5829133224934849569": {
+    "tweet_id": "5829133224934849569",
+    "username": "marikinaresident",
+    "text": "Marikina Sports Center residents, prepare! Water rising fast. #FloodAlert",
+    "timestamp": "2025-11-13T10:49:12Z",
+    "url": "https://x.com/marikinaresident/status/5829133224934849569",
+    "replies": "1",
+    "retweets": "8",
+    "likes": "188",
+    "scraped_at": "2025-11-13T10:51:33",
+    "_ground_truth": {
+      "location": "Marikina Sports Center",
+      "severity_level": "moderate",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  },
+  "3887113570080344910": {
+    "tweet_id": "3887113570080344910",
+    "username": "gma_news",
+    "text": "Starting to rain in Malanday. Monitoring the situation. #MarikinaUpdates",
+    "timestamp": "2025-11-13T10:52:48Z",
+    "url": "https://x.com/gma_news/status/3887113570080344910",
+    "replies": "4",
+    "retweets": "23",
+    "likes": "154",
+    "scraped_at": "2025-11-13T10:53:37",
+    "_ground_truth": {
+      "location": "Malanday",
+      "severity_level": "rain_only",
+      "is_flood_related": false,
+      "has_image": false
+    }
+  },
+  "4351825466706949576": {
+    "tweet_id": "4351825466706949576",
+    "username": "pagasa_updates",
+    "text": "Water starting to accumulate in Nangka. Be careful drivers!",
+    "timestamp": "2025-11-13T10:56:24Z",
+    "url": "https://x.com/pagasa_updates/status/4351825466706949576",
+    "replies": "6",
+    "retweets": "11",
+    "likes": "40",
+    "scraped_at": "2025-11-13T10:59:53",
+    "_ground_truth": {
+      "location": "Nangka",
+      "severity_level": "minor",
+      "is_flood_related": true,
+      "has_image": false
+    }
+  }
+}
