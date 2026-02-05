@@ -62,7 +62,14 @@
       "mcp__plugin_serena_serena__list_memories",
       "Bash(.venvScriptsactivate)",
       "Bash(if not exist \"C:\\Users\\Donald\\Documents\\Code\\multi-agent-routing-app\\masfro-backend\\tests\" mkdir \"C:\\Users\\Donald\\Documents\\Code\\multi-agent-routing-app\\masfro-backend\\tests\")",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(psql:*)",
+      "mcp__postgres__query",
+      "Bash(claude mcp remove:*)",
+      "Bash(cd:*)",
+      "Bash(ollama list:*)",
+      "Bash(.venv/Scripts/python:*)"
     ],
     "deny": []
   }
