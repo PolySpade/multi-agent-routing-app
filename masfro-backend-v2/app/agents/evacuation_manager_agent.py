@@ -15,6 +15,8 @@ Key Responsibilities:
 - Collect and process user feedback (road status reports)
 - Forward feedback to HazardAgent for graph updates
 - Manage evacuation center recommendations
+- Classify distress severity via LLM
+- Generate evacuation instructions via LLM
 
 Author: MAS-FRO Development Team
 Date: November 2025
@@ -23,9 +25,14 @@ Date: November 2025
 from .base_agent import BaseAgent
 from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
 from collections import deque
+import json
 import logging
 from datetime import datetime
 import uuid
+
+from ..communication.acl_protocol import Performative
+from ..core.agent_config import get_config, EvacuationConfig, GlobalConfig
+from ..core.llm_utils import parse_llm_json as _parse_llm_json
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -51,23 +58,25 @@ class EvacuationManagerAgent(BaseAgent):
         agent_id: Unique identifier for this agent instance
         environment: Reference to DynamicGraphEnvironment
         routing_agent: Reference to RoutingAgent for pathfinding
-        hazard_agent: Reference to HazardAgent for feedback forwarding
         route_history: History of route requests and responses
         feedback_history: History of user feedback
+        distress_history: History of distress calls
 
     Example:
         >>> env = DynamicGraphEnvironment()
         >>> routing_agent = RoutingAgent(...)
         >>> manager = EvacuationManagerAgent("evac_mgr_001", env)
         >>> manager.set_routing_agent(routing_agent)
-        >>> route = manager.handle_route_request((14.65, 121.10), (14.66, 121.11))
+        >>> route = manager.handle_distress_call((14.65, 121.10), "Help!")
     """
 
     def __init__(
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
-        message_queue: Optional[Any] = None
+        message_queue: Optional[Any] = None,
+        hazard_agent_id: str = "hazard_agent_001",
+        llm_service: Optional[Any] = None,
     ) -> None:
         """
         Initialize the EvacuationManagerAgent.
@@ -75,39 +84,164 @@ class EvacuationManagerAgent(BaseAgent):
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
-            message_queue: MessageQueue for agent communication (NEW)
+            message_queue: MessageQueue for agent communication
+            hazard_agent_id: Target HazardAgent ID for MQ messages
+            llm_service: LLMService instance for NL classification/generation
         """
         super().__init__(agent_id, environment)
 
         # Agent references (set after initialization)
         self.routing_agent: Optional["RoutingAgent"] = None
-        # hazard_agent removed - now uses MessageQueue for communication
 
         # MessageQueue for agent communication (MAS architecture)
         self.message_queue = message_queue
-        self.hazard_agent_id = "hazard_agent_001"  # Target agent ID for messages
+        self.hazard_agent_id = hazard_agent_id
 
-        # Configuration
-        self.max_history_size = 1000
+        # LLM service for distress classification and instruction generation
+        self.llm_service = llm_service
 
-        # Request and feedback tracking (use deque for O(1) automatic eviction)
-        # Issue #15 fix: Prevents memory leaks and O(N) list slicing
-        self.route_history: deque = deque(maxlen=self.max_history_size)
-        self.feedback_history: deque = deque(maxlen=self.max_history_size)
+        # Register with MessageQueue for receiving orchestrator requests
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError:
+                logger.debug(f"{self.agent_id} already registered with MQ")
 
-        logger.info(f"{self.agent_id} initialized with MessageQueue support")
+        # Load configuration from YAML (pattern: hazard_agent.py)
+        try:
+            loader = get_config()
+            self._config: EvacuationConfig = loader.get_evacuation_config()
+            self._global_config: GlobalConfig = loader.get_global_config()
+        except Exception as e:
+            logger.warning(f"Failed to load config, using defaults: {e}")
+            self._config = EvacuationConfig()
+            self._global_config = GlobalConfig()
+
+        # Request, feedback, and distress tracking (deque for O(1) eviction)
+        self.route_history: deque = deque(maxlen=self._config.max_route_history)
+        self.feedback_history: deque = deque(maxlen=self._config.max_feedback_history)
+        self.distress_history: deque = deque(maxlen=self._config.max_route_history)
+
+        logger.info(
+            f"{self.agent_id} initialized (config: history={self._config.max_route_history}, "
+            f"safest_mode={self._config.always_use_safest_mode}, "
+            f"llm={'yes' if self.llm_service else 'no'})"
+        )
 
     def step(self):
         """
         Perform one step of the agent's operation.
 
-        In each step, the agent processes any pending feedback and performs
+        Processes any pending MQ requests from orchestrator, then performs
         maintenance tasks like cleaning old history entries.
         """
+        # Process any orchestrator REQUEST messages first
+        self._process_mq_requests()
+
         logger.debug(f"{self.agent_id} performing step at {datetime.now()}")
 
-        # Note: History cleanup is now automatic via deque(maxlen=...)
-        # No manual slicing needed - deque handles O(1) eviction
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        if not self.message_queue:
+            return
+
+        while True:
+            msg = self.message_queue.receive_message(
+                agent_id=self.agent_id, timeout=0.0, block=False
+            )
+            if msg is None:
+                break
+
+            if msg.performative == Performative.REQUEST:
+                action = msg.content.get("action")
+                data = msg.content.get("data", {})
+
+                if action == "handle_distress_call":
+                    self._handle_distress_call_request(msg, data)
+                elif action == "collect_feedback":
+                    self._handle_collect_feedback_mq(msg, data)
+                else:
+                    logger.warning(
+                        f"{self.agent_id}: unknown REQUEST action '{action}' "
+                        f"from {msg.sender}"
+                    )
+            else:
+                logger.debug(
+                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
+                )
+
+    def _handle_distress_call_request(self, msg, data: dict) -> None:
+        """Handle handle_distress_call REQUEST from orchestrator."""
+        from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
+
+        user_location = data.get("user_location")
+        message_text = data.get("message", "")
+        result = {"status": "unknown"}
+
+        try:
+            if not user_location:
+                result["status"] = "error"
+                result["error"] = "Missing user_location"
+            elif not self.routing_agent:
+                result["status"] = "error"
+                result["error"] = "RoutingAgent not configured"
+            else:
+                outcome = self.handle_distress_call(user_location, message_text)
+                result["status"] = "success"
+                result["outcome"] = outcome
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(
+            f"{self.agent_id}: handle_distress_call -> {result['status']}"
+        )
+
+        # Send INFORM reply to requester
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="distress_call_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
+
+    def _handle_collect_feedback_mq(self, msg, data: dict) -> None:
+        """Handle collect_feedback REQUEST from orchestrator via MQ."""
+        from ..communication.acl_protocol import create_inform_message
+
+        route_id = data.get("route_id", "")
+        feedback_type = data.get("feedback_type", "")
+        location = data.get("location")
+        extra_data = data.get("data")
+        result = {"status": "unknown"}
+
+        try:
+            if location:
+                location = tuple(location)
+            success = self.collect_user_feedback(route_id, feedback_type, location, extra_data)
+            result = {"status": "success" if success else "failed", "accepted": success}
+        except Exception as e:
+            result = {"status": "error", "error": str(e)}
+
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="feedback_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply feedback to {msg.sender}: {e}")
 
     def set_routing_agent(self, routing_agent) -> None:
         """
@@ -119,7 +253,131 @@ class EvacuationManagerAgent(BaseAgent):
         self.routing_agent = routing_agent
         logger.info(f"{self.agent_id} linked to {routing_agent.agent_id}")
 
-    # set_hazard_agent method removed - now uses MessageQueue for communication
+    # ------------------------------------------------------------------ #
+    #  LLM integration methods                                            #
+    # ------------------------------------------------------------------ #
+
+    def _classify_distress_severity(self, message: str) -> Dict[str, Any]:
+        """
+        Classify distress message severity via LLM.
+
+        Returns dict with urgency level and context flags. Falls back to
+        defaults if LLM is unavailable or fails.
+
+        Args:
+            message: Raw distress message text
+
+        Returns:
+            Dict with keys: urgency, injury, children, elderly, mobility, location_name
+        """
+        defaults = {
+            "urgency": "medium",
+            "injury": False,
+            "children": False,
+            "elderly": False,
+            "mobility": False,
+            "location_name": "",
+        }
+
+        if not self.llm_service or not message.strip():
+            return defaults
+
+        prompt = (
+            "You are a flood emergency dispatcher for Marikina City, Philippines.\n"
+            "Classify this distress message and extract context.\n\n"
+            f"Message: \"{message}\"\n\n"
+            "Return ONLY a JSON object with these fields:\n"
+            "- urgency: one of \"critical\", \"high\", \"medium\", \"low\"\n"
+            "- injury: true/false (anyone injured?)\n"
+            "- children: true/false (children present?)\n"
+            "- elderly: true/false (elderly present?)\n"
+            "- mobility: true/false (mobility-impaired person?)\n"
+            "- location_name: string (extracted location/barangay if mentioned, else empty)\n\n"
+            "Rules:\n"
+            "- \"critical\": life-threatening, trapped, injured, rising water\n"
+            "- \"high\": imminent danger, children/elderly, water entering home\n"
+            "- \"medium\": requesting evacuation, moderate flooding\n"
+            "- \"low\": precautionary, asking for info\n"
+        )
+
+        try:
+            raw = self.llm_service.text_chat(prompt)
+            if not raw:
+                return defaults
+
+            parsed = _parse_llm_json(raw)
+            if not parsed:
+                return defaults
+
+            # Merge with defaults so missing keys fall back
+            for key in defaults:
+                if key not in parsed:
+                    parsed[key] = defaults[key]
+
+            # Validate urgency
+            if parsed["urgency"] not in ("critical", "high", "medium", "low"):
+                parsed["urgency"] = "medium"
+
+            return parsed
+
+        except Exception as e:
+            logger.warning(f"LLM distress classification failed: {e}")
+            return defaults
+
+    def _generate_evacuation_instructions(
+        self, result: Dict[str, Any], context: Dict[str, Any]
+    ) -> str:
+        """
+        Generate human-friendly evacuation instructions via LLM.
+
+        Args:
+            result: Route/evacuation result dict
+            context: Distress classification context
+
+        Returns:
+            Filipino-friendly instruction string, or generic fallback
+        """
+        fallback = (
+            "Pumunta sa pinakamalapit na evacuation center. "
+            "Mag-ingat sa malalim na baha at malakas na agos."
+        )
+
+        if not self.llm_service:
+            return fallback
+
+        target = result.get("target_center", "nearest evacuation center")
+        distance = result.get("route_summary", {}).get("distance", 0)
+        risk = result.get("route_summary", {}).get("risk", 0)
+        urgency = context.get("urgency", "medium")
+        has_children = context.get("children", False)
+        has_elderly = context.get("elderly", False)
+
+        prompt = (
+            "You are a flood evacuation assistant for Marikina City.\n"
+            "Generate 2-3 sentences of evacuation instructions in simple, "
+            "clear English with Filipino terms where helpful.\n\n"
+            f"Target center: {target}\n"
+            f"Distance: {distance:.0f} meters\n"
+            f"Route risk level: {risk:.2f}\n"
+            f"Urgency: {urgency}\n"
+            f"Children present: {has_children}\n"
+            f"Elderly present: {has_elderly}\n\n"
+            "Include safety tips relevant to the situation. "
+            "Keep it concise and actionable. Return ONLY the instruction text, no JSON."
+        )
+
+        try:
+            instructions = self.llm_service.text_chat(prompt)
+            if instructions and len(instructions.strip()) > 10:
+                return instructions.strip()
+            return fallback
+        except Exception as e:
+            logger.warning(f"LLM instruction generation failed: {e}")
+            return fallback
+
+    # ------------------------------------------------------------------ #
+    #  Core business methods                                              #
+    # ------------------------------------------------------------------ #
 
     def handle_distress_call(
         self,
@@ -129,36 +387,71 @@ class EvacuationManagerAgent(BaseAgent):
         """
         Handle a natural language distress call.
 
-        Parses the message for context (injury, trapped, etc.) via RoutingAgent
-        and routes to the nearest suitable evacuation center.
+        1. Classify severity via LLM (graceful fallback)
+        2. Force safest mode if config says so
+        3. Find evacuation center via RoutingAgent
+        4. Generate LLM instructions (graceful fallback)
+        5. Record in distress_history
 
         Args:
             location: User coordinates
             message: Distress message (e.g., "Help! Trapped by flood")
 
         Returns:
-            Dict with route and center info
+            Dict with route and center info, enriched with urgency/instructions
         """
+        if not self._validate_coordinates(location):
+            error_result = {
+                "status": "error",
+                "message": f"Invalid coordinates: {location}. Must be within Philippines bounds."
+            }
+            self.distress_history.append({
+                "location": location,
+                "message": message,
+                "result": error_result,
+                "timestamp": datetime.now(),
+            })
+            return error_result
+
         logger.info(f"{self.agent_id} received distress call: '{message}' at {location}")
 
         if not self.routing_agent:
-            return {
+            error_result = {
                 "status": "error",
                 "message": "Routing service unavailable"
             }
+            self.distress_history.append({
+                "location": location,
+                "message": message,
+                "result": error_result,
+                "timestamp": datetime.now(),
+            })
+            return error_result
 
-        # Delegate everything to RoutingAgent's smart finder
+        # Step 1: Classify distress severity via LLM
+        distress_context = self._classify_distress_severity(message)
+        urgency = distress_context.get("urgency", "medium")
+
+        # Step 2: Force safest mode for distress calls if configured
+        preferences = None
+        if self._config.always_use_safest_mode:
+            preferences = {"mode": "safest"}
+
+        # Step 3: Find evacuation center (existing logic)
         try:
             result = self.routing_agent.find_nearest_evacuation_center(
                 location=location,
                 max_centers=5,
-                query=message  # Pass the raw message
+                query=message,
+                preferences=preferences,
             )
 
             if result:
-                return {
+                response = {
                     "status": "success",
                     "action": "evacuate",
+                    "urgency": urgency,
+                    "distress_context": distress_context,
                     "target_center": result["center"]["name"],
                     "route_summary": {
                         "distance": result["metrics"]["total_distance"],
@@ -166,106 +459,57 @@ class EvacuationManagerAgent(BaseAgent):
                         "risk": result["metrics"]["average_risk"]
                     },
                     "path": result["path"],
-                    "explanation": result.get("explanation", "Proceed effectively to the nearest shelter.")
+                    "explanation": result.get("explanation", "Proceed effectively to the nearest shelter."),
                 }
+
+                # Step 4: Generate LLM evacuation instructions
+                response["instructions"] = self._generate_evacuation_instructions(
+                    response, distress_context
+                )
+
+                # Step 5: Record in distress_history
+                self.distress_history.append({
+                    "location": location,
+                    "message": message,
+                    "urgency": urgency,
+                    "distress_context": distress_context,
+                    "result": response,
+                    "timestamp": datetime.now(),
+                })
+                return response
             else:
-                return {
+                warning_result = {
                     "status": "warning",
-                    "message": "No accessible evacuation centers found. Seek high ground immediately."
+                    "urgency": urgency,
+                    "distress_context": distress_context,
+                    "message": "No accessible evacuation centers found. Seek high ground immediately.",
+                    "instructions": "Pumunta sa mataas na lugar. Huwag tumawid sa malalim na baha.",
                 }
+                self.distress_history.append({
+                    "location": location,
+                    "message": message,
+                    "urgency": urgency,
+                    "result": warning_result,
+                    "timestamp": datetime.now(),
+                })
+                return warning_result
 
         except Exception as e:
             logger.error(f"Distress call processing failed: {e}")
-            return {
+            error_result = {
                 "status": "error",
+                "urgency": urgency,
+                "distress_context": distress_context,
                 "message": f"System error: {str(e)}"
             }
-
-    def handle_route_request(
-        self,
-        start: Tuple[float, float],
-        end: Tuple[float, float],
-        preferences: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Handle a route request from a user.
-
-        Coordinates with RoutingAgent to find the safest route from start
-        to end, considering current flood conditions and user preferences.
-
-        Args:
-            start: Starting coordinates (latitude, longitude)
-            end: Destination coordinates (latitude, longitude)
-            preferences: Optional user preferences
-                Format:
-                {
-                    "avoid_floods": bool,  # Prioritize flood avoidance
-                    "fastest": bool,  # Prefer fastest route
-                    "evacuation_center": bool  # Route to nearest shelter
-                }
-
-        Returns:
-            Dict containing route information
-                Format:
-                {
-                    "route_id": str,
-                    "path": List[Tuple[float, float]],
-                    "distance": float,
-                    "estimated_time": float,
-                    "risk_level": float,
-                    "warnings": List[str],
-                    "timestamp": datetime
-                }
-        """
-        logger.info(f"{self.agent_id} received route request: {start} -> {end}")
-
-        # Generate unique route ID
-        route_id = str(uuid.uuid4())
-
-        # Validate inputs
-        if not self._validate_coordinates(start) or not self._validate_coordinates(end):
-            return {
-                "route_id": route_id,
-                "status": "error",
-                "message": "Invalid coordinates provided",
-                "timestamp": datetime.now()
-            }
-
-        # Check if RoutingAgent is available
-        if not self.routing_agent:
-            logger.error("RoutingAgent not configured")
-            return {
-                "route_id": route_id,
-                "status": "error",
-                "message": "Routing service unavailable",
-                "timestamp": datetime.now()
-            }
-
-        try:
-            # Request route from RoutingAgent
-            route = self._request_route_from_agent(start, end, preferences, route_id=route_id)
-
-            # Add to history
-            self.route_history.append({
-                "route_id": route_id,
-                "start": start,
-                "end": end,
-                "preferences": preferences,
-                "route": route,
-                "timestamp": datetime.now()
+            self.distress_history.append({
+                "location": location,
+                "message": message,
+                "urgency": urgency,
+                "result": error_result,
+                "timestamp": datetime.now(),
             })
-
-            logger.info(f"Route {route_id} generated successfully")
-            return route
-
-        except Exception as e:
-            logger.error(f"Failed to generate route: {e}")
-            return {
-                "route_id": route_id,
-                "status": "error",
-                "message": str(e),
-                "timestamp": datetime.now()
-            }
+            return error_result
 
     def collect_user_feedback(
         self,
@@ -288,12 +532,6 @@ class EvacuationManagerAgent(BaseAgent):
             feedback_type: Type of feedback ("clear", "blocked", "flooded", "traffic")
             location: Optional coordinates where feedback applies
             data: Optional additional feedback data
-                Format:
-                {
-                    "severity": float,  # 0-1 scale
-                    "description": str,
-                    "photo_url": str
-                }
 
         Returns:
             True if feedback was successfully processed, False otherwise
@@ -327,6 +565,32 @@ class EvacuationManagerAgent(BaseAgent):
         logger.info(f"Feedback processed and forwarded to HazardAgent")
         return True
 
+    def _calculate_feedback_confidence(self, feedback: Dict[str, Any]) -> float:
+        """
+        Calculate confidence score for user feedback based on type and evidence.
+
+        Args:
+            feedback: Feedback record dict
+
+        Returns:
+            Confidence score (0.0-1.0)
+        """
+        feedback_type = feedback.get("type", "")
+        feedback_data = feedback.get("data", {})
+        has_photo = bool(feedback_data.get("photo_url"))
+
+        if feedback_type == "blocked":
+            return 0.9 if has_photo else 0.8
+        elif feedback_type == "flooded":
+            has_severity = "severity" in feedback_data
+            return 0.8 if has_severity else self._config.default_confidence
+        elif feedback_type == "clear":
+            return self._config.default_confidence
+        elif feedback_type == "traffic":
+            return 0.5
+        else:
+            return self._config.default_confidence
+
     def forward_to_hazard_agent(self, feedback: Dict[str, Any]) -> None:
         """
         Forward user feedback to HazardAgent for risk assessment updates via MessageQueue.
@@ -345,12 +609,15 @@ class EvacuationManagerAgent(BaseAgent):
             f"{feedback.get('type')}"
         )
 
+        # Variable confidence based on feedback type and evidence
+        confidence = self._calculate_feedback_confidence(feedback)
+
         # Convert feedback to format HazardAgent expects (scout data format)
         scout_data_format = {
             "location": feedback.get("location"),
             "severity": feedback.get("data", {}).get("severity", 0.5),
             "report_type": feedback.get("type"),
-            "confidence": 0.7,  # User feedback has moderate confidence
+            "confidence": confidence,
             "timestamp": feedback.get("timestamp"),
             "source": "user_feedback",
             "feedback_id": feedback.get("feedback_id")
@@ -358,90 +625,39 @@ class EvacuationManagerAgent(BaseAgent):
 
         # Use ACL message passing (MAS architecture)
         try:
-            from ..communication.acl_protocol import ACLMessage, Performative
+            from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
             # Create INFORM message with scout report batch
-            message = ACLMessage(
-                performative=Performative.INFORM,
+            message = create_inform_message(
                 sender=self.agent_id,
                 receiver=self.hazard_agent_id,
-                content={
-                    "scout_report_batch": [scout_data_format]
-                }
+                info_type="scout_report_batch",
+                data={
+                    "reports": [scout_data_format],
+                    "has_coordinates": bool(scout_data_format.get("location")),
+                    "report_count": 1,
+                },
             )
 
             # Send via MessageQueue
             self.message_queue.send_message(message)
             logger.info(
-                f"Feedback forwarded successfully to {self.hazard_agent_id} via MessageQueue"
+                f"Feedback forwarded to {self.hazard_agent_id} via MQ "
+                f"(type={feedback.get('type')}, confidence={confidence:.2f})"
             )
 
         except Exception as e:
             logger.error(f"Failed to forward feedback to HazardAgent via MessageQueue: {e}")
 
-    def find_nearest_evacuation_center(
-        self,
-        location: Tuple[float, float]
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Find the nearest evacuation center to a given location.
-
-        Args:
-            location: Coordinates to search from
-
-        Returns:
-            Dict with evacuation center information, or None if not found
-                Format:
-                {
-                    "name": str,
-                    "location": Tuple[float, float],
-                    "distance": float,  # meters
-                    "capacity": int,
-                    "type": str,  # "school", "gymnasium", etc.
-                    "contact": str,
-                    "route": Dict  # Route information to the center
-                }
-        """
-        logger.info(f"{self.agent_id} finding evacuation center near {location}")
-
-        if not self.routing_agent:
-            logger.error("RoutingAgent not configured")
-            return None
-
-        try:
-            # Call RoutingAgent's find_nearest_evacuation_center method
-            result = self.routing_agent.find_nearest_evacuation_center(
-                location=location,
-                max_centers=5
-            )
-
-            if result:
-                logger.info(
-                    f"Found evacuation center: {result.get('name')} "
-                    f"at distance {result.get('distance', 0):.0f}m"
-                )
-                return result
-            else:
-                logger.warning("No evacuation centers found")
-                return None
-
-        except Exception as e:
-            logger.error(f"Failed to find evacuation center: {e}")
-            return None
+    # find_nearest_evacuation_center removed — zero external callers,
+    # main.py:864 calls routing_agent directly
 
     def get_route_statistics(self) -> Dict[str, Any]:
         """
-        Get statistics about routes and feedback.
+        Get statistics about routes, feedback, and distress calls.
 
         Returns:
             Dict containing statistics
-                Format:
-                {
-                    "total_routes": int,
-                    "total_feedback": int,
-                    "feedback_by_type": Dict[str, int],
-                    "average_risk_level": float
-                }
         """
         feedback_by_type = {}
         for feedback in self.feedback_history:
@@ -451,51 +667,17 @@ class EvacuationManagerAgent(BaseAgent):
         return {
             "total_routes": len(self.route_history),
             "total_feedback": len(self.feedback_history),
+            "total_distress_calls": len(self.distress_history),
             "feedback_by_type": feedback_by_type,
             "average_risk_level": self._calculate_average_risk()
         }
 
-    def _request_route_from_agent(
-        self,
-        start: Tuple[float, float],
-        end: Tuple[float, float],
-        preferences: Optional[Dict[str, Any]],
-        route_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Request route calculation from RoutingAgent.
-
-        Args:
-            start: Starting coordinates
-            end: Ending coordinates
-            preferences: User preferences
-            route_id: Optional route ID to use (reuses caller's ID to avoid duplicates)
-
-        Returns:
-            Route information dict
-        """
-        if not self.routing_agent:
-            raise ValueError("RoutingAgent not configured")
-
-        # Direct method call to RoutingAgent's calculate_route
-        # In a fully distributed system, this could use ACL messages via message queue
-        route_result = self.routing_agent.calculate_route(start, end, preferences)
-
-        # Format response to match expected structure
-        return {
-            "route_id": route_id or str(uuid.uuid4()),
-            "path": route_result.get("path", []),
-            "distance": route_result.get("distance", 0.0),
-            "estimated_time": route_result.get("estimated_time", 0.0),
-            "risk_level": route_result.get("risk_level", 0.0),
-            "max_risk": route_result.get("max_risk", 0.0),
-            "warnings": route_result.get("warnings", []),
-            "timestamp": datetime.now()
-        }
-
     def _validate_coordinates(self, coords: Tuple[float, float]) -> bool:
         """
-        Validate coordinate tuple.
+        Validate coordinate tuple against Philippines bounds.
+
+        Uses GlobalConfig bounds (lat 4-21, lon 116-127) instead of
+        global (-90 to 90, -180 to 180).
 
         Args:
             coords: Coordinates to validate (lat, lon)
@@ -507,7 +689,10 @@ class EvacuationManagerAgent(BaseAgent):
             return False
 
         lat, lon = coords
-        return -90 <= lat <= 90 and -180 <= lon <= 180
+        return (
+            self._global_config.min_latitude <= lat <= self._global_config.max_latitude
+            and self._global_config.min_longitude <= lon <= self._global_config.max_longitude
+        )
 
     def _calculate_average_risk(self) -> float:
         """

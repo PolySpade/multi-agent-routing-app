@@ -147,15 +147,15 @@ class ScoutAgent(BaseAgent):
                 self.llm_service = get_llm_service()
                 if self.llm_service.is_available():
                     self.use_llm = True
-                    self.logger.info(
+                    logger.info(
                         f"{self.agent_id} LLM Service initialized (text + vision models)"
                     )
                 else:
-                    self.logger.warning(
+                    logger.warning(
                         f"{self.agent_id} LLM Service not available, will use fallback NLP"
                     )
             except Exception as e:
-                self.logger.warning(
+                logger.warning(
                     f"{self.agent_id} failed to initialize LLM Service: {e}. "
                     "Falling back to traditional NLP."
                 )
@@ -165,9 +165,9 @@ class ScoutAgent(BaseAgent):
         try:
             from ..ml_models.nlp_processor import NLPProcessor
             self.nlp_processor = NLPProcessor()
-            self.logger.info(f"{self.agent_id} initialized with NLP processor (fallback)")
+            logger.info(f"{self.agent_id} initialized with NLP processor (fallback)")
         except Exception as e:
-            self.logger.warning(
+            logger.warning(
                 f"{self.agent_id} failed to initialize NLP processor: {e}"
             )
             self.nlp_processor = None
@@ -176,9 +176,9 @@ class ScoutAgent(BaseAgent):
         try:
             from ..ml_models.location_geocoder import LocationGeocoder
             self.geocoder = LocationGeocoder(llm_service=self.llm_service)
-            self.logger.info(f"{self.agent_id} initialized with LocationGeocoder")
+            logger.info(f"{self.agent_id} initialized with LocationGeocoder")
         except Exception as e:
-            self.logger.warning(
+            logger.warning(
                 f"{self.agent_id} failed to initialize LocationGeocoder: {e}"
             )
             self.geocoder = None
@@ -194,11 +194,11 @@ class ScoutAgent(BaseAgent):
 
         # Log initialization summary
         processing_mode = "LLM" if self.use_llm else "Traditional NLP"
-        self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in SIMULATION MODE")
-        self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
-        self.logger.info(f"  Text processing mode: {processing_mode}")
-        self.logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
-        self.logger.info(f"  Temporal dedup window: {self._temporal_dedup_window_minutes} min")
+        logger.info(f"ScoutAgent '{self.agent_id}' initialized in SIMULATION MODE")
+        logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+        logger.info(f"  Text processing mode: {processing_mode}")
+        logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
+        logger.info(f"  Temporal dedup window: {self._temporal_dedup_window_minutes} min")
 
     def setup(self) -> bool:
         """
@@ -207,7 +207,7 @@ class ScoutAgent(BaseAgent):
         Returns:
             bool: True if setup was successful, False otherwise.
         """
-        self.logger.info(f"{self.agent_id} loading synthetic data")
+        logger.info(f"{self.agent_id} loading synthetic data")
         return self._load_simulation_data()
 
     def step(self) -> list:
@@ -215,11 +215,15 @@ class ScoutAgent(BaseAgent):
         Collects and processes synthetic flood data from simulation.
 
         This method is designed to be called repeatedly by the main simulation loop.
+        Also processes any pending MQ requests from the orchestrator.
 
         Returns:
             list: A list of processed tweet dictionaries.
         """
-        self.logger.info(
+        # Process any orchestrator REQUEST messages first
+        self._process_mq_requests()
+
+        logger.debug(
             f"{self.agent_id} collecting simulated data at {datetime.now().strftime('%H:%M:%S')}"
         )
 
@@ -230,14 +234,79 @@ class ScoutAgent(BaseAgent):
         prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
 
         if prepared_tweets:
-            self.logger.info(f"{self.agent_id} found {len(prepared_tweets)} simulated tweets")
+            logger.info(f"{self.agent_id} found {len(prepared_tweets)} simulated tweets")
 
             # Process tweets with LLM/NLP and forward to HazardAgent
             self._process_and_forward_tweets(prepared_tweets)
         else:
-            self.logger.debug(f"{self.agent_id} no more simulation data available")
+            logger.debug(f"{self.agent_id} no more simulation data available")
 
         return prepared_tweets
+
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        if not self.message_queue:
+            return
+
+        while True:
+            msg = self.message_queue.receive_message(
+                agent_id=self.agent_id, timeout=0.0, block=False
+            )
+            if msg is None:
+                break
+
+            if msg.performative == Performative.REQUEST:
+                action = msg.content.get("action")
+                data = msg.content.get("data", {})
+
+                if action == "scan_location":
+                    self._handle_scan_location(msg, data)
+                else:
+                    logger.warning(
+                        f"{self.agent_id}: unknown REQUEST action '{action}' "
+                        f"from {msg.sender}"
+                    )
+            else:
+                logger.debug(
+                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
+                )
+
+    def _handle_scan_location(self, msg: ACLMessage, data: dict) -> None:
+        """Handle scan_location REQUEST: geocode location and reply."""
+        location = data.get("location", "")
+        result = {"location": location, "status": "unknown"}
+
+        try:
+            if self.geocoder:
+                coords = self.geocoder.get_coordinates(location)
+                if coords:
+                    result["coordinates"] = coords
+                    result["status"] = "scanned"
+                else:
+                    result["status"] = "location_not_found"
+            else:
+                result["status"] = "geocoder_unavailable"
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(
+            f"{self.agent_id}: scan_location '{location}' -> {result['status']}"
+        )
+
+        # Send INFORM reply to requester
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="scan_location_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
 
     def inject_manual_tweet(self, tweet_content: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -249,7 +318,7 @@ class ScoutAgent(BaseAgent):
         Returns:
             Processed report data
         """
-        self.logger.info(f"{self.agent_id} received manual tweet injection")
+        logger.info(f"{self.agent_id} received manual tweet injection")
         
         # Normalize input
         if "timestamp" not in tweet_content:
@@ -273,11 +342,11 @@ class ScoutAgent(BaseAgent):
                 )
                 return report_data
             else:
-                self.logger.warning(f"{self.agent_id} manual injection failed processing")
+                logger.warning(f"{self.agent_id} manual injection failed processing")
                 return {"status": "error", "message": "Processing returned no valid report"}
                 
         except Exception as e:
-            self.logger.error(f"{self.agent_id} manual injection error: {e}")
+            logger.error(f"{self.agent_id} manual injection error: {e}")
             return {"status": "error", "message": str(e)}
 
 
@@ -540,7 +609,7 @@ class ScoutAgent(BaseAgent):
 
                 # Visual evidence with high risk = high confidence
                 if visual_analysis.get('risk_score', 0) > 0.5:
-                    self.logger.info(
+                    logger.info(
                         f"[Vision] High-risk visual detected: "
                         f"depth={visual_analysis.get('estimated_depth_m')}m, "
                         f"risk={visual_analysis.get('risk_score')}"
@@ -852,7 +921,12 @@ class ScoutAgent(BaseAgent):
         # Log details of each report being sent
         for i, report in enumerate(reports, 1):
             coords = report.get('coordinates')
-            coord_str = f"[{coords[0]:.4f}, {coords[1]:.4f}]" if coords else "None"
+            if coords and isinstance(coords, dict):
+                coord_str = f"[{coords.get('lat', 0):.4f}, {coords.get('lon', 0):.4f}]"
+            elif coords and isinstance(coords, (list, tuple)):
+                coord_str = f"[{coords[0]:.4f}, {coords[1]:.4f}]"
+            else:
+                coord_str = "None"
             logger.info(
                 f"  Report {i}: location='{report.get('location', 'N/A')}', "
                 f"coords={coord_str}, severity={report.get('severity', 0):.1f}, "
@@ -901,7 +975,7 @@ class ScoutAgent(BaseAgent):
 
     def shutdown(self) -> None:
         """Performs cleanup on agent shutdown."""
-        self.logger.info(f"{self.agent_id} shutting down")
+        logger.info(f"{self.agent_id} shutting down")
 
     # --- SIMULATION MODE METHODS ---
 
@@ -917,7 +991,7 @@ class ScoutAgent(BaseAgent):
             tweet_file = data_dir / f"scout_tweets_{self.simulation_scenario}.json"
 
             if not tweet_file.exists():
-                self.logger.error(
+                logger.error(
                     f"Simulation data file not found: {tweet_file}\n"
                     f"Run 'scripts/generate_scout_synthetic_data.py' to create synthetic data"
                 )
@@ -932,14 +1006,14 @@ class ScoutAgent(BaseAgent):
                 self.simulation_tweets = tweets_data
 
             self.simulation_index = 0
-            self.logger.info(
+            logger.info(
                 f"{self.agent_id} loaded {len(self.simulation_tweets)} synthetic tweets "
                 f"from scenario {self.simulation_scenario}"
             )
             return True
 
         except Exception as e:
-            self.logger.error(f"{self.agent_id} error loading simulation data: {e}")
+            logger.error(f"{self.agent_id} error loading simulation data: {e}")
             return False
 
     def _get_simulation_tweets(self, batch_size: int = 10) -> list:
@@ -953,11 +1027,11 @@ class ScoutAgent(BaseAgent):
             list: Next batch of tweet dictionaries
         """
         if not self.simulation_tweets:
-            self.logger.warning(f"{self.agent_id} no simulation data loaded")
+            logger.debug(f"{self.agent_id} no simulation data loaded")
             return []
 
         if self.simulation_index >= len(self.simulation_tweets):
-            self.logger.info(
+            logger.info(
                 f"{self.agent_id} reached end of simulation data "
                 f"({self.simulation_index}/{len(self.simulation_tweets)} tweets processed)"
             )
@@ -969,7 +1043,7 @@ class ScoutAgent(BaseAgent):
 
         self.simulation_index = end_idx
 
-        self.logger.debug(
+        logger.debug(
             f"{self.agent_id} returning simulation batch: "
             f"tweets {start_idx+1}-{end_idx} of {len(self.simulation_tweets)}"
         )
@@ -1005,7 +1079,7 @@ class ScoutAgent(BaseAgent):
             }
             prepared_tweets.append(clean_tweet)
 
-        self.logger.debug(
+        logger.debug(
             f"{self.agent_id} prepared {len(prepared_tweets)} simulation tweets "
             f"for ML processing (ground truth stripped)"
         )
@@ -1015,7 +1089,7 @@ class ScoutAgent(BaseAgent):
     def reset_simulation(self) -> None:
         """Reset simulation to the beginning."""
         self.simulation_index = 0
-        self.logger.info(f"{self.agent_id} simulation reset to beginning")
+        logger.info(f"{self.agent_id} simulation reset to beginning")
 
     def set_batch_size(self, batch_size: int) -> None:
         """
@@ -1028,7 +1102,7 @@ class ScoutAgent(BaseAgent):
             raise ValueError("Batch size must be at least 1")
 
         self.simulation_batch_size = batch_size
-        self.logger.info(f"{self.agent_id} batch size set to {batch_size}")
+        logger.info(f"{self.agent_id} batch size set to {batch_size}")
 
     def is_llm_enabled(self) -> bool:
         """Check if LLM processing is enabled and available."""

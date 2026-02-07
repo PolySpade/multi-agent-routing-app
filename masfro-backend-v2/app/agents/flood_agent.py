@@ -219,10 +219,14 @@ class FloodAgent(BaseAgent):
         """
         Perform one step of the agent's operation.
 
-        Fetches latest official flood data from all configured sources,
+        Processes any pending MQ requests from orchestrator, then
+        fetches latest official flood data from all configured sources,
         validates the data, and sends it to the HazardAgent via MessageQueue
         using ACL protocol.
         """
+        # Process any orchestrator REQUEST messages first
+        self._process_mq_requests()
+
         logger.debug(f"{self.agent_id} performing step at {datetime.now()}")
 
         # Check if update is needed
@@ -230,6 +234,69 @@ class FloodAgent(BaseAgent):
             collected_data = self.collect_flood_data()
             if collected_data:
                 self.send_flood_data_via_message(collected_data)
+
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        if not self.message_queue:
+            return
+
+        while True:
+            msg = self.message_queue.receive_message(
+                agent_id=self.agent_id, timeout=0.0, block=False
+            )
+            if msg is None:
+                break
+
+            if msg.performative == Performative.REQUEST:
+                action = msg.content.get("action")
+
+                if action == "collect_data":
+                    self._handle_collect_data_request(msg)
+                else:
+                    logger.warning(
+                        f"{self.agent_id}: unknown REQUEST action '{action}' "
+                        f"from {msg.sender}"
+                    )
+            else:
+                logger.debug(
+                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
+                )
+
+    def _handle_collect_data_request(self, msg: ACLMessage) -> None:
+        """Handle collect_data REQUEST: force data collection and reply."""
+        result = {"status": "unknown", "locations_collected": 0}
+
+        try:
+            collected_data = self.collect_flood_data()
+            if collected_data:
+                # Send data to hazard agent via normal flow
+                self.send_flood_data_via_message(collected_data)
+                result["status"] = "success"
+                result["locations_collected"] = len(collected_data)
+            else:
+                result["status"] = "no_data"
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(
+            f"{self.agent_id}: collect_data -> {result['status']} "
+            f"({result['locations_collected']} locations)"
+        )
+
+        # Send INFORM reply to requester
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="collect_data_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
 
     def inject_manual_advisory(self, advisory_content: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -852,6 +919,7 @@ class FloodAgent(BaseAgent):
         if self.last_update is None:
             return True
 
+        # Both self.last_update and datetime.now() are naive (no timezone); keep consistent
         elapsed = (datetime.now() - self.last_update).total_seconds()
         return elapsed >= self.data_update_interval
 
@@ -1089,6 +1157,8 @@ class FloodAgent(BaseAgent):
         if text_hash in self._processed_advisory_hashes:
             logger.debug(f"Skipping duplicate advisory (hash={text_hash[:8]})")
             return True
+        if len(self._processed_advisory_hashes) > 5000:
+            self._processed_advisory_hashes.clear()
         self._processed_advisory_hashes.add(text_hash)
         return False
 
