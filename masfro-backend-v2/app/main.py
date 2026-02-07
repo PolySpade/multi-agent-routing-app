@@ -873,7 +873,18 @@ async def get_nearest_evacuation_center(request: EvacuationCenterRequest):
                 detail="No evacuation centers found or accessible."
             )
 
-        return {
+        import json, math
+
+        def _sanitize(obj):
+            if isinstance(obj, float):
+                return None if (math.isnan(obj) or math.isinf(obj)) else obj
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            return obj
+
+        return _sanitize({
             "status": "success",
             "evacuation_center": result["center"],
             "route": {
@@ -883,7 +894,7 @@ async def get_nearest_evacuation_center(request: EvacuationCenterRequest):
                 "risk_level": result["metrics"]["average_risk"]
             },
             "alternatives": result.get("alternatives", [])
-        }
+        })
 
     except HTTPException:
         raise
@@ -2147,27 +2158,49 @@ async def get_evacuation_centers():
                 # Skip rows with NaN coordinates
                 if pd.isna(lat) or pd.isna(lon):
                     continue
+                def _safe_str(val, default=""):
+                    return str(val) if pd.notna(val) else default
+
+                def _safe_int(val, default=0):
+                    try:
+                        return int(val) if pd.notna(val) else default
+                    except (ValueError, TypeError, OverflowError):
+                        return default
+
                 centers.append({
-                    "name": row.get("name", "Unknown"),
-                    "location": row.get("address", ""),
-                    "barangay": row.get("barangay", ""),
+                    "name": _safe_str(row.get("name"), "Unknown"),
+                    "location": _safe_str(row.get("address")),
+                    "barangay": _safe_str(row.get("barangay")),
                     "coordinates": {
                         "lat": float(lat),
                         "lon": float(lon)
                     },
-                    "capacity": int(row.get("capacity", 0)) if pd.notna(row.get("capacity")) else 0,
-                    "type": row.get("type", ""),
-                    "facilities": row.get("facilities", "").split(", ") if pd.notna(row.get("facilities")) else [],
-                    "contact": row.get("contact", ""),
+                    "capacity": _safe_int(row.get("capacity")),
+                    "type": _safe_str(row.get("type")),
+                    "facilities": _safe_str(row.get("facilities")).split(", ") if pd.notna(row.get("facilities")) else [],
+                    "contact": _safe_str(row.get("contact")),
                     "is_active": True
                 })
 
-        return {
+        import json, math
+
+        def _sanitize(obj):
+            """Recursively replace NaN/Inf floats with None for JSON compliance."""
+            if isinstance(obj, float):
+                return None if (math.isnan(obj) or math.isinf(obj)) else obj
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            return obj
+
+        result = {
             "status": "success",
             "total_centers": len(centers),
-            "centers": centers,
+            "centers": _sanitize(centers),
             "note": "Official evacuation centers from Marikina City database"
         }
+        return result
 
     except HTTPException:
         raise

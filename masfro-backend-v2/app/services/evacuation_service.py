@@ -98,8 +98,17 @@ class EvacuationCenterService:
 
         centers_list = []
         for _, row in self.centers.iterrows():
-            center_name = row['name']
-            capacity = int(row['capacity'])
+            lat = row.get('latitude')
+            lon = row.get('longitude')
+            # Skip rows with invalid coordinates
+            if pd.isna(lat) or pd.isna(lon):
+                continue
+
+            center_name = str(row['name']) if pd.notna(row.get('name')) else 'Unknown'
+            try:
+                capacity = int(row['capacity']) if pd.notna(row.get('capacity')) else 0
+            except (ValueError, TypeError, OverflowError):
+                capacity = 0
             current_occupancy = self.occupancy.get(center_name, 0)
 
             # Calculate availability status
@@ -111,22 +120,25 @@ class EvacuationCenterService:
             else:
                 status = 'available'
 
+            def _safe_str(val, default=''):
+                return str(val) if pd.notna(val) else default
+
             centers_list.append({
                 'name': center_name,
                 'coordinates': {
-                    'lat': float(row['latitude']),
-                    'lon': float(row['longitude'])
+                    'lat': float(lat),
+                    'lon': float(lon)
                 },
-                'location': row.get('address', ''),
-                'barangay': row.get('barangay', ''),
+                'location': _safe_str(row.get('address')),
+                'barangay': _safe_str(row.get('barangay')),
                 'capacity': capacity,
                 'current_occupancy': current_occupancy,
                 'available_slots': max(0, capacity - current_occupancy),
                 'occupancy_percentage': round(occupancy_ratio * 100, 1),
                 'status': status,
-                'type': row.get('type', 'unknown'),
-                'contact': row.get('contact', ''),
-                'facilities': row.get('facilities', '').split(', ') if pd.notna(row.get('facilities')) else []
+                'type': _safe_str(row.get('type'), 'unknown'),
+                'contact': _safe_str(row.get('contact')),
+                'facilities': _safe_str(row.get('facilities')).split(', ') if pd.notna(row.get('facilities')) else []
             })
 
         # Sort by availability (available first, then limited, then full)
@@ -181,7 +193,11 @@ class EvacuationCenterService:
         if center_row.empty:
             return False
 
-        capacity = int(center_row.iloc[0]['capacity'])
+        raw_cap = center_row.iloc[0].get('capacity')
+        try:
+            capacity = int(raw_cap) if pd.notna(raw_cap) else 0
+        except (ValueError, TypeError, OverflowError):
+            capacity = 0
 
         # Clamp occupancy to valid range
         occupancy = max(0, min(occupancy, capacity))

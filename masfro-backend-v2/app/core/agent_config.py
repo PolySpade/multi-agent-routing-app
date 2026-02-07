@@ -240,7 +240,7 @@ class OrchestratorConfig:
     default_timeout: float = 60.0
     assess_risk_timeout: float = 120.0
     evacuation_timeout: float = 60.0
-    route_timeout: float = 30.0scm-history-item:c%3A%5CUsers%5CClinton%5CDocuments%5CCoding%20Project%5Cthesis%5Cmulti-agent-routing-app?%7B%22repositoryId%22%3A%22scm0%22%2C%22historyItemId%22%3A%22920236dcbcb5f15384b2dbcf13f82353c9630c30%22%2C%22historyItemParentId%22%3A%22ddf94993edb1e08ca1dc0946f68dd2a7c5438177%22%2C%22historyItemDisplayId%22%3A%22920236d%22%7D
+    route_timeout: float = 30.0
     cascade_timeout: float = 120.0
 
     # Concurrency limits
