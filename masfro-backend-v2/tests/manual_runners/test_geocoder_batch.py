@@ -6,7 +6,7 @@ import argparse
 from typing import List, Tuple
 
 # Ensure app modules are importable
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.ml_models.location_geocoder import LocationGeocoder
 from app.services.llm_service import LLMService

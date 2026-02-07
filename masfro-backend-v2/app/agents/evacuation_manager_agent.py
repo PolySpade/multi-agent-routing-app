@@ -243,7 +243,7 @@ class EvacuationManagerAgent(BaseAgent):
 
         try:
             # Request route from RoutingAgent
-            route = self._request_route_from_agent(start, end, preferences)
+            route = self._request_route_from_agent(start, end, preferences, route_id=route_id)
 
             # Add to history
             self.route_history.append({
@@ -459,7 +459,8 @@ class EvacuationManagerAgent(BaseAgent):
         self,
         start: Tuple[float, float],
         end: Tuple[float, float],
-        preferences: Optional[Dict[str, Any]]
+        preferences: Optional[Dict[str, Any]],
+        route_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Request route calculation from RoutingAgent.
@@ -468,6 +469,7 @@ class EvacuationManagerAgent(BaseAgent):
             start: Starting coordinates
             end: Ending coordinates
             preferences: User preferences
+            route_id: Optional route ID to use (reuses caller's ID to avoid duplicates)
 
         Returns:
             Route information dict
@@ -481,7 +483,7 @@ class EvacuationManagerAgent(BaseAgent):
 
         # Format response to match expected structure
         return {
-            "route_id": str(uuid.uuid4()),
+            "route_id": route_id or str(uuid.uuid4()),
             "path": route_result.get("path", []),
             "distance": route_result.get("distance", 0.0),
             "estimated_time": route_result.get("estimated_time", 0.0),

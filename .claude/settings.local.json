@@ -69,7 +69,23 @@
       "Bash(claude mcp remove:*)",
       "Bash(cd:*)",
       "Bash(ollama list:*)",
-      "Bash(.venv/Scripts/python:*)"
+      "Bash(.venv/Scripts/python:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "Bash(cmd.exe /c \"cd /d \"\"c:\\\\Users\\\\Clinton\\\\Documents\\\\Coding Project\\\\thesis\\\\multi-agent-routing-app\\\\masfro-backend-v2\"\" && .venv\\\\Scripts\\\\activate.bat && uvicorn app.main:app --reload\")",
+      "Bash(powershell.exe:*)",
+      "mcp__plugin_playwright_playwright__browser_handle_dialog",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_type",
+      "Bash(.venvScriptspython.exe -c \"import multipart; print\\(''python-multipart installed''\\)\")",
+      "Bash(uv pip show:*)",
+      "Bash(uv pip install:*)",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "Bash(powershell -Command \".\\\\.venv\\\\Scripts\\\\Activate.ps1; uvicorn app.main:app --reload\")",
+      "mcp__plugin_playwright_playwright__browser_install"
     ],
     "deny": []
   }

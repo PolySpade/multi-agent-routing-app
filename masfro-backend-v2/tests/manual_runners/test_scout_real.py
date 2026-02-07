@@ -1,7 +1,8 @@
-
 import os
 import sys
 import logging
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 from unittest.mock import MagicMock
 from app.agents.scout_agent import ScoutAgent
 from app.environment.graph_manager import DynamicGraphEnvironment

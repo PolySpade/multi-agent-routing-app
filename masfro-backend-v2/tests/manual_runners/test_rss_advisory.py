@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import json
 
 # Setup path and logging
-sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parents[2]))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TestRSS")
 

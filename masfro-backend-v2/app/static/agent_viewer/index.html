@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MAS-FRO Agent Viewer</title>
+    <style>
+      :root {
+        --primary-bg: #0f172a;
+        --secondary-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-secondary: #94a3b8;
+        --accent: #3b82f6;
+        --success: #22c55e;
+        --warning: #eab308;
+        --error: #ef4444;
+        --border: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background-color: var(--primary-bg);
+        color: var(--text-main);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+        flex-shrink: 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+
+      .container {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 20px;
+        flex: 1;
+        min-height: 0; /* KEY: allows grid to shrink below content size */
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+        min-height: 0;
+      }
+
+      .main-content {
+        display: flex;
+        flex-direction: column;
+        min-height: 0; /* KEY: allows flex children to shrink */
+        overflow: hidden;
+      }
+
+      .card {
+        background-color: var(--secondary-bg);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 15px;
+        overflow: hidden;
+      }
+
+      .card-header {
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      /* Agent List */
+      .agent-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .agent-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .agent-item.selected {
+        border-left: 3px solid var(--accent);
+      }
+      .agent-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .agent-name {
+        font-weight: 500;
+        font-size: 0.9rem;
+      }
+      .agent-id {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+      }
+      .agent-status {
+        font-size: 0.75rem;
+        padding: 2px 8px;
+        border-radius: 12px;
+      }
+      .agent-status.Active {
+        background: rgba(34, 197, 94, 0.2);
+        color: var(--success);
+      }
+      .agent-status.Error {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--error);
+      }
+
+      /* Tab Navigation */
+      .tab-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 2px solid var(--border);
+        margin-bottom: 15px;
+        flex-shrink: 0;
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        padding: 10px 18px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+      .tab-btn:hover {
+        color: var(--text-main);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      /* Tab Panels */
+      .tab-panel {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0; /* KEY: prevents panel from expanding beyond parent */
+        overflow: hidden;
+      }
+      .tab-panel.active {
+        display: flex;
+      }
+
+      /* Stats Cards */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+        margin-bottom: 15px;
+        flex-shrink: 0;
+      }
+      .stat-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+      }
+      .stat-label {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 4px;
+      }
+      .stat-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      .stat-value.bool-true {
+        color: var(--success);
+      }
+      .stat-value.bool-false {
+        color: var(--error);
+      }
+
+      /* Controls */
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .injection-section {
+        margin-bottom: 15px;
+        flex-shrink: 0;
+      }
+      .filter-bar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .filter-bar select {
+        font-size: 0.8rem;
+        padding: 4px 8px;
+      }
+
+      input,
+      textarea,
+      select {
+        background: var(--primary-bg);
+        border: 1px solid var(--border);
+        color: var(--text-main);
+        padding: 8px;
+        border-radius: 4px;
+        font-family: inherit;
+      }
+
+      button {
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: opacity 0.2s;
+      }
+      button:hover {
+        opacity: 0.9;
+      }
+
+      /* Logs Card - THE FIX: flex container that fills remaining space */
+      .logs-card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0; /* KEY: allows the card to shrink */
+        overflow: hidden;
+      }
+
+      /* Logs container scrolls within the card */
+      .logs-container {
+        flex: 1;
+        background-color: #000;
+        border-radius: 8px;
+        padding: 10px;
+        overflow-y: auto;
+        font-family: "Fira Code", monospace;
+        font-size: 0.85rem;
+        min-height: 0; /* KEY: allows scroll instead of grow */
+        scrollbar-width: thin;
+        scrollbar-color: #4a5568 #1a1a2e;
+      }
+      .logs-container::-webkit-scrollbar {
+        width: 10px;
+      }
+      .logs-container::-webkit-scrollbar-track {
+        background: #1a1a2e;
+        border-radius: 5px;
+      }
+      .logs-container::-webkit-scrollbar-thumb {
+        background: #4a5568;
+        border-radius: 5px;
+        border: 2px solid #1a1a2e;
+      }
+      .logs-container::-webkit-scrollbar-thumb:hover {
+        background: #6b7280;
+      }
+
+      .log-entry {
+        margin-bottom: 4px;
+        line-height: 1.4;
+        border-bottom: 1px solid #1e1e1e;
+        padding-bottom: 2px;
+      }
+      .log-ts {
+        color: #64748b;
+        margin-right: 8px;
+      }
+      .log-level {
+        font-weight: bold;
+        margin-right: 8px;
+        width: 60px;
+        display: inline-block;
+      }
+      .log-level.DEBUG {
+        color: #6b7280;
+      }
+      .log-level.INFO {
+        color: #3b82f6;
+      }
+      .log-level.WARNING {
+        color: #eab308;
+      }
+      .log-level.ERROR {
+        color: #ef4444;
+      }
+      .log-level.CRITICAL {
+        color: #ff0000;
+        text-decoration: underline;
+      }
+      .log-logger {
+        color: #a855f7;
+        margin-right: 8px;
+      }
+      .log-msg {
+        color: #e2e8f0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>MAS-FRO Agent Viewer</h1>
+      <div id="connection-status" style="color: var(--success)">
+        &#9679; Connected
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="sidebar">
+        <div class="card">
+          <div class="card-header">Active Agents</div>
+          <div id="agent-list">
+            <div class="agent-item">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+          <button
+            class="tab-btn active"
+            data-tab="all-logs"
+            onclick="switchTab('all-logs')"
+          >
+            All Logs
+          </button>
+          <button class="tab-btn" data-tab="scout" onclick="switchTab('scout')">
+            Scout
+          </button>
+          <button class="tab-btn" data-tab="flood" onclick="switchTab('flood')">
+            Flood
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="hazard"
+            onclick="switchTab('hazard')"
+          >
+            Hazard
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="routing"
+            onclick="switchTab('routing')"
+          >
+            Routing
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="evacuation"
+            onclick="switchTab('evacuation')"
+          >
+            Evacuation
+          </button>
+        </div>
+
+        <!-- Tab: All Logs -->
+        <div class="tab-panel active" id="panel-all-logs">
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>System Logs</span>
+              <div class="filter-bar">
+                <select id="filter-level" onchange="fetchLogs()">
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+                <button
+                  onclick="fetchLogs()"
+                  style="padding: 2px 8px; font-size: 0.7rem; width: auto"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div id="logs-output" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Scout Agent -->
+        <div class="tab-panel" id="panel-scout">
+          <div id="scout-stats" class="stats-grid"></div>
+          <div class="injection-section">
+            <div class="card">
+              <div class="card-header">Inject Tweet</div>
+              <div class="control-group">
+                <textarea
+                  id="tweet-text"
+                  rows="2"
+                  placeholder="Enter tweet text..."
+                ></textarea>
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <input
+                    type="file"
+                    id="tweet-image"
+                    accept="image/*"
+                    style="flex: 1"
+                  />
+                  <span
+                    id="image-preview"
+                    style="font-size: 0.75rem; color: var(--text-secondary)"
+                  ></span>
+                </div>
+                <button onclick="injectTweet()">Send Tweet</button>
+              </div>
+            </div>
+          </div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Scout Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-scout"
+                  onchange="fetchAgentLogs('scout')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-scout" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Flood Agent -->
+        <div class="tab-panel" id="panel-flood">
+          <div id="flood-stats" class="stats-grid"></div>
+          <div class="injection-section">
+            <div class="card">
+              <div class="card-header">Inject Advisory</div>
+              <div class="control-group">
+                <textarea
+                  id="advisory-text"
+                  rows="2"
+                  placeholder="News/Advisory text..."
+                ></textarea>
+                <select id="advisory-type">
+                  <option value="news">News Report</option>
+                  <option value="pagasa">PAGASA Advisory</option>
+                  <option value="manual">Manual Report</option>
+                </select>
+                <button onclick="injectAdvisory()">Send Advisory</button>
+              </div>
+            </div>
+          </div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Flood Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-flood"
+                  onchange="fetchAgentLogs('flood')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-flood" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Hazard Agent -->
+        <div class="tab-panel" id="panel-hazard">
+          <div id="hazard-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Hazard Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-hazard"
+                  onchange="fetchAgentLogs('hazard')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-hazard" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Routing Agent -->
+        <div class="tab-panel" id="panel-routing">
+          <div id="routing-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Routing Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-routing"
+                  onchange="fetchAgentLogs('routing')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-routing" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Evacuation Agent -->
+        <div class="tab-panel" id="panel-evacuation">
+          <div id="evacuation-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Evacuation Manager Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-evacuation"
+                  onchange="fetchAgentLogs('evacuation')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-evacuation" class="logs-container"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "/api/v1/agents";
+      let activeTab = "all-logs";
+      let agentsCache = [];
+
+      const TAB_LOG_FILTER = {
+        scout: "scout_agent",
+        flood: "flood_agent",
+        hazard: "hazard_agent",
+        routing: "routing_agent",
+        evacuation: "evacuation_manager_agent",
+      };
+
+      const TYPE_TO_ROLE = {
+        ScoutAgent: "scout",
+        FloodAgent: "flood",
+        HazardAgent: "hazard",
+        RoutingAgent: "routing",
+        EvacuationManagerAgent: "evacuation",
+      };
+
+      setInterval(() => {
+        if (activeTab === "all-logs") fetchLogs();
+        else fetchAgentLogs(activeTab);
+      }, 2000);
+      setInterval(fetchAgents, 5000);
+
+      fetchLogs();
+      fetchAgents();
+
+      function switchTab(tabId) {
+        activeTab = tabId;
+        document.querySelectorAll(".tab-btn").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.tab === tabId);
+        });
+        document.querySelectorAll(".tab-panel").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === "panel-" + tabId);
+        });
+        document.querySelectorAll(".agent-item").forEach((el) => {
+          el.classList.toggle("selected", el.dataset.role === tabId);
+        });
+        if (tabId === "all-logs") fetchLogs();
+        else {
+          renderAgentStats(tabId);
+          fetchAgentLogs(tabId);
+        }
+      }
+
+      function selectAgent(role) {
+        switchTab(role);
+      }
+
+      async function fetchAgents() {
+        try {
+          const response = await fetch(API_BASE + "/");
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          agentsCache = await response.json();
+
+          const list = document.getElementById("agent-list");
+          list.innerHTML = agentsCache
+            .map((a) => {
+              const role = TYPE_TO_ROLE[a.type] || a.id;
+              return `<div class="agent-item ${activeTab === role ? "selected" : ""}"
+                     data-role="${role}" onclick="selectAgent('${role}')">
+                <div class="agent-info">
+                  <span class="agent-name">${escapeHtml(a.type)}</span>
+                  <span class="agent-id">${escapeHtml(a.id)}</span>
+                </div>
+                <span class="agent-status ${a.status}">${a.status}</span>
+              </div>`;
+            })
+            .join("");
+
+          document.getElementById("connection-status").style.color =
+            "var(--success)";
+          document.getElementById("connection-status").textContent =
+            "\u25CF Connected";
+          if (activeTab !== "all-logs") renderAgentStats(activeTab);
+        } catch (e) {
+          console.error("Agent fetch error", e);
+          document.getElementById("connection-status").style.color =
+            "var(--error)";
+          document.getElementById("connection-status").textContent =
+            "\u25CF Disconnected";
+        }
+      }
+
+      function renderAgentStats(role) {
+        const container = document.getElementById(role + "-stats");
+        if (!container) return;
+        const typeName = Object.keys(TYPE_TO_ROLE).find(
+          (k) => TYPE_TO_ROLE[k] === role,
+        );
+        const agent = agentsCache.find((a) => a.type === typeName);
+        if (!agent || !agent.details) {
+          container.innerHTML = `<div class="stat-card"><div class="stat-label">Status</div><div class="stat-value">${agent ? agent.status : "Unknown"}</div></div>`;
+          return;
+        }
+        const details = agent.details;
+        container.innerHTML = Object.entries(details)
+          .map(([key, value]) => {
+            const label = key
+              .replace(/_/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+            let displayValue = value;
+            let valueClass = "";
+            if (typeof value === "boolean") {
+              displayValue = value ? "Yes" : "No";
+              valueClass = value ? "bool-true" : "bool-false";
+            } else if (value === null || value === undefined)
+              displayValue = "N/A";
+            else if (typeof value === "number")
+              displayValue = Number.isInteger(value) ? value : value.toFixed(2);
+            else if (typeof value === "object")
+              displayValue = Object.entries(value)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(", ");
+            return `<div class="stat-card"><div class="stat-label">${escapeHtml(label)}</div><div class="stat-value ${valueClass}">${escapeHtml(String(displayValue))}</div></div>`;
+          })
+          .join("");
+      }
+
+      async function fetchLogs() {
+        try {
+          const level = document.getElementById("filter-level").value;
+          let url = API_BASE + "/logs?limit=200";
+          if (level) url += "&level=" + encodeURIComponent(level);
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const logs = await response.json();
+          const container = document.getElementById("logs-output");
+          container.innerHTML = logs.map(renderLogEntry).join("");
+          container.scrollTop = container.scrollHeight;
+        } catch (e) {
+          console.error("Log fetch error", e);
+        }
+      }
+
+      async function fetchAgentLogs(role) {
+        const loggerFragment = TAB_LOG_FILTER[role];
+        if (!loggerFragment) return;
+        try {
+          const levelSelect = document.getElementById("filter-level-" + role);
+          const level = levelSelect ? levelSelect.value : "INFO";
+          let url =
+            API_BASE +
+            "/logs?limit=200&agent_id=" +
+            encodeURIComponent(loggerFragment);
+          if (level) url += "&level=" + encodeURIComponent(level);
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const logs = await response.json();
+          const container = document.getElementById("logs-" + role);
+          if (!container) return;
+          container.innerHTML = logs.map(renderLogEntry).join("");
+          container.scrollTop = container.scrollHeight;
+        } catch (e) {
+          console.error("Log fetch error for " + role + ":", e);
+        }
+      }
+
+      function renderLogEntry(log) {
+        return `<div class="log-entry">
+          <span class="log-ts">${new Date(log.timestamp).toLocaleTimeString()}</span>
+          <span class="log-level ${log.level}">${log.level}</span>
+          <span class="log-logger">[${log.logger.split(".").pop()}]</span>
+          <span class="log-msg">${escapeHtml(log.message)}</span>
+        </div>`;
+      }
+
+      async function injectTweet() {
+        const text = document.getElementById("tweet-text").value;
+        if (!text) return alert("Please enter text");
+        const imageInput = document.getElementById("tweet-image");
+        const formData = new FormData();
+        formData.append("text", text);
+        if (imageInput.files && imageInput.files[0])
+          formData.append("image", imageInput.files[0]);
+        try {
+          const res = await fetch(API_BASE + "/scout/inject", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (res.ok) {
+            alert("Tweet Injected Successfully!");
+            document.getElementById("tweet-text").value = "";
+            imageInput.value = "";
+            document.getElementById("image-preview").textContent = "";
+            fetchAgentLogs("scout");
+          } else alert("Error: " + data.detail);
+        } catch (e) {
+          alert("Injection failed: " + e);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        const imageInput = document.getElementById("tweet-image");
+        if (imageInput) {
+          imageInput.addEventListener("change", function () {
+            const preview = document.getElementById("image-preview");
+            preview.textContent =
+              this.files && this.files[0] ? this.files[0].name : "";
+          });
+        }
+      });
+
+      async function injectAdvisory() {
+        const text = document.getElementById("advisory-text").value;
+        if (!text) return alert("Please enter text");
+        const type = document.getElementById("advisory-type").value;
+        try {
+          const res = await fetch(API_BASE + "/flood/inject", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, type }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            alert("Advisory Injected Successfully!");
+            document.getElementById("advisory-text").value = "";
+            fetchAgentLogs("flood");
+          } else alert("Error: " + data.detail);
+        } catch (e) {
+          alert("Injection failed: " + e);
+        }
+      }
+
+      function escapeHtml(unsafe) {
+        return unsafe
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+    </script>
+  </body>
+</html>

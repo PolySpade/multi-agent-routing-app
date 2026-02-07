@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(.venvScriptspython.exe -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"from app.agents.flood_agent import FloodAgent; print\\(''OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"from app.core.agent_config import AgentConfigLoader; c = AgentConfigLoader\\(\\).get_flood_config\\(\\); print\\(f''update_interval={c.update_interval_sec}, dam_critical={c.dam_critical_m}, rain_heavy={c.rainfall_heavy_mm}, wl_alarm={c.water_level_alarm_m}''\\); print\\(''OK''\\)\")",
+      "Bash(.venvScriptspython -c \"from app.core.agent_config import AgentConfigLoader; c = AgentConfigLoader\\(\\).get_hazard_config\\(\\); print\\(f''rainfall_heavy={c.rainfall_heavy_mm}, sigmoid_k={c.sigmoid_steepness}, visual_risk={c.visual_override_risk_threshold}''\\)\")",
+      "Bash(\"C:/Users/Clinton/Documents/Coding Project/thesis/multi-agent-routing-app/masfro-backend-v2/.venv/Scripts/python.exe\" -c \"from app.agents.hazard_agent import HazardAgent; print\\(''HazardAgent import OK''\\)\")",
+      "Bash(\"C:/Users/Clinton/Documents/Coding Project/thesis/multi-agent-routing-app/masfro-backend-v2/.venv/Scripts/python.exe\" -c \"from app.main import app; print\\(''Full app import OK''\\)\")",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell \"Get-ChildItem -Recurse -File | Where-Object { $_FullName -notmatch ''__pycache__|\\\\.pyc|\\\\.git\\\\\\\\'' } | ForEach-Object { $_FullName }\")",
+      "Bash(powershell:*)"
+    ]
+  }
+}

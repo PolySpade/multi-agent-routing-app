@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 # Setup path and logging
-sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parents[2]))
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'

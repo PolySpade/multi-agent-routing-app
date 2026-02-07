@@ -24,12 +24,12 @@ Date: February 2026
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Set, Tuple, TYPE_CHECKING
+import hashlib
 import logging
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
-import sys
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -41,9 +41,6 @@ try:
     from communication.acl_protocol import ACLMessage, Performative, create_inform_message
 except ImportError:
     from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
-
-# Add parent directory to path for imports
-sys.path.append(str(Path(__file__).parent.parent))
 
 try:
     from services.data_sources import DataCollector
@@ -191,8 +188,16 @@ class FloodAgent(BaseAgent):
             enable_mmda=False
         )
 
-        # Configuration
-        self.data_update_interval = 300  # 5 minutes
+        # Load configuration from agents.yaml via FloodConfig
+        try:
+            from ..core.agent_config import AgentConfigLoader
+            self._config = AgentConfigLoader().get_flood_config()
+        except Exception as e:
+            logger.warning(f"{self.agent_id} failed to load FloodConfig, using defaults: {e}")
+            from ..core.agent_config import FloodConfig
+            self._config = FloodConfig()
+
+        self.data_update_interval = self._config.update_interval_sec
         self.last_update: Optional[datetime] = None
 
         # Data caches
@@ -200,6 +205,9 @@ class FloodAgent(BaseAgent):
         self.river_levels: Dict[str, Any] = {}
         self.flood_depth_data: Dict[str, Any] = {}
         self.dam_levels: Dict[str, Any] = {}
+
+        # Advisory deduplication — track hashes of already-processed advisories
+        self._processed_advisory_hashes: Set[str] = set()
 
         logger.info(
             f"{self.agent_id} initialized with update interval "
@@ -222,6 +230,56 @@ class FloodAgent(BaseAgent):
             collected_data = self.collect_flood_data()
             if collected_data:
                 self.send_flood_data_via_message(collected_data)
+
+    def inject_manual_advisory(self, advisory_content: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Manually inject a news/advisory into the agent.
+        
+        Args:
+            advisory_content: Dictionary containing advisory data (text, source, etc.)
+            
+        Returns:
+            Processed data status
+        """
+        logger.info(f"{self.agent_id} received manual advisory injection")
+
+        try:
+            # Create a synthetic data structure compatible with collect_flood_data
+            # We treat this as a "manual" source
+            
+            # If text is provided, try to parse it using the same logic as real advisories
+            text = advisory_content.get("text", "")
+            location = advisory_content.get("location", "Marikina")
+            
+            # Use LLM (if enabled) or regex parsing (if implemented) to structure it
+            # For now, we wrap it as a simple flood report
+            
+            manual_data = {
+                "source": "manual_injection",
+                "timestamp": datetime.now(),
+                "type": advisory_content.get("type", "news"),
+                "text": text,
+                "location": location,
+                "severity": advisory_content.get("severity", "unknown")
+            }
+            
+            # Forward directly to Hazard Agent via MessageQueue
+            if self.message_queue:
+                message = create_inform_message(
+                    sender=self.agent_id,
+                    receiver=self.hazard_agent_id,
+                    info_type="flood_report",
+                    data=manual_data
+                )
+                self.message_queue.send_message(message)
+                logger.info(f"Manual advisory forwarded to {self.hazard_agent_id}")
+                return {"status": "success", "data": manual_data}
+            else:
+                return {"status": "error", "message": "No MessageQueue available"}
+
+        except Exception as e:
+            logger.error(f"{self.agent_id} manual injection error: {e}")
+            return {"status": "error", "message": str(e)}
 
     def collect_flood_data(self) -> Dict[str, Any]:
         """
@@ -280,19 +338,20 @@ class FloodAgent(BaseAgent):
                     logger.error(f"Failed to fetch real dam data: {e}")
 
             # Fetch and parse real text advisories (PAGASA)
-            try:
-                advisories = self.collect_and_parse_advisories()  # Auto-discovery
-                if advisories:
-                    combined_data["advisories"] = advisories
-                    logger.info(f"[OK] Collected {len(advisories)} REAL text advisories")
-            except Exception as e:
-                logger.error(f"Failed to collect advisories: {e}")
+            if self.advisory_scraper:
+                try:
+                    advisories = self.collect_and_parse_advisories()  # Auto-discovery
+                    if advisories:
+                        combined_data["advisories"] = advisories
+                        logger.info(f"[OK] Collected {len(advisories)} REAL text advisories")
+                except Exception as e:
+                    logger.error(f"Failed to collect advisories: {e}")
 
         # ========== FALLBACK: SIMULATED DATA ==========
         # Only use if no real data was collected
         if not combined_data and self.data_collector:
             logger.warning(
-                "⚠️ No real data available, falling back to simulated data"
+                "[WARN] No real data available, falling back to simulated data"
             )
             simulated = self.data_collector.collect_flood_data(
                 location="Marikina",
@@ -399,202 +458,6 @@ class FloodAgent(BaseAgent):
         logger.debug(f"Processed data for {len(processed)} locations")
         return processed
 
-    def fetch_rainfall_data(self) -> Dict[str, Any]:
-        """
-        Fetch rainfall data from PAGASA rain gauges.
-
-        Uses DataCollector to query PAGASA or simulated sources for current
-        rainfall measurements in the Marikina area.
-
-        Returns:
-            Dict containing rainfall measurements by location
-                Format:
-                {
-                    "location_name": {
-                        "rainfall_1h": float,  # mm in last hour
-                        "rainfall_24h": float,  # mm in last 24 hours
-                        "intensity": str,  # "light", "moderate", "heavy"
-                        "timestamp": datetime
-                    },
-                    ...
-                }
-        """
-        logger.info(f"{self.agent_id} fetching rainfall data from PAGASA")
-
-        try:
-            # Use DataCollector to get rainfall data
-            data = self.data_collector.collect_flood_data(
-                location="Marikina",
-                coordinates=(14.6507, 121.1029)
-            )
-
-            # Extract rainfall data from collected sources
-            rainfall_data = {}
-            if "sources" in data:
-                if "simulated" in data["sources"]:
-                    sim_data = data["sources"]["simulated"]
-                    if "rainfall" in sim_data:
-                        rainfall_info = sim_data["rainfall"]
-                        rainfall_data["Marikina"] = {
-                            "rainfall_1h": rainfall_info.get("rainfall_mm", 0.0),
-                            "rainfall_24h": rainfall_info.get("rainfall_mm", 0.0) * 24,
-                            "intensity": rainfall_info.get("intensity", "unknown"),
-                            "timestamp": datetime.fromisoformat(rainfall_info.get("timestamp"))
-                        }
-
-                if "pagasa" in data["sources"]:
-                    pagasa_data = data["sources"]["pagasa"]
-                    if pagasa_data.get("available"):
-                        rainfall_data["PAGASA"] = {
-                            "rainfall_1h": pagasa_data.get("rainfall_mm", 0.0),
-                            "timestamp": datetime.fromisoformat(pagasa_data.get("timestamp"))
-                        }
-
-            logger.info(f"Fetched rainfall data for {len(rainfall_data)} locations")
-            self.rainfall_data = rainfall_data
-            return rainfall_data
-
-        except Exception as e:
-            logger.error(f"Failed to fetch rainfall data: {e}")
-            return {}
-
-    def fetch_river_levels(self) -> Dict[str, Any]:
-        """
-        Fetch river water level data from monitoring sensors.
-
-        Uses DataCollector to query DOST-NOAH or other official sources for
-        current river water levels in the Marikina River and tributaries.
-
-        Returns:
-            Dict containing river level measurements
-                Format:
-                {
-                    "river_name": {
-                        "water_level": float,  # meters above normal
-                        "flow_rate": float,  # cubic meters per second
-                        "status": str,  # "normal", "alert", "critical"
-                        "timestamp": datetime
-                    },
-                    ...
-                }
-        """
-        logger.info(f"{self.agent_id} fetching river level data")
-
-        try:
-            # Use DataCollector to get hazard data (includes river levels)
-            data = self.data_collector.collect_flood_data(
-                location="Marikina River",
-                coordinates=(14.6507, 121.1029)
-            )
-
-            # Extract river level data from NOAH source
-            river_data = {}
-            if "sources" in data and "noah" in data["sources"]:
-                noah_data = data["sources"]["noah"]
-                if noah_data.get("hazard_level"):
-                    river_data["Marikina River"] = {
-                        "water_level": 0.0,  # Placeholder
-                        "flow_rate": 0.0,
-                        "status": noah_data.get("hazard_level", "unknown"),
-                        "timestamp": datetime.fromisoformat(noah_data.get("timestamp"))
-                    }
-
-            # For simulated mode, create placeholder data
-            if not river_data and self.data_collector.use_simulated:
-                river_data["Marikina River"] = {
-                    "water_level": 1.2,
-                    "flow_rate": 45.3,
-                    "status": "alert",
-                    "timestamp": datetime.now()
-                }
-
-            logger.info(f"Fetched river level data for {len(river_data)} rivers")
-            self.river_levels = river_data
-            return river_data
-
-        except Exception as e:
-            logger.error(f"Failed to fetch river level data: {e}")
-            return {}
-
-    def fetch_flood_depths(self) -> Dict[str, Any]:
-        """
-        Fetch current flood depth measurements from monitoring stations.
-
-        Uses DataCollector to query flood monitoring systems (MMDA, LGU sensors)
-        for actual measured flood depths at key locations.
-
-        Returns:
-            Dict containing flood depth measurements
-                Format:
-                {
-                    "location_name": {
-                        "flood_depth": float,  # meters
-                        "affected_area": str,
-                        "passability": str,  # "passable", "impassable"
-                        "timestamp": datetime
-                    },
-                    ...
-                }
-        """
-        logger.info(f"{self.agent_id} fetching flood depth measurements")
-
-        try:
-            # Use DataCollector to get flood depth data
-            data = self.data_collector.collect_flood_data(
-                location="Marikina",
-                coordinates=(14.6507, 121.1029)
-            )
-
-            # Extract flood depth data from collected sources
-            flood_data = {}
-            
-            # Process simulated data
-            if "sources" in data and "simulated" in data["sources"]:
-                sim_data = data["sources"]["simulated"]
-                if "flood_depth" in sim_data:
-                    depth_info = sim_data["flood_depth"]
-                    flood_depth_m = depth_info.get("flood_depth_cm", 0.0) / 100.0
-                    
-                    # Determine passability based on depth (FEMA standards)
-                    # FEMA recommends 0.3m (12 inches) max for safe vehicle passage
-                    # 0.3-0.45m is dangerous, >0.45m is impassable
-                    if flood_depth_m < 0.15:
-                        passability = "safe"
-                    elif flood_depth_m < 0.3:
-                        passability = "passable"  # Caution required
-                    elif flood_depth_m < 0.45:
-                        passability = "dangerous"  # High risk
-                    else:
-                        passability = "impassable"
-                    
-                    flood_data["Marikina"] = {
-                        "flood_depth": flood_depth_m,
-                        "affected_area": "City center",
-                        "passability": passability,
-                        "timestamp": datetime.fromisoformat(depth_info.get("timestamp"))
-                    }
-
-            # Process MMDA data if available
-            if "sources" in data and "mmda" in data["sources"]:
-                mmda_reports = data["sources"]["mmda"]
-                if isinstance(mmda_reports, list):
-                    for report in mmda_reports:
-                        location = report.get("area", "Unknown")
-                        flood_data[location] = {
-                            "flood_depth": report.get("flood_level", 0.0),
-                            "affected_area": location,
-                            "passability": report.get("status", "unknown"),
-                            "timestamp": datetime.fromisoformat(report.get("timestamp"))
-                        }
-
-            logger.info(f"Fetched flood depth data for {len(flood_data)} locations")
-            self.flood_depth_data = flood_data
-            return flood_data
-
-        except Exception as e:
-            logger.error(f"Failed to fetch flood depth data: {e}")
-            return {}
-
     def fetch_real_river_levels(self) -> Dict[str, Any]:
         """
         Fetch REAL river level data from PAGASA using RiverScraperService.
@@ -619,20 +482,20 @@ class FloodAgent(BaseAgent):
             # Process and format data
             river_data = {}
 
-            # Key Marikina River stations to monitor
-            marikina_stations = [
-                "Sto Nino",
-                "Nangka",
-                "Tumana Bridge",
-                "Montalban",
-                "Rosario Bridge"
+            # Key Marikina River stations to monitor (substring matching)
+            marikina_keywords = [
+                "sto nino", "sto. nino", "santo nino",
+                "nangka",
+                "tumana",
+                "montalban",
+                "rosario",
             ]
 
             for station in stations:
-                station_name = station.get("station_name")
+                station_name = station.get("station_name", "")
 
-                # Focus on Marikina-relevant stations
-                if station_name not in marikina_stations:
+                # Focus on Marikina-relevant stations (case-insensitive substring match)
+                if not any(kw in station_name.lower() for kw in marikina_keywords):
                     continue
 
                 water_level = station.get("water_level_m")
@@ -640,18 +503,23 @@ class FloodAgent(BaseAgent):
                 alarm_level = self._parse_float(station.get("alarm_level_m"))
                 critical_level = self._parse_float(station.get("critical_level_m"))
 
-                # Calculate risk status
+                # Calculate risk status using config thresholds as fallback
                 status = "normal"
                 risk_score = 0.0
 
                 if water_level is not None:
-                    if critical_level and water_level >= critical_level:
+                    # Prefer station-reported thresholds, fall back to config
+                    eff_critical = critical_level or self._config.water_level_critical_m
+                    eff_alarm = alarm_level or self._config.water_level_alarm_m
+                    eff_alert = alert_level or self._config.water_level_alert_m
+
+                    if water_level >= eff_critical:
                         status = "critical"
                         risk_score = 1.0
-                    elif alarm_level and water_level >= alarm_level:
+                    elif water_level >= eff_alarm:
                         status = "alarm"
                         risk_score = 0.8
-                    elif alert_level and water_level >= alert_level:
+                    elif water_level >= eff_alert:
                         status = "alert"
                         risk_score = 0.5
                     else:
@@ -732,8 +600,9 @@ class FloodAgent(BaseAgent):
 
             for hour in hourly[:6]:
                 rain_1h = hour.get("rain", {}).get("1h", 0.0)
+                dt_val = hour.get("dt")
                 forecast_6h.append({
-                    "timestamp": datetime.fromtimestamp(hour.get("dt")),
+                    "timestamp": datetime.fromtimestamp(dt_val) if dt_val else None,
                     "rain_mm": rain_1h,
                     "temp_c": hour.get("temp"),
                     "humidity_pct": hour.get("humidity"),
@@ -818,29 +687,24 @@ class FloodAgent(BaseAgent):
                 rule_curve = dam.get("Latest Rule Curve (m)")
                 dev_rule_curve = dam.get("Latest Dev from Rule Curve (m)")
 
-                # Calculate risk status based on deviation from NHWL
+                # Calculate risk status based on deviation from NHWL (config thresholds)
                 status = "normal"
                 risk_score = 0.0
 
                 if latest_dev_nhwl is not None:
-                    if latest_dev_nhwl >= 2.0:
-                        # >2m above NHWL = critical
+                    if latest_dev_nhwl >= self._config.dam_critical_m:
                         status = "critical"
                         risk_score = 1.0
-                    elif latest_dev_nhwl >= 1.0:
-                        # 1-2m above NHWL = alarm
+                    elif latest_dev_nhwl >= self._config.dam_alarm_m:
                         status = "alarm"
                         risk_score = 0.8
-                    elif latest_dev_nhwl >= 0.5:
-                        # 0.5-1m above NHWL = alert
+                    elif latest_dev_nhwl >= self._config.dam_alert_m:
                         status = "alert"
                         risk_score = 0.5
                     elif latest_dev_nhwl >= 0.0:
-                        # At or slightly above NHWL = watch
                         status = "watch"
                         risk_score = 0.3
                     else:
-                        # Below NHWL = normal
                         status = "normal"
                         risk_score = 0.1
 
@@ -903,12 +767,7 @@ class FloodAgent(BaseAgent):
         """
         Calculate rainfall intensity category based on mm/hr.
 
-        Based on PAGASA rainfall intensity classification:
-        - Light: 0.1 - 2.5 mm/hr
-        - Moderate: 2.6 - 7.5 mm/hr
-        - Heavy: 7.6 - 15.0 mm/hr
-        - Intense: 15.1 - 30.0 mm/hr
-        - Torrential: > 30.0 mm/hr
+        Uses thresholds from FloodConfig (agents.yaml).
 
         Args:
             rainfall_mm: Rainfall in mm/hr
@@ -918,13 +777,13 @@ class FloodAgent(BaseAgent):
         """
         if rainfall_mm <= 0:
             return "none"
-        elif rainfall_mm <= 2.5:
+        elif rainfall_mm <= self._config.rainfall_light_mm:
             return "light"
-        elif rainfall_mm <= 7.5:
+        elif rainfall_mm <= self._config.rainfall_moderate_mm:
             return "moderate"
-        elif rainfall_mm <= 15.0:
+        elif rainfall_mm <= self._config.rainfall_heavy_mm:
             return "heavy"
-        elif rainfall_mm <= 30.0:
+        elif rainfall_mm <= self._config.rainfall_extreme_mm:
             return "intense"
         else:
             return "torrential"
@@ -982,56 +841,6 @@ class FloodAgent(BaseAgent):
             logger.error(
                 f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
             )
-
-    def _combine_data(
-        self,
-        rainfall: Dict[str, Any],
-        river_levels: Dict[str, Any],
-        flood_depths: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Combine data from multiple sources into unified format.
-
-        Args:
-            rainfall: Rainfall measurements
-            river_levels: River level measurements
-            flood_depths: Flood depth measurements
-
-        Returns:
-            Combined data dict with standardized format for HazardAgent
-        """
-        combined = {}
-
-        # Combine rainfall data
-        for location, data in rainfall.items():
-            if location not in combined:
-                combined[location] = {}
-            combined[location].update({
-                "rainfall_1h": data.get("rainfall_1h"),
-                "rainfall_24h": data.get("rainfall_24h"),
-                "timestamp": data.get("timestamp")
-            })
-
-        # Add flood depth data
-        for location, data in flood_depths.items():
-            if location not in combined:
-                combined[location] = {}
-            combined[location].update({
-                "flood_depth": data.get("flood_depth"),
-                "passability": data.get("passability"),
-                "timestamp": data.get("timestamp")
-            })
-
-        # Add river level context
-        for river, data in river_levels.items():
-            # River data affects nearby locations
-            combined[f"{river}_monitoring"] = {
-                "water_level": data.get("water_level"),
-                "status": data.get("status"),
-                "timestamp": data.get("timestamp")
-            }
-
-        return combined
 
     def _should_update(self) -> bool:
         """
@@ -1222,6 +1031,10 @@ class FloodAgent(BaseAgent):
                 else:
                     advisory_text = soup.get_text(strip=True)[:5000]  # Limit length
 
+                # Dedup: skip if already processed
+                if self._is_duplicate_advisory(advisory_text):
+                    continue
+
                 # Parse the advisory
                 parsed = self.parse_text_advisory(advisory_text)
                 parsed['source_url'] = url
@@ -1238,30 +1051,46 @@ class FloodAgent(BaseAgent):
         try:
             rss_queries = ["Marikina River Flood", "Marikina Red Warning"]
             for query in rss_queries:
-                # Returns list of dicts: {'text': str, 'pub_date': str, 'link': str}
                 news_items = self.advisory_scraper.scrape_google_news_rss(query)
-                
+
                 for item in news_items:
                     news_text = item.get("text", "")
                     pub_date = item.get("pub_date", "")
                     link = item.get("link", "")
-                    
-                    # Deduplication check: skip if very short
-                    if len(news_text) < 50: continue
-                    
+
+                    if len(news_text) < 50:
+                        continue
+
+                    # Dedup: skip if already processed
+                    if self._is_duplicate_advisory(news_text):
+                        continue
+
                     parsed = self.parse_text_advisory(news_text)
                     if parsed.get('affected_areas') or parsed.get('warning_level'):
                         parsed['source_url'] = link or f"google_news_rss:{query}"
                         parsed['fetched_at'] = datetime.now().isoformat()
-                        parsed['published_at'] = pub_date  # Store external date
+                        parsed['published_at'] = pub_date
                         parsed['source_type'] = 'google_news_rss'
                         parsed_advisories.append(parsed)
-                        
+
         except Exception as e:
             logger.error(f"Google News RSS processing failed: {e}")
 
         logger.info(f"Collected and parsed {len(parsed_advisories)} advisories from all sources")
         return parsed_advisories
+
+    def _is_duplicate_advisory(self, text: str) -> bool:
+        """
+        Check if an advisory text has already been processed (hash-based dedup).
+
+        Records the hash if new, returns True if already seen.
+        """
+        text_hash = hashlib.md5(text.strip().encode()).hexdigest()
+        if text_hash in self._processed_advisory_hashes:
+            logger.debug(f"Skipping duplicate advisory (hash={text_hash[:8]})")
+            return True
+        self._processed_advisory_hashes.add(text_hash)
+        return False
 
     def is_llm_enabled(self) -> bool:
         """Check if LLM processing is enabled and available."""
@@ -1282,8 +1111,10 @@ class FloodAgent(BaseAgent):
             "river_scraper_available": self.river_scraper is not None,
             "weather_service_available": self.weather_service is not None,
             "dam_scraper_available": self.dam_scraper is not None,
+            "advisory_scraper_available": self.advisory_scraper is not None,
             "last_update": self.last_update.isoformat() if self.last_update else None,
             "update_interval_seconds": self.data_update_interval,
             "cached_river_stations": len(self.river_levels),
-            "cached_dam_levels": len(self.dam_levels)
+            "cached_dam_levels": len(self.dam_levels),
+            "processed_advisories": len(self._processed_advisory_hashes),
         }

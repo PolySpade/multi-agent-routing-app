@@ -107,6 +107,16 @@ class HazardConfig:
     sigmoid_inflection: float = 0.3  # x0 parameter (FEMA: 50% risk at 0.3m)
     max_depth_m: float = 2.0
 
+    # Rainfall thresholds (mm/hr) for rain risk calculation
+    rainfall_light_mm: float = 2.5
+    rainfall_moderate_mm: float = 7.5
+    rainfall_heavy_mm: float = 15.0
+    rainfall_extreme_mm: float = 30.0
+
+    # Visual override thresholds (configurable)
+    visual_override_risk_threshold: float = 0.7
+    visual_override_confidence_threshold: float = 0.75
+
     def validate(self) -> None:
         """Validate configuration values."""
         total_weight = self.weight_flood_depth + self.weight_crowdsourced + self.weight_historical
@@ -117,6 +127,10 @@ class HazardConfig:
         assert self.risk_radius_m > 0, "risk_radius_m must be positive"
         assert self.decay_function in ("linear", "exponential", "gaussian"), \
             f"Invalid decay_function: {self.decay_function}"
+        assert 0 < self.visual_override_risk_threshold <= 1.0, \
+            "visual_override_risk_threshold must be in (0, 1]"
+        assert 0 < self.visual_override_confidence_threshold <= 1.0, \
+            "visual_override_confidence_threshold must be in (0, 1]"
 
 
 @dataclass
@@ -138,17 +152,31 @@ class FloodConfig:
     flow_velocity_mps: float = 0.5
     danger_threshold: float = 0.6
 
-    # Risk thresholds
+    # Risk thresholds — rainfall (mm/hr)
     rainfall_light_mm: float = 2.5
     rainfall_moderate_mm: float = 7.5
     rainfall_heavy_mm: float = 15.0
     rainfall_extreme_mm: float = 30.0
+
+    # Risk thresholds — water level deviations (meters above normal)
+    water_level_alert_m: float = 0.5
+    water_level_alarm_m: float = 1.0
+    water_level_critical_m: float = 2.0
+
+    # Risk thresholds — dam levels (meters above NHWL)
+    dam_alert_m: float = 0.5
+    dam_alarm_m: float = 1.0
+    dam_critical_m: float = 2.0
 
     def validate(self) -> None:
         """Validate configuration values."""
         assert self.max_safe_depth_m > 0, "max_safe_depth_m must be positive"
         assert self.max_safe_depth_m <= 0.5, \
             "max_safe_depth_m should not exceed 0.5m (FEMA safety limit)"
+        assert self.water_level_alert_m < self.water_level_alarm_m < self.water_level_critical_m, \
+            "water_level thresholds must be ordered: alert < alarm < critical"
+        assert self.dam_alert_m < self.dam_alarm_m < self.dam_critical_m, \
+            "dam thresholds must be ordered: alert < alarm < critical"
 
 
 @dataclass
@@ -168,10 +196,15 @@ class ScoutConfig:
     extract_severity: bool = True
     extract_location: bool = True
 
+    # Temporal deduplication
+    temporal_dedup_window_minutes: float = 10.0
+
     def validate(self) -> None:
         """Validate configuration values."""
         assert self.batch_size > 0, "batch_size must be positive"
         assert 0 <= self.min_confidence <= 1, "min_confidence must be in [0, 1]"
+        assert self.temporal_dedup_window_minutes >= 0, \
+            "temporal_dedup_window_minutes must be non-negative"
 
 
 @dataclass
@@ -340,6 +373,8 @@ class AgentConfigLoader:
         geotiff = cfg.get('geotiff', {})
         formulas = cfg.get('formulas', {})
         depth_cfg = formulas.get('depth_to_risk', {})
+        rainfall_cfg = formulas.get('rainfall_thresholds_mm', {})
+        visual_override = cfg.get('visual_override', {})
 
         config = HazardConfig(
             max_flood_cache=caches.get('max_flood_entries', 100),
@@ -369,6 +404,12 @@ class AgentConfigLoader:
             sigmoid_steepness=depth_cfg.get('sigmoid_steepness', 8.0),
             sigmoid_inflection=depth_cfg.get('sigmoid_inflection', 0.3),
             max_depth_m=depth_cfg.get('max_depth_m', 2.0),
+            rainfall_light_mm=rainfall_cfg.get('light', 2.5),
+            rainfall_moderate_mm=rainfall_cfg.get('moderate', 7.5),
+            rainfall_heavy_mm=rainfall_cfg.get('heavy', 15.0),
+            rainfall_extreme_mm=rainfall_cfg.get('extreme', 30.0),
+            visual_override_risk_threshold=visual_override.get('risk_threshold', 0.7),
+            visual_override_confidence_threshold=visual_override.get('confidence_threshold', 0.75),
         )
         config.validate()
         return config
@@ -381,6 +422,9 @@ class AgentConfigLoader:
         passability = cfg.get('passability', {})
         thresholds = cfg.get('risk_thresholds', {})
         rainfall = thresholds.get('rainfall_mm', {})
+
+        water_levels = thresholds.get('water_level_deviations_m', {})
+        dam_levels = thresholds.get('dam_levels_m', {})
 
         config = FloodConfig(
             update_interval_sec=cfg.get('update_interval_sec', 300),
@@ -396,6 +440,12 @@ class AgentConfigLoader:
             rainfall_moderate_mm=rainfall.get('moderate', 7.5),
             rainfall_heavy_mm=rainfall.get('heavy', 15.0),
             rainfall_extreme_mm=rainfall.get('extreme', 30.0),
+            water_level_alert_m=water_levels.get('alert', 0.5),
+            water_level_alarm_m=water_levels.get('alarm', 1.0),
+            water_level_critical_m=water_levels.get('critical', 2.0),
+            dam_alert_m=dam_levels.get('alert', 0.5),
+            dam_alarm_m=dam_levels.get('alarm', 1.0),
+            dam_critical_m=dam_levels.get('critical', 2.0),
         )
         config.validate()
         return config
@@ -405,6 +455,7 @@ class AgentConfigLoader:
         cfg = self._config.get('scout_agent', {})
         sim = cfg.get('simulation', {})
         nlp = cfg.get('nlp', {})
+        dedup = cfg.get('deduplication', {})
 
         config = ScoutConfig(
             batch_size=cfg.get('batch_size', 10),
@@ -414,6 +465,7 @@ class AgentConfigLoader:
             min_confidence=nlp.get('min_confidence', 0.6),
             extract_severity=nlp.get('extract_severity', True),
             extract_location=nlp.get('extract_location', True),
+            temporal_dedup_window_minutes=dedup.get('temporal_window_minutes', 10.0),
         )
         config.validate()
         return config

@@ -39,6 +39,7 @@ from app.agents.scout_agent import ScoutAgent
 from app.agents.hazard_agent import HazardAgent
 from app.agents.evacuation_manager_agent import EvacuationManagerAgent
 from app.agents.routing_agent import RoutingAgent
+from app.agents.orchestrator_agent import OrchestratorAgent
 
 # No direct algorithm imports needed - RoutingAgent handles all pathfinding
 
@@ -52,6 +53,16 @@ from app.services.flood_data_scheduler import FloodDataScheduler, set_scheduler,
 # Simulation Manager imports
 from app.services.simulation_manager import get_simulation_manager, SimulationManager
 
+# Agent Lifecycle Manager imports
+from app.services.agent_lifecycle_manager import (
+    AgentLifecycleManager,
+    set_lifecycle_manager,
+    get_lifecycle_manager
+)
+
+# LLM Service
+from app.services.llm_service import LLMService
+
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
 
@@ -59,6 +70,10 @@ from app.database import get_db, FloodDataRepository, check_connection, init_db
 from app.core.logging_config import setup_logging, get_logger
 from app.core.config import settings
 from app.core.auth import verify_api_key
+
+# Agent Viewer Service
+from app.services.agent_viewer_service import get_agent_viewer_service
+from app.api.agent_viewer_endpoints import router as agent_viewer_router
 
 # API Routes
 # API Routes
@@ -379,10 +394,15 @@ app.add_middleware(
 
 # Serve static files (flood maps, data)
 app.mount("/data", StaticFiles(directory="app/data"), name="data")
+# Mount Agent Viewer Dashboard
+import os
+os.makedirs("app/static/agent_viewer", exist_ok=True)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Include API routers
 app.include_router(graph_router)
 app.include_router(evacuation_router)
+app.include_router(agent_viewer_router, prefix="/api/v1")
 
 # --- 3. Initialize Multi-Agent System ---
 
@@ -440,12 +460,12 @@ scout_agent = ScoutAgent(
 evacuation_manager.set_routing_agent(routing_agent)
 
 # Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
-# NOTE: FloodAgent now sends data to HazardAgent via MessageQueue (MAS architecture)
+# NOTE: FloodAgent sends data to HazardAgent via MessageQueue (MAS architecture)
+# HazardAgent.step() is called by AgentLifecycleManager to process messages
 flood_scheduler = FloodDataScheduler(
     flood_agent,
     interval_seconds=300,
-    ws_manager=ws_manager,
-    hazard_agent=None  # FloodAgent handles HazardAgent communication via MessageQueue
+    ws_manager=ws_manager
 )
 set_scheduler(flood_scheduler)
 
@@ -461,6 +481,31 @@ simulation_manager.set_agents(
     ws_manager=ws_manager
 )
 
+# --- Initialize ORCHESTRATOR (The Boss) ---
+sub_agents = {
+    'scout': scout_agent,
+    'flood': flood_agent,
+    'routing': routing_agent,
+    'evacuation': evacuation_manager,
+    'hazard': hazard_agent
+}
+orchestrator_agent = OrchestratorAgent("orchestrator_main", environment, message_queue, sub_agents)
+logger.info("✅ Orchestrator Agent initialized with references to all sub-agents")
+
+# Register agents with the viewer service so endpoints can access them without circular imports
+get_agent_viewer_service().register_agents(sub_agents)
+
+# --- Initialize Agent Lifecycle Manager ---
+# This service periodically calls step() on agents to process MessageQueue messages
+# Solves the "Dormant Agent" problem where messages were sent but never processed
+agent_lifecycle_manager = AgentLifecycleManager(
+    tick_interval_seconds=1.0,  # 1 Hz - call step() every second
+    simulation_manager=simulation_manager  # Pauses when simulation is running
+)
+agent_lifecycle_manager.register_agent(hazard_agent, priority=1)  # HazardAgent processes messages
+set_lifecycle_manager(agent_lifecycle_manager)
+logger.info("AgentLifecycleManager initialized with HazardAgent")
+
 logger.info("MAS-FRO system initialized successfully")
 
 # --- 3.5. Startup and Shutdown Events ---
@@ -470,26 +515,34 @@ async def startup_event():
     """Start background tasks on application startup."""
     # Initialize logging system (ensure logs directory exists)
     setup_logging()
+
+    # Re-attach Agent Viewer Logging Handler (must be AFTER setup_logging
+    # because dictConfig replaces handlers)
+    get_agent_viewer_service().setup_logging()
+    
     logger.info("="*60)
     logger.info("MAS-FRO Backend Starting Up")
     logger.info("="*60)
     logger.info("Structured logging initialized - logs written to logs/masfro.log")
     
-    # Check database connection
+    # Check database connection (optional - app works without it)
     logger.info("Checking database connection...")
-    if check_connection():
-        logger.info("Database connection successful")
-        # Initialize database tables (if not exist)
-        init_db()
-    else:
-        logger.error("Database connection failed - historical data storage disabled")
+    try:
+        if check_connection():
+            logger.info("Database connection successful")
+            # Initialize database tables (if not exist)
+            init_db()
+        else:
+            logger.warning("Database connection failed - historical data storage disabled")
+    except Exception as e:
+        logger.warning(f"Database unavailable: {e} - continuing without database")
 
     # Load initial flood data to populate risk scores
     logger.info("Loading initial flood risk data...")
     try:
         # Load default GeoTIFF data (light scenario, time step 1)
         from pathlib import Path
-        geotiff_path = Path(__file__).parent / "data" / "geotiff_data" / "rr01" / "rr01_step_01.tif"
+        geotiff_path = Path(__file__).parent / "data" / "timed_floodmaps" / "rr01" / "rr01-1.tif"
 
         if geotiff_path.exists() and hazard_agent:
             logger.info(f"Loading initial risk data from {geotiff_path}")
@@ -529,8 +582,9 @@ async def startup_event():
 
                     edge_updates[(u, v, key)] = risk_score
 
-            # Apply updates to graph
-            environment.update_edge_risks(edge_updates)
+            # Apply updates to graph (using individual method, consistent with HazardAgent)
+            for (u, v, key), risk in edge_updates.items():
+                environment.update_edge_risk(u, v, key, risk)
             logger.info(f"Initial flood data loaded: Updated {len(edge_updates)} edges with risk scores")
 
             # Log sample of high-risk edges
@@ -553,6 +607,15 @@ async def startup_event():
     else:
         logger.warning("Scheduler not initialized")
 
+    # Start agent lifecycle manager
+    logger.info("Starting agent lifecycle manager...")
+    lifecycle_manager = get_lifecycle_manager()
+    if lifecycle_manager:
+        await lifecycle_manager.start()
+        logger.info("Agent lifecycle manager started (1 Hz tick rate)")
+    else:
+        logger.warning("Agent lifecycle manager not initialized")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -560,11 +623,21 @@ async def shutdown_event():
     logger.info("="*60)
     logger.info("MAS-FRO Backend Shutting Down")
     logger.info("="*60)
+
+    # Stop agent lifecycle manager first (so it doesn't process during shutdown)
+    logger.info("Stopping agent lifecycle manager...")
+    lifecycle_manager = get_lifecycle_manager()
+    if lifecycle_manager:
+        await lifecycle_manager.stop()
+        logger.info("Agent lifecycle manager stopped gracefully")
+
+    # Stop scheduler
     logger.info("Stopping background scheduler...")
     scheduler = get_scheduler()
     if scheduler:
         await scheduler.stop()
         logger.info("Scheduler stopped gracefully")
+
     logger.info("MAS-FRO backend shutdown complete")
 
 
@@ -806,6 +879,33 @@ async def get_nearest_evacuation_center(
             status_code=500,
             detail=f"Error finding evacuation center: {str(e)}"
         )
+
+# --- ORCHESTRATOR API ---
+
+class MissionRequest(BaseModel):
+    mission_type: str
+    params: Dict[str, Any]
+
+@app.post("/api/orchestrator/command", tags=["Orchestrator"])
+async def send_orchestrator_command(request: MissionRequest):
+    """
+    Send a high-level command to the Orchestrator Agent.
+    
+    Trigger complex workflows like 'coordinated_evacuation' or 'assess_risk'.
+    """
+    if not orchestrator_agent:
+         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+         
+    try:
+        # Agent methods are now async
+        result = await orchestrator_agent.execute_mission(
+            request.mission_type, 
+            request.params
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Orchestrator failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/admin/collect-flood-data", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def trigger_flood_data_collection():
@@ -1416,6 +1516,43 @@ async def trigger_scheduler_manual_collection():
         raise HTTPException(
             status_code=500,
             detail=f"Error triggering manual collection: {str(e)}"
+        )
+
+
+# --- Agent Lifecycle Manager Endpoints ---
+
+@app.get("/api/lifecycle/status", tags=["Lifecycle"])
+async def get_lifecycle_status():
+    """
+    Get agent lifecycle manager status.
+
+    Returns current lifecycle manager status including:
+    - Running state
+    - Tick interval configuration
+    - Registered agents
+    - Tick statistics
+    """
+    try:
+        lifecycle_manager = get_lifecycle_manager()
+        if not lifecycle_manager:
+            raise HTTPException(
+                status_code=503,
+                detail="Agent lifecycle manager not initialized"
+            )
+
+        status = lifecycle_manager.get_status()
+        return {
+            "status": "healthy" if status["is_running"] else "stopped",
+            **status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lifecycle status error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving lifecycle status: {str(e)}"
         )
 
 

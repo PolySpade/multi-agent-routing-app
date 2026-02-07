@@ -43,8 +43,7 @@ class FloodDataScheduler:
         self,
         flood_agent,
         interval_seconds: int = 300,
-        ws_manager: Optional[Any] = None,
-        hazard_agent: Optional[Any] = None
+        ws_manager: Optional[Any] = None
     ):
         """
         Initialize the scheduler.
@@ -53,12 +52,14 @@ class FloodDataScheduler:
             flood_agent: FloodAgent instance to schedule
             interval_seconds: Collection interval (default: 300 = 5 minutes)
             ws_manager: WebSocket ConnectionManager for broadcasting updates
-            hazard_agent: HazardAgent instance to forward data to (optional)
+
+        Note:
+            HazardAgent forwarding is now handled via MessageQueue. The
+            AgentLifecycleManager calls HazardAgent.step() to process messages.
         """
         self.flood_agent = flood_agent
         self.interval_seconds = interval_seconds
         self.ws_manager = ws_manager
-        self.hazard_agent = hazard_agent
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
@@ -78,8 +79,7 @@ class FloodDataScheduler:
         logger.info(
             f"FloodDataScheduler initialized with interval={interval_seconds}s "
             f"({interval_seconds/60:.1f} minutes), "
-            f"WebSocket broadcasting={'enabled' if ws_manager else 'disabled'}, "
-            f"HazardAgent forwarding={'enabled' if hazard_agent else 'disabled'}"
+            f"WebSocket broadcasting={'enabled' if ws_manager else 'disabled'}"
         )
 
     def _save_to_database(
@@ -234,29 +234,18 @@ class FloodDataScheduler:
                             logger.error(f"WebSocket broadcast error: {ws_error}")
 
                     # Send data to HazardAgent via MessageQueue (MAS architecture)
+                    # Note: HazardAgent.step() is called by AgentLifecycleManager to process messages
                     try:
                         await asyncio.to_thread(
                             self.flood_agent.send_flood_data_via_message,
                             data
                         )
-                        logger.debug("Flood data sent to HazardAgent via MessageQueue")
+                        logger.info(
+                            f"✓ Flood data sent to HazardAgent via MessageQueue "
+                            f"({len(data)} data points)"
+                        )
                     except Exception as msg_error:
                         logger.error(f"MessageQueue send error: {msg_error}")
-
-                    # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
-                    if self.hazard_agent:
-                        try:
-                            await asyncio.to_thread(
-                                self.hazard_agent.update_risk,
-                                flood_data=data,
-                                scout_data=[],
-                                time_step=0  # Real-time collection, not simulation
-                            )
-                            logger.info(
-                                f"✓ Forwarded {len(data)} data points to HazardAgent cache"
-                            )
-                        except Exception as hazard_error:
-                            logger.error(f"HazardAgent forwarding error: {hazard_error}")
 
                 else:
                     logger.warning("[WARN] Scheduled collection returned no data")
@@ -426,30 +415,19 @@ class FloodDataScheduler:
                     logger.error(f"WebSocket broadcast error: {ws_error}")
 
             # Send data to HazardAgent via MessageQueue (MAS architecture)
+            # Note: HazardAgent.step() is called by AgentLifecycleManager to process messages
             if data:
                 try:
                     await asyncio.to_thread(
                         self.flood_agent.send_flood_data_via_message,
                         data
                     )
-                    logger.debug("Manual collection: Flood data sent to HazardAgent via MessageQueue")
+                    logger.info(
+                        f"✓ Manual collection: Flood data sent to HazardAgent via MessageQueue "
+                        f"({len(data)} data points)"
+                    )
                 except Exception as msg_error:
                     logger.error(f"MessageQueue send error: {msg_error}")
-
-            # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
-            if data and self.hazard_agent:
-                try:
-                    await asyncio.to_thread(
-                        self.hazard_agent.update_risk,
-                        flood_data=data,
-                        scout_data=[],
-                        time_step=0  # Manual collection, not simulation
-                    )
-                    logger.info(
-                        f"✓ Forwarded {len(data)} data points to HazardAgent cache (manual)"
-                    )
-                except Exception as hazard_error:
-                    logger.error(f"HazardAgent forwarding error: {hazard_error}")
 
             return {
                 "status": "success",

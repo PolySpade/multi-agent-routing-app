@@ -5,7 +5,7 @@ import sys
 import os
 
 # Ensure app modules are importable
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.agents.evacuation_manager_agent import EvacuationManagerAgent
 from app.agents.routing_agent import RoutingAgent

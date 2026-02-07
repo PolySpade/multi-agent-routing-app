@@ -861,24 +861,17 @@ Return ONLY valid JSON."""
 
         try:
             import json
-            response = self.llm_service.text_model_chat(prompt) if hasattr(self.llm_service, 'text_model_chat') else None
-            
-            # Temporary fallback if text_model_chat wrapper isn't in LLMService yet
-            if not response and hasattr(self.llm_service, 'text_model'):
-                import ollama
-                res = ollama.chat(
-                    model=self.llm_service.text_model,
-                    messages=[{'role': 'user', 'content': prompt}]
-                )
-                content = res['message']['content']
-                
-                # Parse JSON
-                content = content.replace("```json", "").replace("```", "").strip()
-                start = content.find('{')
-                end = content.rfind('}') + 1
-                if start >= 0 and end > start:
-                    return json.loads(content[start:end])
-            
+            content = self.llm_service.text_chat(prompt)
+            if not content:
+                return {}
+
+            # Parse JSON from response
+            content = content.replace("```json", "").replace("```", "").strip()
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start >= 0 and end > start:
+                return json.loads(content[start:end])
+
             return {}
         except Exception as e:
             logger.error(f"Failed to parse routing request: {e}")
@@ -926,12 +919,8 @@ Write a concise (1-2 sentences) explanation of why this route was chosen and wha
 Output plain text only."""
 
         try:
-            import ollama
-            res = ollama.chat(
-                model=self.llm_service.text_model,
-                messages=[{'role': 'user', 'content': prompt}]
-            )
-            return res['message']['content'].strip()
+            result = self.llm_service.text_chat(prompt)
+            return result if result else "Route calculation complete (LLM explanation unavailable)."
         except Exception as e:
             logger.error(f"Failed to generate route explanation: {e}")
             return "Route calculation complete (LLM explanation unavailable)."
