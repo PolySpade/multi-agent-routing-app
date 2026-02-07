@@ -80,9 +80,12 @@ from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 from enum import Enum
 from dataclasses import dataclass, field
 import logging
+import time
 import pandas as pd
 import os
 from pathlib import Path
+
+from ..communication.acl_protocol import Performative
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -157,7 +160,8 @@ class RoutingAgent(BaseAgent):
         environment: "DynamicGraphEnvironment",
         risk_penalty: float = 2000.0,  # BALANCED MODE: 2000 virtual meters per risk unit
         distance_weight: float = 1.0,   # Always 1.0 to preserve A* heuristic consistency
-        llm_service: Optional[Any] = None
+        llm_service: Optional[Any] = None,
+        message_queue: Optional[Any] = None
     ) -> None:
         """
         Initialize the RoutingAgent.
@@ -176,6 +180,7 @@ class RoutingAgent(BaseAgent):
                 - Fastest mode: 0.0 (no penalty, ignore risk completely)
             distance_weight: Weight for distance (always 1.0 for A* consistency)
             llm_service: Optional LLMService instance for smart routing features
+            message_queue: Optional MessageQueue for MAS communication
         """
         super().__init__(agent_id, environment)
 
@@ -184,6 +189,15 @@ class RoutingAgent(BaseAgent):
         self.distance_weight = distance_weight
         self.llm_service = llm_service
 
+        # MessageQueue for orchestrator communication
+        self.message_queue = message_queue
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError:
+                logger.warning(f"{self.agent_id} already registered with MQ")
+
         # Node lookup cache for O(1) repeated lookups (Issue #6 fix)
         # Cache key: (rounded_lat, rounded_lon) -> (node_id, timestamp)
         self._node_cache: Dict[Tuple[float, float], Tuple[Any, float]] = {}
@@ -191,6 +205,7 @@ class RoutingAgent(BaseAgent):
         self._cache_ttl_seconds = 3600  # Cache TTL: 1 hour
         self._cache_hits = 0
         self._cache_misses = 0
+        self._max_cache_size = 10000
 
         # Load evacuation centers
         self.evacuation_centers = self._load_evacuation_centers()
@@ -199,17 +214,124 @@ class RoutingAgent(BaseAgent):
             f"{self.agent_id} initialized with "
             f"risk_penalty={risk_penalty}, distance_weight={distance_weight}, "
             f"evacuation_centers={len(self.evacuation_centers)}, "
-            f"llm_enabled={bool(self.llm_service)}"
+            f"llm_enabled={bool(self.llm_service)}, "
+            f"mq_enabled={bool(self.message_queue)}"
         )
 
     def step(self):
         """
         Perform one step of agent's operation.
 
-        In this implementation, the RoutingAgent is stateless and responds
-        to route requests on-demand rather than running a continuous loop.
+        Processes any pending MQ requests from orchestrator.
+        The RoutingAgent is otherwise stateless and responds
+        to route requests on-demand.
         """
-        pass
+        self._process_mq_requests()
+
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        if not self.message_queue:
+            return
+
+        while True:
+            msg = self.message_queue.receive_message(
+                agent_id=self.agent_id, timeout=0.0, block=False
+            )
+            if msg is None:
+                break
+
+            if msg.performative == Performative.REQUEST:
+                action = msg.content.get("action")
+                data = msg.content.get("data", {})
+
+                if action == "calculate_route":
+                    self._handle_route_request(msg, data)
+                elif action == "find_evacuation_center":
+                    self._handle_evac_center_request(msg, data)
+                else:
+                    logger.warning(
+                        f"{self.agent_id}: unknown REQUEST action '{action}' "
+                        f"from {msg.sender}"
+                    )
+            else:
+                logger.debug(
+                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
+                )
+
+    def _handle_route_request(self, msg, data: dict) -> None:
+        """Handle calculate_route REQUEST from orchestrator."""
+        from app.communication.acl_protocol import create_inform_message
+
+        start = data.get("start")
+        end = data.get("end")
+        prefs = data.get("preferences", {})
+        result = {"status": "unknown"}
+
+        try:
+            if not start or not end:
+                result["status"] = "error"
+                result["error"] = "Missing start or end coordinates"
+            else:
+                route = self.calculate_route(start, end, prefs)
+                result["status"] = "success"
+                result["route"] = route
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(f"{self.agent_id}: calculate_route -> {result['status']}")
+
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="route_calculation_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
+
+    def _handle_evac_center_request(self, msg, data: dict) -> None:
+        """Handle find_evacuation_center REQUEST from orchestrator."""
+        from app.communication.acl_protocol import create_inform_message
+
+        location = data.get("location")
+        query = data.get("query")
+        prefs = data.get("preferences", {})
+        max_centers = data.get("max_centers", 5)
+        result = {"status": "unknown"}
+
+        try:
+            if not location:
+                result["status"] = "error"
+                result["error"] = "Missing location"
+            else:
+                evac_result = self.find_nearest_evacuation_center(
+                    location, max_centers, query, prefs
+                )
+                result["status"] = "success"
+                result["evacuation_result"] = evac_result
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(f"{self.agent_id}: find_evacuation_center -> {result['status']}")
+
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="evacuation_center_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
 
     def calculate_route(
         self,
@@ -398,9 +520,17 @@ class RoutingAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to parse evacuation query: {e}")
 
-        # Prepare evacuation center data
+        # Prepare evacuation center data — sort by straight-line distance first
+        from ..algorithms.risk_aware_astar import haversine_distance as _haversine
+
+        ec = self.evacuation_centers.copy()
+        ec['_dist'] = ec.apply(
+            lambda r: _haversine(location, (r['latitude'], r['longitude'])), axis=1
+        )
+        ec = ec.sort_values('_dist').head(max_centers)
+
         centers = []
-        for _, row in self.evacuation_centers.head(max_centers).iterrows():
+        for _, row in ec.iterrows():
             center_location = (row['latitude'], row['longitude'])
             center_node = self._find_nearest_node(center_location)
 
@@ -465,7 +595,7 @@ class RoutingAgent(BaseAgent):
                 "distance": best_result["metrics"]["total_distance"],
                 "estimated_time": best_result["metrics"]["estimated_time"],
                 "risk_level": best_result["metrics"]["average_risk"],
-                "max_risk": 0.0,
+                "max_risk": best_result["metrics"]["max_risk"],
                 "warnings": []
             })
             best_result["explanation"] = explanation
@@ -547,7 +677,6 @@ class RoutingAgent(BaseAgent):
         if not self.environment or not self.environment.graph:
             return None
 
-        import time
         target_lat, target_lon = coords
 
         # Check cache first (O(1) lookup)
@@ -597,6 +726,7 @@ class RoutingAgent(BaseAgent):
 
             # Cache the result
             self._node_cache[cache_key] = (nearest_node, time.time())
+            self._evict_cache_if_needed()
             return nearest_node
 
         except Exception as e:
@@ -632,8 +762,26 @@ class RoutingAgent(BaseAgent):
             # Cache the result (even from fallback)
             if nearest_node is not None:
                 self._node_cache[cache_key] = (nearest_node, time.time())
+                self._evict_cache_if_needed()
 
             return nearest_node
+
+    def _evict_cache_if_needed(self) -> None:
+        """Evict old entries if node cache exceeds max size."""
+        if len(self._node_cache) <= self._max_cache_size:
+            return
+        # First pass: evict expired entries
+        now = time.time()
+        expired = [k for k, (_, ts) in self._node_cache.items()
+                   if now - ts >= self._cache_ttl_seconds]
+        for k in expired:
+            del self._node_cache[k]
+        # If still over, evict oldest 25%
+        if len(self._node_cache) > self._max_cache_size:
+            by_age = sorted(self._node_cache.items(), key=lambda x: x[1][1])
+            to_evict = len(self._node_cache) // 4
+            for k, _ in by_age[:to_evict]:
+                del self._node_cache[k]
 
     def _generate_warnings(
         self,

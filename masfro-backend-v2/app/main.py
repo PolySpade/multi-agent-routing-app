@@ -18,7 +18,7 @@ Date: February 2026
 """
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Tuple, Optional, Dict, Any, Set
 from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
@@ -61,7 +61,7 @@ from app.services.agent_lifecycle_manager import (
 )
 
 # LLM Service
-from app.services.llm_service import LLMService
+from app.services.llm_service import LLMService, get_llm_service
 
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
@@ -378,7 +378,7 @@ ws_manager = ConnectionManager()
 app = FastAPI(
     title="MAS-FRO API",
     description="Multi-Agent System for Flood Route Optimization API",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS configuration - Explicit whitelist only
@@ -435,11 +435,13 @@ flood_agent = FloodAgent(
     hazard_agent_id="hazard_agent_001"  # Target agent for messages
 )
 
-routing_agent = RoutingAgent("routing_agent_001", environment)
+routing_agent = RoutingAgent("routing_agent_001", environment, message_queue=message_queue)
 evacuation_manager = EvacuationManagerAgent(
     "evac_manager_001",
     environment,
-    message_queue=message_queue  # Use MessageQueue for HazardAgent communication
+    message_queue=message_queue,
+    hazard_agent_id="hazard_agent_001",
+    llm_service=get_llm_service()
 )
 
 # ScoutAgent in simulation mode with MAS communication
@@ -489,8 +491,12 @@ sub_agents = {
     'evacuation': evacuation_manager,
     'hazard': hazard_agent
 }
-orchestrator_agent = OrchestratorAgent("orchestrator_main", environment, message_queue, sub_agents)
-logger.info("✅ Orchestrator Agent initialized with references to all sub-agents")
+orchestrator_llm = get_llm_service()
+orchestrator_agent = OrchestratorAgent(
+    "orchestrator_main", environment, message_queue, sub_agents,
+    llm_service=orchestrator_llm
+)
+logger.info("Orchestrator Agent initialized with MQ support, LLM brain, and all sub-agents")
 
 # Register agents with the viewer service so endpoints can access them without circular imports
 get_agent_viewer_service().register_agents(sub_agents)
@@ -498,13 +504,19 @@ get_agent_viewer_service().register_agents(sub_agents)
 # --- Initialize Agent Lifecycle Manager ---
 # This service periodically calls step() on agents to process MessageQueue messages
 # Solves the "Dormant Agent" problem where messages were sent but never processed
+# All agents are now registered so they can process orchestrator REQUEST messages
 agent_lifecycle_manager = AgentLifecycleManager(
     tick_interval_seconds=1.0,  # 1 Hz - call step() every second
     simulation_manager=simulation_manager  # Pauses when simulation is running
 )
-agent_lifecycle_manager.register_agent(hazard_agent, priority=1)  # HazardAgent processes messages
+agent_lifecycle_manager.register_agent(orchestrator_agent, priority=0)  # Orchestrator runs first
+agent_lifecycle_manager.register_agent(hazard_agent, priority=1)        # HazardAgent processes messages
+agent_lifecycle_manager.register_agent(scout_agent, priority=2)         # ScoutAgent handles requests
+agent_lifecycle_manager.register_agent(flood_agent, priority=3)         # FloodAgent handles requests
+agent_lifecycle_manager.register_agent(routing_agent, priority=4)       # RoutingAgent handles requests
+agent_lifecycle_manager.register_agent(evacuation_manager, priority=5)  # EvacManager handles requests
 set_lifecycle_manager(agent_lifecycle_manager)
-logger.info("AgentLifecycleManager initialized with HazardAgent")
+logger.info("AgentLifecycleManager initialized with all 6 agents")
 
 logger.info("MAS-FRO system initialized successfully")
 
@@ -648,7 +660,7 @@ async def read_root():
     """Health check endpoint."""
     return {
         "message": "Welcome to MAS-FRO Backend API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "operational"
     }
 
@@ -833,15 +845,17 @@ async def submit_feedback(feedback: FeedbackRequest):
             detail=f"Error processing feedback: {str(e)}"
         )
 
+class EvacuationCenterRequest(BaseModel):
+    location: List[float]
+
 @app.post("/api/evacuation-center", tags=["Routing"])
-async def get_nearest_evacuation_center(
-    location: Tuple[float, float]
-):
+async def get_nearest_evacuation_center(request: EvacuationCenterRequest):
     """
     Find nearest evacuation center and calculate route.
 
     Returns the closest safe evacuation center with route information.
     """
+    location = tuple(request.location)
     logger.info(f"Evacuation center request from {location}")
 
     try:
@@ -886,26 +900,122 @@ class MissionRequest(BaseModel):
     mission_type: str
     params: Dict[str, Any]
 
-@app.post("/api/orchestrator/command", tags=["Orchestrator"])
-async def send_orchestrator_command(request: MissionRequest):
+@app.post("/api/orchestrator/mission", tags=["Orchestrator"])
+async def create_orchestrator_mission(request: MissionRequest):
     """
-    Send a high-level command to the Orchestrator Agent.
-    
-    Trigger complex workflows like 'coordinated_evacuation' or 'assess_risk'.
+    Start a new orchestrator mission via MQ-based coordination.
+
+    Creates a mission with a state machine that coordinates sub-agents
+    via MessageQueue. Returns a mission_id for status polling.
+
+    Mission types:
+    - assess_risk: Scout -> Flood -> Hazard pipeline
+    - coordinated_evacuation: Evacuation Manager handles distress call
+    - route_calculation: Routing Agent calculates a route
+    - cascade_risk_update: Flood -> Hazard data refresh
     """
     if not orchestrator_agent:
-         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-         
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
     try:
-        # Agent methods are now async
-        result = await orchestrator_agent.execute_mission(
-            request.mission_type, 
+        result = orchestrator_agent.start_mission(
+            request.mission_type,
             request.params
         )
         return result
     except Exception as e:
-        logger.error(f"Orchestrator failed: {e}")
+        logger.error(f"Orchestrator mission creation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/orchestrator/command", tags=["Orchestrator"])
+async def send_orchestrator_command(request: MissionRequest):
+    """
+    Start a mission (legacy endpoint, redirects to /api/orchestrator/mission).
+    """
+    return await create_orchestrator_mission(request)
+
+@app.get("/api/orchestrator/mission/{mission_id}", tags=["Orchestrator"])
+async def get_orchestrator_mission_status(mission_id: str):
+    """
+    Check the status of an orchestrator mission.
+
+    Poll this endpoint after creating a mission to track progress.
+    Missions transition through states like AWAITING_SCOUT -> AWAITING_FLOOD -> COMPLETED.
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    status = orchestrator_agent.get_mission_status(mission_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Mission {mission_id} not found")
+    return status
+
+@app.get("/api/orchestrator/missions", tags=["Orchestrator"])
+async def list_orchestrator_missions():
+    """List all orchestrator missions (active and recently completed)."""
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    active = orchestrator_agent.get_active_missions()
+    completed = [
+        orchestrator_agent._mission_to_dict(m)
+        for m in orchestrator_agent._completed_missions
+    ]
+    return {"active": active, "completed": completed}
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Message must not be empty")
+        return v.strip()
+
+@app.post("/api/orchestrator/chat", tags=["Orchestrator"])
+async def orchestrator_chat(request: ChatRequest):
+    """
+    Natural language interface to the orchestrator.
+
+    Send a message in plain language and the LLM will interpret it,
+    create the appropriate mission, and return tracking info.
+
+    Examples:
+    - "Is it safe to travel from Tumana to Concepcion?"
+    - "Check the flood risk in Barangay Nangka"
+    - "I need to evacuate from Malanday, the water is rising!"
+    - "Update the flood data"
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        result = await asyncio.to_thread(
+            orchestrator_agent.chat_and_execute, request.message
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Orchestrator chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/orchestrator/mission/{mission_id}/summary", tags=["Orchestrator"])
+async def get_mission_summary(mission_id: str):
+    """
+    Get an LLM-generated human-readable summary of a mission's results.
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    result = await asyncio.to_thread(
+        orchestrator_agent.summarize_mission, mission_id
+    )
+    if result.get("status") == "error" and "not found" in result.get("message", ""):
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
 
 @app.post("/api/admin/collect-flood-data", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def trigger_flood_data_collection():
@@ -919,12 +1029,14 @@ async def trigger_flood_data_collection():
 
     try:
         # Trigger FloodAgent to collect and forward data
-        data = flood_agent.collect_and_forward_data()
+        data = flood_agent.collect_flood_data()
+        if data:
+            flood_agent.send_flood_data_via_message(data)
 
         return {
             "status": "success",
             "message": "Flood data collection completed",
-            "locations_updated": len(data),
+            "locations_updated": len(data) if data else 0,
             "data_summary": list(data.keys()) if data else []
         }
 
@@ -1049,7 +1161,9 @@ async def set_flood_scenario(
         hazard_agent.set_flood_scenario(return_period, time_step)
 
         # Trigger immediate update to apply new scenario
-        data = flood_agent.collect_and_forward_data()
+        data = flood_agent.collect_flood_data()
+        if data:
+            flood_agent.send_flood_data_via_message(data)
 
         return {
             "status": "success",
@@ -2028,15 +2142,20 @@ async def get_evacuation_centers():
         if hasattr(routing_agent, 'evacuation_centers') and not routing_agent.evacuation_centers.empty:
             # Convert DataFrame to list of dicts
             for _, row in routing_agent.evacuation_centers.iterrows():
+                lat = row.get("latitude")
+                lon = row.get("longitude")
+                # Skip rows with NaN coordinates
+                if pd.isna(lat) or pd.isna(lon):
+                    continue
                 centers.append({
                     "name": row.get("name", "Unknown"),
                     "location": row.get("address", ""),
                     "barangay": row.get("barangay", ""),
                     "coordinates": {
-                        "lat": row.get("latitude"),
-                        "lon": row.get("longitude")
+                        "lat": float(lat),
+                        "lon": float(lon)
                     },
-                    "capacity": int(row.get("capacity", 0)) if not pd.isna(row.get("capacity")) else 0,
+                    "capacity": int(row.get("capacity", 0)) if pd.notna(row.get("capacity")) else 0,
                     "type": row.get("type", ""),
                     "facilities": row.get("facilities", "").split(", ") if pd.notna(row.get("facilities")) else [],
                     "contact": row.get("contact", ""),

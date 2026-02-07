@@ -225,6 +225,28 @@ evacuation_manager_agent:
     warn_if_far: true             # Warn if nearest shelter > 10km
 
 # ==========================================
+# ORCHESTRATOR AGENT CONFIGURATION
+# ==========================================
+orchestrator_agent:
+  # Mission timeouts (seconds)
+  # Each mission type can have its own timeout
+  timeouts:
+    default: 60.0                    # Fallback for unknown mission types
+    assess_risk: 120.0               # Scout -> Flood -> Hazard pipeline
+    coordinated_evacuation: 60.0     # Single-agent delegation
+    route_calculation: 30.0          # Direct routing computation
+    cascade_risk_update: 120.0       # Flood -> Hazard refresh pipeline
+
+  # Concurrency limits
+  max_concurrent_missions: 10        # Maximum simultaneous missions
+  max_completed_history: 100         # Completed missions to keep for polling
+
+  # Retry policy (for future use)
+  retry:
+    max_retries: 2                   # Max retries per failed step
+    retry_delay_seconds: 5.0         # Delay between retries
+
+# ==========================================
 # GLOBAL AGENT SETTINGS
 # ==========================================
 global:

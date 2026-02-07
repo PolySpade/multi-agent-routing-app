@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(python -c:*)",
@@ -12,7 +15,32 @@
       "Bash(dir:*)",
       "Bash(findstr:*)",
       "Bash(powershell \"Get-ChildItem -Recurse -File | Where-Object { $_FullName -notmatch ''__pycache__|\\\\.pyc|\\\\.git\\\\\\\\'' } | ForEach-Object { $_FullName }\")",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"from app.agents.orchestrator_agent import OrchestratorAgent, MissionState; print\\(''orchestrator_agent OK''\\)\")",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\":*)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"from app.agents.scout_agent import ScoutAgent; print\\(''scout_agent OK''\\)\")",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"from app.agents.flood_agent import FloodAgent; print\\(''flood_agent OK''\\)\")",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"from app.agents.hazard_agent import HazardAgent; print\\(''hazard_agent OK''\\)\")",
+      "Bash(curl:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python -m tests.test_orchestrator_brain:*)",
+      "Bash(.venvScriptspython.exe -m py_compile app/agents/evacuation_manager_agent.py)",
+      "Bash(.venvScriptspython.exe -m py_compile app/main.py)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -m py_compile:*)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -m py_compile app/main.py)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -m tests.test_orchestrator_brain --offline-only)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -m py_compile app/services/simulation_manager.py)",
+      "Bash(\"C:\\\\Users\\\\Clinton\\\\Documents\\\\Coding Project\\\\thesis\\\\multi-agent-routing-app\\\\masfro-backend-v2\\\\.venv\\\\Scripts\\\\python.exe\":*)",
+      "Bash(.venvScriptsuvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(netstat:*)",
+      "Bash(.venvScriptspython -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(timeout 30 bash -c 'until curl -s http://127.0.0.1:8000/ > /dev/null 2>&1; do sleep 2; done')",
+      "Bash(uvicorn:*)",
+      "Bash(API_KEY=\"development-key-change-in-production\")",
+      "Bash(\"C:/Users/Clinton/Documents/Coding Project/thesis/multi-agent-routing-app/masfro-backend-v2/.venv/Scripts/pip.exe\" install websockets)",
+      "Bash(uv pip install:*)",
+      "Bash(\"C:/Users/Clinton/Documents/Coding Project/thesis/multi-agent-routing-app/masfro-backend-v2/.venv/Scripts/python.exe\":*)"
     ]
   }
 }

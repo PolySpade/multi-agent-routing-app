@@ -290,11 +290,25 @@ class HazardAgent(BaseAgent):
         # Proximity search
         if haversine_distance is not None:
             for (clat, clon), vehicles in self.vehicle_passability_cache.items():
-                dist = haversine_distance(lat, lon, clat, clon)
+                dist = haversine_distance((lat, lon), (clat, clon))
                 if dist <= radius_m:
                     return vehicles
 
         return None
+
+    def _add_to_scout_cache(self, report: Dict[str, Any], cache_key: tuple) -> None:
+        was_full = len(self.scout_data_cache) == self.scout_data_cache.maxlen
+        self.scout_data_cache.append(report)
+        self.scout_cache_keys.add(cache_key)
+        if was_full:
+            self.scout_cache_keys = set()
+            for r in self.scout_data_cache:
+                loc = r.get('location', '')
+                if isinstance(loc, (list, tuple)):
+                    loc = str(loc)
+                txt = r.get('text', '')
+                h = hashlib.md5(txt.encode()).hexdigest()[:16] if txt else ''
+                self.scout_cache_keys.add((loc, h))
 
     def clear_caches(self) -> None:
         """
@@ -466,6 +480,8 @@ class HazardAgent(BaseAgent):
             self.scout_cache_keys.clear()
             for report in self.scout_data_cache:
                 report_location = report.get('location', '')
+                if isinstance(report_location, (list, tuple)):
+                    report_location = str(report_location)
                 report_text = report.get('text', '')
                 text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
                 self.scout_cache_keys.add((report_location, text_hash))
@@ -776,6 +792,9 @@ class HazardAgent(BaseAgent):
         """
         Handle REQUEST messages asking for actions to be performed.
 
+        Supports actions from orchestrator and other agents.
+        Sends INFORM reply with conversation_id for correlation.
+
         Args:
             message: ACLMessage with Performative.REQUEST
         """
@@ -786,9 +805,39 @@ class HazardAgent(BaseAgent):
             f"{self.agent_id} handling REQUEST message: action={action}"
         )
 
-        if action == "calculate_risk":
-            # Force risk calculation
-            self.process_and_update()
+        if action in ("calculate_risk", "process_and_update"):
+            # Force risk calculation and graph update
+            result_data = {"status": "unknown"}
+            try:
+                update_result = self.process_and_update()
+                result_data["status"] = "success"
+                result_data["update_result"] = update_result
+            except Exception as e:
+                result_data["status"] = "error"
+                result_data["error"] = str(e)
+
+            logger.info(
+                f"{self.agent_id}: {action} -> {result_data['status']}"
+            )
+
+            # Send INFORM reply to requester (for orchestrator correlation)
+            if message.sender and self.message_queue:
+                try:
+                    from app.communication.acl_protocol import create_inform_message
+                    reply = create_inform_message(
+                        sender=self.agent_id,
+                        receiver=message.sender,
+                        info_type="risk_update_result",
+                        data=result_data,
+                        conversation_id=message.conversation_id,
+                        in_reply_to=message.reply_with,
+                    )
+                    self.message_queue.send_message(reply)
+                except Exception as e:
+                    logger.error(
+                        f"{self.agent_id}: failed to reply to "
+                        f"{message.sender}: {e}"
+                    )
         else:
             logger.warning(
                 f"{self.agent_id} received unknown action: {action}"
@@ -873,6 +922,12 @@ class HazardAgent(BaseAgent):
         fused_data = self.fuse_data()
         risk_scores = self.calculate_risk_scores(fused_data)
         self.update_environment(risk_scores)
+
+        if risk_scores:
+            average_risk = sum(risk_scores.values()) / len(risk_scores)
+            self.risk_history.append((get_philippine_time(), average_risk))
+            if len(self.risk_history) > 20:
+                self.risk_history = self.risk_history[-20:]
 
         return {
             "locations_processed": len(fused_data),
@@ -1191,6 +1246,8 @@ class HazardAgent(BaseAgent):
 
             # O(1) deduplication check (same pattern as process_scout_data_with_coordinates)
             report_location = report.get('location', '')
+            if isinstance(report_location, (list, tuple)):
+                report_location = str(report_location)
             report_text = report.get('text', '')
             text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
             cache_key = (report_location, text_hash)
@@ -1199,8 +1256,7 @@ class HazardAgent(BaseAgent):
                 logger.debug(f"Skipping duplicate scout report: {report_location}")
                 continue
 
-            self.scout_data_cache.append(report)
-            self.scout_cache_keys.add(cache_key)
+            self._add_to_scout_cache(report, cache_key)
             valid_count += 1
 
         # Mark that we have new data to process on next step()
@@ -1912,7 +1968,17 @@ class HazardAgent(BaseAgent):
             # Spatial filtering: Apply risk only to edges near the reported location
             if self.enable_spatial_filtering and self.geocoder:
                 # Get coordinates for the location name
-                location_coords = self.geocoder.get_coordinates(location_name, fuzzy=True)
+                if isinstance(location_name, (list, tuple)) and len(location_name) == 2:
+                    # Already coordinates
+                    try:
+                        lat, lon = float(location_name[0]), float(location_name[1])
+                        location_coords = (lat, lon)
+                    except (ValueError, TypeError):
+                        location_coords = None
+                elif isinstance(location_name, str):
+                    location_coords = self.geocoder.get_coordinates(location_name, fuzzy=True)
+                else:
+                    location_coords = None
 
                 if location_coords:
                     lat, lon = location_coords
@@ -2028,46 +2094,6 @@ class HazardAgent(BaseAgent):
             logger.error(f"Error finding nearest node to ({lat}, {lon}): {e}")
             return None
 
-    def calculate_distance(
-        self,
-        lat1: float,
-        lon1: float,
-        lat2: float,
-        lon2: float
-    ) -> float:
-        """
-        Calculate distance between two coordinates in meters using Haversine formula.
-
-        Args:
-            lat1: Latitude of point 1
-            lon1: Longitude of point 1
-            lat2: Latitude of point 2
-            lon2: Longitude of point 2
-
-        Returns:
-            Distance in meters
-
-        Example:
-            >>> distance = hazard_agent.calculate_distance(14.65, 121.10, 14.66, 121.11)
-        """
-        # Earth radius in meters
-        R = 6371000
-
-        # Convert to radians
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        delta_lat = math.radians(lat2 - lat1)
-        delta_lon = math.radians(lon2 - lon1)
-
-        # Haversine formula
-        a = (math.sin(delta_lat / 2) ** 2 +
-             math.cos(lat1_rad) * math.cos(lat2_rad) *
-             math.sin(delta_lon / 2) ** 2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        distance = R * c
-        return distance
-
     def get_nodes_within_radius(
         self,
         lat: float,
@@ -2099,7 +2125,15 @@ class HazardAgent(BaseAgent):
                 node_lat = float(node_data.get('y', 0))
                 node_lon = float(node_data.get('x', 0))
 
-                distance = self.calculate_distance(lat, lon, node_lat, node_lon)
+                if haversine_distance is not None:
+                    distance = haversine_distance((lat, lon), (node_lat, node_lon))
+                else:
+                    dlat = math.radians(node_lat - lat)
+                    dlon = math.radians(node_lon - lon)
+                    a = (math.sin(dlat / 2) ** 2 +
+                         math.cos(math.radians(lat)) * math.cos(math.radians(node_lat)) *
+                         math.sin(dlon / 2) ** 2)
+                    distance = 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
                 if distance <= radius_m:
                     nearby_nodes.append(node)
@@ -2211,6 +2245,8 @@ class HazardAgent(BaseAgent):
 
                 # Check for duplicates using O(1) set lookup (not O(N) linear search)
                 report_location = report.get('location', '')
+                if isinstance(report_location, (list, tuple)):
+                    report_location = str(report_location)
                 report_text = report.get('text', '')
 
                 # Create hash key for deduplication (location + text hash)
@@ -2221,9 +2257,7 @@ class HazardAgent(BaseAgent):
                 if cache_key in self.scout_cache_keys:
                     logger.debug(f"Skipping duplicate scout report: {report_location}")
                 else:
-                    # Add to cache and deduplication set
-                    self.scout_data_cache.append(report)
-                    self.scout_cache_keys.add(cache_key)
+                    self._add_to_scout_cache(report, cache_key)
 
                 # Check if report has coordinates
                 coords = report.get('coordinates')
@@ -2305,8 +2339,15 @@ class HazardAgent(BaseAgent):
                     node_lat = float(node_data.get('y', 0))
                     node_lon = float(node_data.get('x', 0))
 
-                    # Calculate distance
-                    distance = self.calculate_distance(lat, lon, node_lat, node_lon)
+                    if haversine_distance is not None:
+                        distance = haversine_distance((lat, lon), (node_lat, node_lon))
+                    else:
+                        dlat = math.radians(node_lat - lat)
+                        dlon = math.radians(node_lon - lon)
+                        a = (math.sin(dlat / 2) ** 2 +
+                             math.cos(math.radians(lat)) * math.cos(math.radians(node_lat)) *
+                             math.sin(dlon / 2) ** 2)
+                        distance = 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
                     # Apply Gaussian distance decay (physically correct for flood diffusion)
                     # Formula: exp(-(d/σ)²) where σ = radius/3 (99.7% coverage at boundary)

@@ -725,9 +725,9 @@ class SimulationManager:
             "errors": []
         }
 
-        if not self.evacuation_manager:
+        if not self.routing_agent:
             logger.warning(
-                "EvacuationManagerAgent not configured, skipping routing phase"
+                "RoutingAgent not configured, skipping routing phase"
             )
             return phase_result
 
@@ -744,10 +744,8 @@ class SimulationManager:
                 end = route_request.get("end")
                 preferences = route_request.get("preferences")
 
-                route_result = self.evacuation_manager.handle_route_request(
-                    start=start,
-                    end=end,
-                    preferences=preferences
+                route_result = self.routing_agent.calculate_route(
+                    start, end, preferences
                 )
 
                 phase_result["routes_processed"] += 1

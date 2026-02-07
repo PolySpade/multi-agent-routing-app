@@ -233,6 +233,33 @@ class EvacuationConfig:
 
 
 @dataclass
+class OrchestratorConfig:
+    """Configuration for OrchestratorAgent."""
+
+    # Mission timeouts (seconds)
+    default_timeout: float = 60.0
+    assess_risk_timeout: float = 120.0
+    evacuation_timeout: float = 60.0
+    route_timeout: float = 30.0scm-history-item:c%3A%5CUsers%5CClinton%5CDocuments%5CCoding%20Project%5Cthesis%5Cmulti-agent-routing-app?%7B%22repositoryId%22%3A%22scm0%22%2C%22historyItemId%22%3A%22920236dcbcb5f15384b2dbcf13f82353c9630c30%22%2C%22historyItemParentId%22%3A%22ddf94993edb1e08ca1dc0946f68dd2a7c5438177%22%2C%22historyItemDisplayId%22%3A%22920236d%22%7D
+    cascade_timeout: float = 120.0
+
+    # Concurrency limits
+    max_concurrent_missions: int = 10
+    max_completed_history: int = 100
+
+    # Retry policy
+    max_retries: int = 2
+    retry_delay_seconds: float = 5.0
+
+    def validate(self) -> None:
+        """Validate configuration values."""
+        assert self.default_timeout > 0, "default_timeout must be positive"
+        assert self.max_concurrent_missions > 0, "max_concurrent_missions must be positive"
+        assert self.max_completed_history > 0, "max_completed_history must be positive"
+        assert self.max_retries >= 0, "max_retries must be non-negative"
+
+
+@dataclass
 class GlobalConfig:
     """Global configuration for all agents."""
 
@@ -487,6 +514,26 @@ class AgentConfigLoader:
             always_use_safest_mode=evac.get('always_use_safest_mode', True),
             check_center_capacity=evac.get('check_center_capacity', False),
             warn_if_far=evac.get('warn_if_far', True),
+        )
+        config.validate()
+        return config
+
+    def get_orchestrator_config(self) -> OrchestratorConfig:
+        """Get OrchestratorAgent configuration."""
+        cfg = self._config.get('orchestrator_agent', {})
+        timeouts = cfg.get('timeouts', {})
+        retry = cfg.get('retry', {})
+
+        config = OrchestratorConfig(
+            default_timeout=timeouts.get('default', 60.0),
+            assess_risk_timeout=timeouts.get('assess_risk', 120.0),
+            evacuation_timeout=timeouts.get('coordinated_evacuation', 60.0),
+            route_timeout=timeouts.get('route_calculation', 30.0),
+            cascade_timeout=timeouts.get('cascade_risk_update', 120.0),
+            max_concurrent_missions=cfg.get('max_concurrent_missions', 10),
+            max_completed_history=cfg.get('max_completed_history', 100),
+            max_retries=retry.get('max_retries', 2),
+            retry_delay_seconds=retry.get('retry_delay_seconds', 5.0),
         )
         config.validate()
         return config
