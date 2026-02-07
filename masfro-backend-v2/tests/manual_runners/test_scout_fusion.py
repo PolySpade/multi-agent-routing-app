@@ -6,7 +6,7 @@ import sys
 import os
 
 # Ensure app modules are importable
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.agents.scout_agent import ScoutAgent
 from app.services.llm_service import LLMService

@@ -18,6 +18,7 @@ Date: February 2026
 """
 
 import os
+import re
 import json
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,10 @@ class ScoutAgent(BaseAgent):
     - Vision-based flood detection (configurable model)
     - Visual evidence flagging for HazardAgent override logic
     - Improved severity estimation from visual cues
+    - Depth extraction from text descriptions
+    - Confidence-weighted fusion of visual and text signals
+    - Temporal deduplication of location reports
+    - Cross-modal context for text analysis
 
     Attributes:
         agent_id: Unique identifier for this agent
@@ -62,6 +67,31 @@ class ScoutAgent(BaseAgent):
         llm_service: LLM service for enhanced analysis
         use_llm: Whether LLM processing is enabled
     """
+
+    # Mapping of text flood depth descriptions to meters
+    DEPTH_MAP: Dict[str, float] = {
+        "ankle": 0.15,
+        "shin": 0.25,
+        "knee": 0.35,
+        "thigh": 0.50,
+        "waist": 0.70,
+        "chest": 1.0,
+        "neck": 1.3,
+        "head": 1.5,
+    }
+
+    # Known Marikina barangays for quick location extraction (temporal dedup)
+    _KNOWN_LOCATIONS: List[str] = [
+        "Barangka", "Calumpang", "Concepcion Uno", "Concepcion Dos",
+        "Fortune", "IVC", "Industrial Valley Complex",
+        "Jesus de la Pena", "Malanday", "Marikina Heights",
+        "Nangka", "Parang", "San Roque", "Santa Elena",
+        "Santo Nino", "Sto. Nino", "Tanong", "Tumana",
+        # Key landmarks
+        "SM Marikina", "Marcos Highway", "Sumulong Highway",
+        "Gil Fernando", "J.P. Rizal", "Shoe Ave", "Riverbanks",
+        "Marikina Sports Center", "Marikina River",
+    ]
 
     def __init__(
         self,
@@ -153,12 +183,22 @@ class ScoutAgent(BaseAgent):
             )
             self.geocoder = None
 
+        # ========== TEMPORAL DEDUPLICATION ==========
+        self._recent_locations: Dict[str, datetime] = {}
+        try:
+            from ..core.agent_config import get_config
+            scout_cfg = get_config().get_scout_config()
+            self._temporal_dedup_window_minutes = scout_cfg.temporal_dedup_window_minutes
+        except Exception:
+            self._temporal_dedup_window_minutes = 10.0
+
         # Log initialization summary
         processing_mode = "LLM" if self.use_llm else "Traditional NLP"
         self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in SIMULATION MODE")
         self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
         self.logger.info(f"  Text processing mode: {processing_mode}")
         self.logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
+        self.logger.info(f"  Temporal dedup window: {self._temporal_dedup_window_minutes} min")
 
     def setup(self) -> bool:
         """
@@ -199,6 +239,48 @@ class ScoutAgent(BaseAgent):
 
         return prepared_tweets
 
+    def inject_manual_tweet(self, tweet_content: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Manually inject a tweet into the agent for immediate processing.
+        
+        Args:
+            tweet_content: Dictionary containing tweet data (text, image_path, etc.)
+            
+        Returns:
+            Processed report data
+        """
+        self.logger.info(f"{self.agent_id} received manual tweet injection")
+        
+        # Normalize input
+        if "timestamp" not in tweet_content:
+            tweet_content["timestamp"] = datetime.now()
+            
+        # Process immediately
+        try:
+            # Re-use the single tweet processing logic
+            report_data = self._process_single_tweet(tweet_content)
+            
+            if report_data:
+                # Add injection flag
+                report_data['source'] = 'manual_injection'
+                
+                # Forward to Hazard Agent
+                self._send_reports_to_hazard_agent(
+                    [report_data], 
+                    skipped_count=0, 
+                    llm_count=1 if self.use_llm else 0, 
+                    nlp_count=0 if self.use_llm else 1
+                )
+                return report_data
+            else:
+                self.logger.warning(f"{self.agent_id} manual injection failed processing")
+                return {"status": "error", "message": "Processing returned no valid report"}
+                
+        except Exception as e:
+            self.logger.error(f"{self.agent_id} manual injection error: {e}")
+            return {"status": "error", "message": str(e)}
+
+
     def _process_and_forward_tweets(self, tweets: list) -> None:
         """
         Process tweets using LLM (primary) or NLP (fallback) and forward to HazardAgent.
@@ -232,6 +314,15 @@ class ScoutAgent(BaseAgent):
 
         for tweet in tweets:
             try:
+                # Temporal deduplication: skip if same location reported recently
+                quick_loc = self._extract_quick_location(tweet.get('text', ''))
+                if quick_loc and self._is_recently_reported(quick_loc):
+                    logger.debug(
+                        f"{self.agent_id} skipping temporally duplicate report "
+                        f"for '{quick_loc}'"
+                    )
+                    continue
+
                 report_data = self._process_single_tweet(tweet)
 
                 if report_data is None:
@@ -283,6 +374,15 @@ class ScoutAgent(BaseAgent):
         """
         Process a single tweet using LLM or NLP.
 
+        Pipeline:
+        1. Visual analysis (vision model, if image present)
+        2. Text analysis (LLM with optional cross-modal context, or fallback NLP)
+        3. Depth extraction from text descriptions
+        4. Confidence-weighted fusion of visual and text signals
+        5. Geocoding with retry/simplification
+        6. Multi-factor confidence calculation
+        7. Build final payload
+
         Args:
             tweet: Tweet dictionary with 'text', 'timestamp', etc.
 
@@ -297,44 +397,69 @@ class ScoutAgent(BaseAgent):
         }
 
         # ========== 1. VISUAL ANALYSIS (Vision Model) ==========
+        visual_confidence = 0.0
         if tweet.get('image_path') and self.llm_service and self.use_llm:
             visual_result = self._analyze_image(tweet['image_path'])
             if visual_result:
                 report_data.update(visual_result)
+                visual_confidence = visual_result.get('confidence', 0.0)
 
         # ========== 2. TEXT ANALYSIS (LLM or fallback NLP) ==========
-        text_result = self._analyze_text(tweet.get('text', ''))
+        # Use cross-modal context if visual analysis found significant risk
+        visual_risk = report_data.get('risk_score', 0) or 0
+        if visual_risk > 0.3 and report_data.get('visual_evidence'):
+            text_result = self._analyze_text_with_context(
+                tweet.get('text', ''), report_data
+            )
+        else:
+            text_result = self._analyze_text(tweet.get('text', ''))
+
+        text_confidence = 0.0
         if text_result:
             # Merge text analysis into report
             report_data['location'] = text_result.get('location') or tweet.get('location')
             report_data['is_flood_related'] = text_result.get('is_flood_related', False)
             report_data['description'] = text_result.get('description')
             report_data['report_type'] = text_result.get('report_type', 'flood')
+            text_confidence = text_result.get('confidence', 0.5)
 
             # Update source if LLM was used
             if text_result.get('source') and 'nlp' not in text_result.get('source', '').lower():
                 report_data['source'] = 'scout_agent_llm_enhanced'
 
-        # ========== 3. FUSION LOGIC ==========
-        # Take maximum risk from visual and text analysis
-        visual_risk = report_data.get('risk_score', 0) or 0
+        # ========== 3. DEPTH EXTRACTION FROM TEXT ==========
+        # If vision didn't provide depth, derive from text description
+        if not report_data.get('estimated_depth_m') and text_result:
+            depth_desc = text_result.get('flood_depth_description', '')
+            if depth_desc:
+                derived_depth = self._depth_description_to_meters(depth_desc)
+                if derived_depth is not None:
+                    report_data['estimated_depth_m'] = derived_depth
+                    logger.debug(
+                        f"Derived depth from text: '{depth_desc}' -> {derived_depth}m"
+                    )
+
+        # ========== 4. CONFIDENCE-WEIGHTED FUSION ==========
         text_severity = text_result.get('severity', 0) if text_result else 0
-        final_risk = max(visual_risk, text_severity)
+
+        if visual_risk > 0 and text_severity > 0:
+            # Both signals present: weighted average by confidence
+            vc = visual_confidence or 0.5
+            tc = text_confidence or 0.5
+            final_risk = (visual_risk * vc + text_severity * tc) / (vc + tc)
+        elif visual_risk > 0:
+            final_risk = visual_risk
+        else:
+            final_risk = text_severity
 
         report_data['severity'] = final_risk
         report_data['risk_score'] = final_risk
-
-        # Visual evidence with high risk = high confidence
-        if report_data.get('visual_evidence') and final_risk > 0.5:
-            report_data['confidence'] = 0.9
-        elif text_result:
-            report_data['confidence'] = text_result.get('confidence', 0.5)
 
         # Skip non-flood reports
         if not report_data.get('is_flood_related') and not report_data.get('visual_evidence'):
             return None
 
-        # ========== 4. GEOCODING ==========
+        # ========== 5. GEOCODING ==========
         if report_data.get('location') and self.geocoder:
             coords = self._geocode_location(report_data['location'])
             if coords:
@@ -345,12 +470,22 @@ class ScoutAgent(BaseAgent):
         else:
             report_data['has_coordinates'] = False
 
-        # ========== 5. BUILD FINAL PAYLOAD ==========
+        # ========== 6. MULTI-FACTOR CONFIDENCE ==========
+        report_data['confidence'] = self._calculate_fused_confidence(
+            visual_confidence=visual_confidence,
+            text_confidence=text_confidence,
+            visual_risk=visual_risk,
+            text_severity=text_severity,
+            has_visual=report_data.get('visual_evidence', False),
+            has_coordinates=report_data.get('has_coordinates', False),
+        )
+
+        # ========== 7. BUILD FINAL PAYLOAD ==========
         timestamp = tweet.get('timestamp')
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except:
+            except (ValueError, TypeError):
                 timestamp = datetime.now()
 
         payload = {
@@ -371,6 +506,10 @@ class ScoutAgent(BaseAgent):
             "is_flood_related": report_data.get('is_flood_related', False),
             "has_coordinates": report_data.get('has_coordinates', False)
         }
+
+        # Record location for temporal dedup
+        if payload.get('location'):
+            self._record_location_report(payload['location'])
 
         return payload
 
@@ -448,9 +587,179 @@ class ScoutAgent(BaseAgent):
 
         return None
 
+    def _analyze_text_with_context(
+        self, text: str, visual_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Analyze text with cross-modal visual context for better LLM understanding.
+
+        Falls back to standard _analyze_text() on failure.
+
+        Args:
+            text: Tweet text to analyze
+            visual_data: Visual analysis results to provide as context
+
+        Returns:
+            Dict with text analysis results or None
+        """
+        if not text or not text.strip():
+            return None
+
+        if self.use_llm and self.llm_service:
+            try:
+                visual_context = {
+                    "estimated_depth_m": visual_data.get('estimated_depth_m'),
+                    "risk_score": visual_data.get('risk_score', 0),
+                    "visual_indicators": visual_data.get('visual_indicators'),
+                }
+                result = self.llm_service.analyze_text_with_visual_context(
+                    text, visual_context
+                )
+                if result:
+                    return result
+            except Exception as e:
+                logger.warning(
+                    f"Cross-modal text analysis failed, falling back to standard: {e}"
+                )
+
+        # Fallback to standard text analysis
+        return self._analyze_text(text)
+
+    def _depth_description_to_meters(self, description: str) -> Optional[float]:
+        """
+        Convert a textual flood depth description to an estimated depth in meters.
+
+        Supports direct matches (e.g. "knee") and partial matches
+        (e.g. "knee-deep", "hanggang tuhod").
+
+        Args:
+            description: Text description of flood depth
+
+        Returns:
+            Estimated depth in meters, or None if no match
+        """
+        if not description:
+            return None
+
+        desc_lower = description.lower().strip()
+
+        # Direct match first
+        if desc_lower in self.DEPTH_MAP:
+            return self.DEPTH_MAP[desc_lower]
+
+        # Partial match: check if any key appears in the description
+        for keyword, depth in self.DEPTH_MAP.items():
+            if keyword in desc_lower:
+                return depth
+
+        return None
+
+    def _calculate_fused_confidence(
+        self,
+        visual_confidence: float,
+        text_confidence: float,
+        visual_risk: float,
+        text_severity: float,
+        has_visual: bool,
+        has_coordinates: bool,
+    ) -> float:
+        """
+        Calculate multi-factor fused confidence score.
+
+        Factors:
+        - Base: max of visual/text confidence (minimum 0.3)
+        - +0.1 if visual evidence present
+        - +0.05 if coordinates resolved
+        - +0.1 if visual and text signals agree (within 0.2)
+        - Capped at 0.95
+
+        Returns:
+            Confidence score between 0.3 and 0.95
+        """
+        base = max(visual_confidence, text_confidence, 0.3)
+
+        if has_visual:
+            base += 0.1
+
+        if has_coordinates:
+            base += 0.05
+
+        # Cross-modal agreement bonus
+        if has_visual and text_severity > 0 and visual_risk > 0:
+            if abs(visual_risk - text_severity) <= 0.2:
+                base += 0.1
+
+        return min(base, 0.95)
+
+    # --- TEMPORAL DEDUPLICATION METHODS ---
+
+    def _extract_quick_location(self, text: str) -> Optional[str]:
+        """
+        Extract a known Marikina location from text using regex (no LLM call).
+
+        Used for fast temporal deduplication before full processing.
+
+        Args:
+            text: Raw tweet text
+
+        Returns:
+            Matched location name or None
+        """
+        if not text:
+            return None
+
+        for loc in self._KNOWN_LOCATIONS:
+            if re.search(re.escape(loc), text, re.IGNORECASE):
+                return loc
+        return None
+
+    def _is_recently_reported(self, location: str) -> bool:
+        """
+        Check if a location was reported within the temporal dedup window.
+
+        Args:
+            location: Location name to check
+
+        Returns:
+            True if this location was recently reported
+        """
+        loc_key = location.lower().strip()
+        last_report = self._recent_locations.get(loc_key)
+        if last_report is None:
+            return False
+
+        elapsed = (datetime.now() - last_report).total_seconds() / 60.0
+        return elapsed < self._temporal_dedup_window_minutes
+
+    def _record_location_report(self, location: str) -> None:
+        """
+        Record that a location was reported at the current time.
+
+        Also cleans up entries older than the dedup window.
+
+        Args:
+            location: Location name to record
+        """
+        now = datetime.now()
+        loc_key = location.lower().strip()
+        self._recent_locations[loc_key] = now
+
+        # Cleanup old entries
+        cutoff = self._temporal_dedup_window_minutes
+        expired = [
+            k for k, ts in self._recent_locations.items()
+            if (now - ts).total_seconds() / 60.0 > cutoff
+        ]
+        for k in expired:
+            del self._recent_locations[k]
+
+    # --- GEOCODING ---
+
     def _geocode_location(self, location: str) -> Optional[Dict[str, float]]:
         """
         Geocode a location string to coordinates.
+
+        Tries direct geocoding, then NLP format, then simplified string retry.
 
         Args:
             location: Location name/description
@@ -473,10 +782,50 @@ class ScoutAgent(BaseAgent):
             if enhanced and enhanced.get('has_coordinates'):
                 return enhanced.get('coordinates')
 
+            # Retry with simplified location string
+            simplified = self._simplify_location(location)
+            if simplified and simplified != location and len(simplified) > 2:
+                coords = self.geocoder.get_coordinates(simplified)
+                if coords:
+                    logger.debug(
+                        f"Geocoding succeeded after simplification: "
+                        f"'{location}' -> '{simplified}'"
+                    )
+                    return coords
+
         except Exception as e:
             logger.debug(f"Geocoding failed for '{location}': {e}")
 
         return None
+
+    @staticmethod
+    def _simplify_location(location: str) -> Optional[str]:
+        """
+        Simplify a noisy location string for geocoding retry.
+
+        Strips common Filipino/English prefixes and suffixes that
+        confuse geocoders (e.g. "near Sto. Nino Church area" -> "Sto. Nino").
+
+        Args:
+            location: Raw location string
+
+        Returns:
+            Simplified string or None
+        """
+        if not location:
+            return None
+
+        result = location.strip()
+
+        # Strip common prefixes
+        prefix_pattern = r'^(?:near|along|sa|malapit\s+sa|dito\s+sa|around|beside|in\s+front\s+of)\s+'
+        result = re.sub(prefix_pattern, '', result, flags=re.IGNORECASE).strip()
+
+        # Strip common suffixes
+        suffix_pattern = r'\s+(?:area|vicinity|church|school|market|plaza|park|bridge)\s*$'
+        result = re.sub(suffix_pattern, '', result, flags=re.IGNORECASE).strip()
+
+        return result if result else None
 
     def _send_reports_to_hazard_agent(
         self,
@@ -499,6 +848,17 @@ class ScoutAgent(BaseAgent):
             f"{self.hazard_agent_id} via MessageQueue "
             f"(LLM: {llm_count}, NLP: {nlp_count}, skipped: {skipped_count})"
         )
+
+        # Log details of each report being sent
+        for i, report in enumerate(reports, 1):
+            coords = report.get('coordinates')
+            coord_str = f"[{coords[0]:.4f}, {coords[1]:.4f}]" if coords else "None"
+            logger.info(
+                f"  Report {i}: location='{report.get('location', 'N/A')}', "
+                f"coords={coord_str}, severity={report.get('severity', 0):.1f}, "
+                f"risk={report.get('risk_score', 0):.1f}, type={report.get('report_type', 'N/A')}, "
+                f"visual={report.get('visual_evidence', False)}"
+            )
 
         # Check if any reports have visual evidence (for HazardAgent Visual Override)
         visual_reports = sum(1 for r in reports if r.get('visual_evidence'))
@@ -538,79 +898,6 @@ class ScoutAgent(BaseAgent):
             logger.error(
                 f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
             )
-
-    def _process_and_forward_tweets_without_coordinates(self, tweets: list) -> None:
-        """
-        Fallback method for processing tweets without geocoder (legacy).
-
-        Args:
-            tweets: List of tweet dictionaries to process
-        """
-        # Guard: Check processing capability
-        if not self.nlp_processor and not self.use_llm:
-            logger.error(
-                f"{self.agent_id} cannot process tweets: no processor available."
-            )
-            return
-
-        processed_reports = []
-
-        for tweet in tweets:
-            try:
-                # Use LLM or NLP
-                flood_info = self._analyze_text(tweet.get('text', ''))
-
-                if not flood_info or not isinstance(flood_info, dict):
-                    continue
-
-                if flood_info.get('is_flood_related'):
-                    report = {
-                        "location": flood_info.get('location') or "Marikina",
-                        "severity": flood_info.get('severity', 0),
-                        "report_type": flood_info.get('report_type', 'flood'),
-                        "confidence": flood_info.get('confidence', 0.5),
-                        "timestamp": datetime.fromisoformat(
-                            tweet['timestamp'].replace('Z', '+00:00')
-                        ) if tweet.get('timestamp') else datetime.now(),
-                        "source": "twitter",
-                        "source_url": tweet.get('url', ''),
-                        "username": tweet.get('username', ''),
-                        "text": tweet.get('text', ''),
-                        "visual_evidence": False
-                    }
-
-                    processed_reports.append(report)
-                    logger.info(f"Message sent: {tweet.get('text', '')[:100]}...")
-
-            except Exception as e:
-                logger.error(f"{self.agent_id} error processing tweet: {e}")
-                continue
-
-        # Forward via MessageQueue (legacy mode without coordinates)
-        if processed_reports:
-            logger.info(
-                f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports to {self.hazard_agent_id} (legacy mode)"
-            )
-
-            try:
-                message = create_inform_message(
-                    sender=self.agent_id,
-                    receiver=self.hazard_agent_id,
-                    info_type="scout_report_batch",
-                    data={
-                        "reports": processed_reports,
-                        "has_coordinates": False,
-                        "report_count": len(processed_reports)
-                    }
-                )
-
-                self.message_queue.send_message(message)
-
-            except Exception as e:
-                logger.error(
-                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
-                )
 
     def shutdown(self) -> None:
         """Performs cleanup on agent shutdown."""

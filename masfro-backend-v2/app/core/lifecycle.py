@@ -47,9 +47,14 @@ def register_lifecycle_events(app: FastAPI):
         state = get_app_state()
         try:
             # Load default GeoTIFF data (light scenario, time step 1)
-            geotiff_path = Path(__file__).parent.parent / "data" / "geotiff_data" / "rr01" / "rr01_step_01.tif"
+            geotiff_path = Path(__file__).parent.parent / "data" / "timed_floodmaps" / "rr01" / "rr01-1.tif"
 
             if geotiff_path.exists() and state.hazard_agent and state.environment:
+                from app.core.config import settings
+                if not settings.LOAD_INITIAL_FLOOD_DATA:
+                    logger.info("Initial flood data loading DISABLED by configuration")
+                    return
+
                 logger.info(f"Loading initial risk data from {geotiff_path}")
 
                 # Process GeoTIFF to get flood data

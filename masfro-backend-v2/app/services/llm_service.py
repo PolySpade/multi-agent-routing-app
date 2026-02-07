@@ -302,14 +302,17 @@ class LLMService:
 Analyze this flood report and extract JSON:
 {{
     "location": "string (landmark, street, or barangay in Marikina - be specific)",
-    "severity": float (0.0 to 1.0, where:
-        0.0-0.2 = minor/ankle-deep,
-        0.3-0.5 = moderate/knee-deep,
-        0.6-0.8 = severe/waist-deep,
-        0.9-1.0 = critical/life-threatening),
+    "severity": float (0.0 to 1.0, mapped from depth:
+        0.0 = no flooding,
+        0.1-0.2 = ankle-deep ~15cm,
+        0.3-0.4 = knee-deep ~35cm,
+        0.5-0.6 = thigh/waist ~50-70cm,
+        0.7-0.8 = chest-deep ~100cm,
+        0.9-1.0 = neck/head-deep or life-threatening >130cm),
     "is_flood_related": boolean (true if report is about flooding),
     "description": "brief summary of the flood situation",
-    "flood_depth_description": "string describing water level (ankle, knee, waist, chest, etc.)",
+    "flood_depth_description": "string describing water level (ankle, shin, knee, thigh, waist, chest, neck, head)",
+    "report_type": "flood/observation/warning/rescue",
     "urgency": "low/medium/high/critical"
 }}
 
@@ -317,7 +320,8 @@ Report: "{text}"
 
 Important:
 - If the text is in Filipino/Tagalog, translate key details
-- Marikina-specific landmarks: J.P. Rizal, Shoe Ave, Riverbanks, Sto. Nino, Marikina Sports Center
+- Marikina barangays: Barangka, Calumpang, Concepcion Uno, Concepcion Dos, Fortune, IVC (Industrial Valley Complex), Jesus de la Pena, Malanday, Marikina Heights, Nangka, Parang, San Roque, Santa Elena, Santo Nino, Tanong, Tumana
+- Key landmarks: SM Marikina, Marcos Highway, Sumulong Highway, Gil Fernando Ave, J.P. Rizal, Shoe Ave, Riverbanks, Marikina Sports Center, Marikina River Park
 - Return ONLY valid JSON, no explanation or markdown."""
 
         try:
@@ -347,6 +351,110 @@ Important:
         except Exception as e:
             logger.error(f"LLM text analysis failed: {e}")
             return {}
+
+    def analyze_text_with_visual_context(
+        self, text: str, visual_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Analyze text with additional visual context for cross-modal understanding.
+
+        Called when visual analysis found risk >= 0.3. The LLM reconciles text
+        content with image evidence for more accurate extraction.
+
+        Args:
+            text: Raw flood report text
+            visual_context: Dict with visual findings:
+                - estimated_depth_m: float or None
+                - risk_score: float
+                - visual_indicators: str or None
+
+        Returns:
+            Same structure as analyze_text_report() plus:
+                - cross_modal: True
+                - text_visual_agreement: str ("agree"/"disagree"/"partial")
+
+            Falls back to analyze_text_report() on failure.
+        """
+        if not text or not text.strip():
+            return {}
+
+        visual_risk = visual_context.get('risk_score', 0)
+        if visual_risk < 0.3:
+            # Guard: no meaningful visual context, use standard analysis
+            return self.analyze_text_report(text)
+
+        # Build cache key that includes visual context fingerprint
+        context_fingerprint = (
+            f"{visual_context.get('estimated_depth_m', '')}"
+            f":{visual_context.get('risk_score', '')}"
+        )
+        cache_key = self._get_cache_key("text_ctx", f"{text}|{context_fingerprint}")
+        cached = self._get_cached_response(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self.is_available():
+            return self.analyze_text_report(text)
+
+        depth_str = visual_context.get('estimated_depth_m')
+        depth_info = f"{depth_str}m" if depth_str is not None else "unknown"
+        indicators = visual_context.get('visual_indicators') or "none described"
+
+        prompt = f"""You are a flood report analyzer for Marikina City, Philippines.
+
+An accompanying image was analyzed and found:
+- Estimated flood depth: {depth_info}
+- Visual risk score: {visual_risk}
+- Visual indicators: {indicators}
+
+Now analyze the TEXT of the same report and reconcile with the visual evidence.
+
+Extract JSON:
+{{
+    "location": "string (landmark, street, or barangay in Marikina)",
+    "severity": float (0.0-1.0, consider both text and visual evidence),
+    "is_flood_related": boolean,
+    "description": "summary reconciling text and visual evidence",
+    "flood_depth_description": "ankle/shin/knee/thigh/waist/chest/neck/head",
+    "report_type": "flood/observation/warning/rescue",
+    "urgency": "low/medium/high/critical",
+    "text_visual_agreement": "agree/disagree/partial (do text and image tell the same story?)"
+}}
+
+Report text: "{text}"
+
+Important:
+- Marikina barangays: Barangka, Calumpang, Concepcion Uno, Concepcion Dos, Fortune, IVC, Jesus de la Pena, Malanday, Marikina Heights, Nangka, Parang, San Roque, Santa Elena, Santo Nino, Tanong, Tumana
+- If text contradicts image, prefer the higher severity signal
+- Return ONLY valid JSON."""
+
+        try:
+            response = ollama.chat(
+                model=self.text_model,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={'timeout': self.timeout}
+            )
+
+            result = self._clean_json(response['message']['content'])
+
+            if result:
+                result['confidence'] = 0.85 if result.get('is_flood_related') else 0.5
+                result['source'] = self.text_model
+                result['cross_modal'] = True
+                self._set_cached_response(cache_key, result)
+
+                logger.info(
+                    f"[{self.text_model}] Cross-modal text analysis: "
+                    f"location={result.get('location')}, "
+                    f"severity={result.get('severity')}, "
+                    f"agreement={result.get('text_visual_agreement')}"
+                )
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Cross-modal text analysis failed, falling back: {e}")
+            return self.analyze_text_report(text)
 
     def analyze_flood_image(self, image_path: str, use_fallback: bool = True) -> Dict[str, Any]:
         """
@@ -573,6 +681,52 @@ Return ONLY valid JSON."""
         except Exception as e:
             logger.error(f"LLM advisory parsing failed: {e}")
             return {}
+
+    def text_chat(self, prompt: str) -> str:
+        """
+        General-purpose LLM text chat. Returns raw text (not JSON-parsed).
+
+        Wraps ollama.chat() with caching, timeout, and error handling.
+
+        Args:
+            prompt: The prompt to send to the text model
+
+        Returns:
+            Raw text response from the LLM, or empty string on failure
+        """
+        if not prompt or not prompt.strip():
+            logger.warning("Empty prompt provided to text_chat")
+            return ""
+
+        # Check cache first
+        cache_key = self._get_cache_key("chat", prompt)
+        cached = self._get_cached_response(cache_key)
+        if cached is not None:
+            return cached.get("text", "")
+
+        # Check availability
+        if not self.is_available():
+            logger.debug("LLM unavailable, returning empty result for text_chat")
+            return ""
+
+        try:
+            response = ollama.chat(
+                model=self.text_model,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={'timeout': self.timeout}
+            )
+
+            text = response['message']['content'].strip()
+
+            if text:
+                self._set_cached_response(cache_key, {"text": text})
+                logger.debug(f"[{self.text_model}] text_chat response: {text[:80]}...")
+
+            return text
+
+        except Exception as e:
+            logger.error(f"LLM text_chat failed: {e}")
+            return ""
 
     def _clean_json(self, content: str) -> Dict[str, Any]:
         """

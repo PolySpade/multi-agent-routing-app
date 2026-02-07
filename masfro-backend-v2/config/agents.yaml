@@ -93,6 +93,11 @@ hazard_agent:
     batch_queries: true             # Batch GeoTIFF queries for performance
     cache_flood_depths: true        # Cache depth queries for 5 minutes
 
+  # Visual override thresholds (ScoutAgent visual evidence -> HazardAgent override)
+  visual_override:
+    risk_threshold: 0.7              # Minimum risk score to trigger override
+    confidence_threshold: 0.75       # Minimum confidence to trigger override
+
   # Risk calculation formulas
   formulas:
     # Flood depth to risk conversion
@@ -186,6 +191,10 @@ scout_agent:
     min_confidence: 0.6         # Minimum confidence for flood classification
     extract_severity: true      # Extract severity from text
     extract_location: true      # Extract location from text
+
+  # Temporal deduplication
+  deduplication:
+    temporal_window_minutes: 10.0    # Skip duplicate location reports within this window
 
   # Twitter API (future integration)
   twitter:

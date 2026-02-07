@@ -22,9 +22,10 @@ Date: November 2025
 from .base_agent import BaseAgent
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 from collections import deque
+import hashlib
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from app.core.timezone_utils import get_philippine_time
 from app.core.agent_config import get_config, HazardConfig
 import math
@@ -113,7 +114,7 @@ class HazardAgent(BaseAgent):
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance for graph updates
             message_queue: MessageQueue instance for MAS communication
-            enable_geotiff: Enable GeoTIFF flood simulation (default: True)
+            enable_geotiff: Enable GeoTIFF flood simulation (default: False)
         """
         super().__init__(agent_id, environment)
 
@@ -128,18 +129,30 @@ class HazardAgent(BaseAgent):
             except ValueError as e:
                 logger.warning(f"{self.agent_id} already registered: {e}")
 
-        # Data caches for fusion
+        # Load configuration from YAML
+        try:
+            self._config = get_config().get_hazard_config()
+        except Exception as e:
+            logger.warning(f"Failed to load hazard config, using defaults: {e}")
+            self._config = HazardConfig()
+
+        # Data caches for fusion (sizes from config)
         self.flood_data_cache: Dict[str, Any] = {}
         # Use deque with maxlen for automatic LRU eviction (prevents memory leaks)
-        self.scout_data_cache: deque = deque(maxlen=self.MAX_SCOUT_CACHE_SIZE)
+        self.scout_data_cache: deque = deque(maxlen=self._config.max_scout_cache)
         # O(1) deduplication set: stores (location, text_hash) tuples
         self.scout_cache_keys: set = set()
 
-        # Risk calculation weights
+        # Flag to track if there's new unprocessed data (prevents redundant processing)
+        # This solves the "log flooding" issue where step() would process every second
+        # even when no new data had arrived
+        self._has_unprocessed_data: bool = False
+
+        # Risk calculation weights (from config)
         self.risk_weights = {
-            "flood_depth": 0.5,  # Official flood depth weight
-            "crowdsourced": 0.3,  # Crowdsourced report weight
-            "historical": 0.2  # Historical flood data weight
+            "flood_depth": self._config.weight_flood_depth,
+            "crowdsourced": self._config.weight_crowdsourced,
+            "historical": self._config.weight_historical,
         }
 
         # GeoTIFF simulation control flag
@@ -158,28 +171,21 @@ class HazardAgent(BaseAgent):
             self.geotiff_service = None
             logger.info(f"{self.agent_id} GeoTIFF integration DISABLED")
 
-        # Flood prediction configuration (default: rr01, time_step 1)
-        self.return_period = "rr01"  # Default return period
-        self.time_step = 1  # Default time step (1 hour = first time step)
+        # Flood prediction configuration (from config)
+        self.return_period = self._config.default_return_period
+        self.time_step = self._config.default_time_step
 
-        # Risk decay configuration - Realistic flood recession modeling
-        self.enable_risk_decay = True  # Enable time-based risk decay
-        self.scout_decay_rate_fast = 0.10  # 10% per minute (rain-based flooding, drains quickly)
-        self.scout_decay_rate_slow = 0.03  # 3% per minute (river/dam flooding, slow recession)
-        self.flood_decay_rate = 0.05  # 5% per minute (official data decay)
-        self.scout_report_ttl_minutes = 45  # Scout reports expire after 45 min
-        self.flood_data_ttl_minutes = 90  # Flood data expires after 90 min
-        self.risk_floor_without_validation = 0.15  # Minimum risk until scout validates "clear"
-        self.min_risk_threshold = 0.01  # Clear risk below this value
+        # Risk decay configuration (from config)
+        self.enable_risk_decay = self._config.enable_risk_decay
+        self.scout_decay_rate_fast = self._config.scout_fast_rate
+        self.scout_decay_rate_slow = self._config.scout_slow_rate
+        self.flood_decay_rate = self._config.flood_rate
+        self.scout_report_ttl_minutes = self._config.scout_ttl_minutes
+        self.flood_data_ttl_minutes = self._config.flood_ttl_minutes
+        self.risk_floor_without_validation = self._config.risk_floor
+        self.min_risk_threshold = self._config.min_threshold
 
-        # Load configuration from YAML (Issue #16 fix)
-        try:
-            self._config = get_config().get_hazard_config()
-        except Exception as e:
-            logger.warning(f"Failed to load hazard config, using defaults: {e}")
-            self._config = HazardConfig()  # Use defaults
-
-        # Spatial risk configuration (now configurable)
+        # Spatial risk configuration (from config)
         self.environmental_risk_radius_m = self._config.risk_radius_m
         self.enable_spatial_filtering = self._config.enable_spatial_filtering
         self.decay_function = self._config.decay_function  # gaussian, linear, exponential
@@ -221,6 +227,9 @@ class HazardAgent(BaseAgent):
         self.spatial_index_grid_size = self._config.grid_size_degrees  # Configurable grid cell size
         self._build_spatial_index()
 
+        # Vehicle passability cache: maps (lat, lon) -> list of passable vehicle types
+        self.vehicle_passability_cache: Dict[Tuple[float, float], List[str]] = {}
+
         # Automatic cleanup tracking
         self._last_cleanup = time.time()
 
@@ -239,6 +248,54 @@ class HazardAgent(BaseAgent):
             f"(radius={self.environmental_risk_radius_m}m)"
         )
 
+    def get_agent_stats(self) -> Dict[str, Any]:
+        """Get hazard agent statistics for the Agent Viewer dashboard."""
+        return {
+            "agent_id": self.agent_id,
+            "geotiff_enabled": self.geotiff_enabled,
+            "geotiff_service_available": self.geotiff_service is not None,
+            "geocoder_available": self.geocoder is not None,
+            "risk_calculator_available": self.risk_calculator is not None,
+            "flood_data_cached": len(self.flood_data_cache),
+            "scout_reports_cached": len(self.scout_data_cache),
+            "return_period": self.return_period,
+            "time_step": self.time_step,
+            "risk_decay_enabled": self.enable_risk_decay,
+            "last_update": self.last_update_time.isoformat() if self.last_update_time else None,
+        }
+
+    def get_vehicle_passability(
+        self, lat: float, lon: float, radius_m: float = 500.0
+    ) -> Optional[List[str]]:
+        """
+        Query vehicle passability at or near a coordinate.
+
+        Tries exact match first (rounded to 5 decimals), then proximity search
+        within the given radius.
+
+        Args:
+            lat: Latitude
+            lon: Longitude
+            radius_m: Search radius in meters (default 500m)
+
+        Returns:
+            List of passable vehicle types, or None if no data
+        """
+        coord_key = (round(lat, 5), round(lon, 5))
+
+        # Exact match
+        if coord_key in self.vehicle_passability_cache:
+            return self.vehicle_passability_cache[coord_key]
+
+        # Proximity search
+        if haversine_distance is not None:
+            for (clat, clon), vehicles in self.vehicle_passability_cache.items():
+                dist = haversine_distance(lat, lon, clat, clon)
+                if dist <= radius_m:
+                    return vehicles
+
+        return None
+
     def clear_caches(self) -> None:
         """
         Clear all cached data.
@@ -249,6 +306,7 @@ class HazardAgent(BaseAgent):
         self.flood_data_cache.clear()
         self.scout_data_cache.clear()
         self.scout_cache_keys.clear()  # Clear deduplication set
+        self.vehicle_passability_cache.clear()
         logger.info(f"{self.agent_id} caches cleared")
 
     def calculate_data_age_minutes(self, timestamp: Any) -> float:
@@ -261,16 +319,15 @@ class HazardAgent(BaseAgent):
         Returns:
             Age in minutes
         """
-        from datetime import datetime, timezone
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except:
+            except (ValueError, TypeError):
                 logger.warning(f"Invalid timestamp format: {timestamp}")
-                return 0.0
+                return 999.0
 
         if timestamp is None:
-            return 0.0
+            return 999.0
 
         # Make both datetimes timezone-aware for comparison
         current_time = datetime.now(timezone.utc)
@@ -300,7 +357,6 @@ class HazardAgent(BaseAgent):
             >>> apply_time_decay(0.8, 10, 0.1)  # 0.8 risk, 10 min old, 10%/min decay
             0.294  # Decayed to ~37% of original
         """
-        import math
         if age_minutes <= 0:
             return base_value
         decay_factor = math.exp(-decay_rate * age_minutes)
@@ -387,8 +443,6 @@ class HazardAgent(BaseAgent):
         Returns:
             Dict with counts of expired/evicted items
         """
-        from datetime import datetime
-        import hashlib
         current_time = datetime.now()
         expired_counts = {"scouts": 0, "flood_locations": 0, "scouts_size_evicted": 0, "flood_size_evicted": 0}
 
@@ -466,7 +520,6 @@ class HazardAgent(BaseAgent):
         Returns:
             True if any scout reported "clear" within radius in last 15 minutes
         """
-        from datetime import datetime, timedelta
         current_time = datetime.now()
         validation_window = timedelta(minutes=15)
 
@@ -493,7 +546,6 @@ class HazardAgent(BaseAgent):
                 continue
 
             # Calculate distance (simple approximation)
-            import math
             lat_diff = (report_lat - lat) * 111000  # 111km per degree latitude
             lon_diff = (report_lon - lon) * 111000 * math.cos(math.radians(lat))
             distance = math.sqrt(lat_diff**2 + lon_diff**2)
@@ -538,9 +590,11 @@ class HazardAgent(BaseAgent):
                     f"{retry_stats['failed']} failed"
                 )
 
-        # Step 4: Process cached data and update risk scores
-        if self.flood_data_cache or self.scout_data_cache:
+        # Step 4: Process cached data and update risk scores (only if new data arrived)
+        # This prevents redundant processing every tick when no new data exists
+        if self._has_unprocessed_data:
             self.process_and_update()
+            self._has_unprocessed_data = False
 
         # Step 5: Periodic graph state snapshot (every 10 minutes)
         self.environment.maybe_snapshot()
@@ -902,8 +956,8 @@ class HazardAgent(BaseAgent):
         # This is a safety check
         if self.time_step != time_step:
             logger.warning(
-                f"HazardAgent time_step mismatch: expected {time_step}, "
-                f"got {self.time_step}. Correcting..."
+                f"HazardAgent time_step mismatch: had {self.time_step}, "
+                f"received {time_step}. Correcting..."
             )
             self.time_step = time_step
 
@@ -1018,9 +1072,16 @@ class HazardAgent(BaseAgent):
             logger.warning(f"Invalid flood data received: {flood_data}")
             return
 
+        # Proactive cache eviction when approaching size limit
+        if len(self.flood_data_cache) >= self.MAX_FLOOD_CACHE_SIZE:
+            self.clean_expired_data()
+
         # Update cache
         location = flood_data.get("location")
         self.flood_data_cache[location] = flood_data
+
+        # Mark that we have new data to process on next step()
+        self._has_unprocessed_data = True
 
         logger.debug(f"Flood data cached for location: {location}")
 
@@ -1062,6 +1123,10 @@ class HazardAgent(BaseAgent):
 
         valid_count = 0
         invalid_count = 0
+
+        # Proactive cache eviction when approaching size limit
+        if len(self.flood_data_cache) + len(data) >= self.MAX_FLOOD_CACHE_SIZE:
+            self.clean_expired_data()
 
         # Update cache for all locations
         for location, location_data in data.items():
@@ -1117,12 +1182,30 @@ class HazardAgent(BaseAgent):
         """
         logger.info(f"{self.agent_id} received {len(scout_reports)} scout reports")
 
-        # Validate and add to cache
+        # Validate, deduplicate, and add to cache
+        valid_count = 0
         for report in scout_reports:
-            if self._validate_scout_data(report):
-                self.scout_data_cache.append(report)
-            else:
+            if not self._validate_scout_data(report):
                 logger.warning(f"Invalid scout report: {report}")
+                continue
+
+            # O(1) deduplication check (same pattern as process_scout_data_with_coordinates)
+            report_location = report.get('location', '')
+            report_text = report.get('text', '')
+            text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
+            cache_key = (report_location, text_hash)
+
+            if cache_key in self.scout_cache_keys:
+                logger.debug(f"Skipping duplicate scout report: {report_location}")
+                continue
+
+            self.scout_data_cache.append(report)
+            self.scout_cache_keys.add(cache_key)
+            valid_count += 1
+
+        # Mark that we have new data to process on next step()
+        if valid_count > 0:
+            self._has_unprocessed_data = True
 
         logger.debug(f"Scout data cache size: {len(self.scout_data_cache)}")
 
@@ -1175,20 +1258,20 @@ class HazardAgent(BaseAgent):
             if flood_depth <= 0:
                 depth_risk = 0.0
             else:
-                k = 8.0   # Steepness: rapid transition around inflection
-                x0 = 0.3  # Inflection: 50% risk at 0.3m (FEMA threshold)
+                k = self._config.sigmoid_steepness
+                x0 = self._config.sigmoid_inflection
                 depth_risk = 1.0 / (1.0 + math.exp(-k * (flood_depth - x0)))
 
             # Calculate rainfall risk (predictive/early warning)
             rainfall_1h = data.get("rainfall_1h", 0.0)
             rain_risk = 0.0
-            if rainfall_1h > 30.0:  # Torrential (>30mm/hr)
+            if rainfall_1h > self._config.rainfall_extreme_mm:
                 rain_risk = 0.8
-            elif rainfall_1h > 15.0:  # Intense (15-30mm/hr)
+            elif rainfall_1h > self._config.rainfall_heavy_mm:
                 rain_risk = 0.6
-            elif rainfall_1h > 7.5:  # Heavy (7.5-15mm/hr)
+            elif rainfall_1h > self._config.rainfall_moderate_mm:
                 rain_risk = 0.4
-            elif rainfall_1h > 2.5:  # Moderate (2.5-7.5mm/hr)
+            elif rainfall_1h > self._config.rainfall_light_mm:
                 rain_risk = 0.2
 
             # Combine: If flood depth is known, it dominates. If not, rainfall provides early warning
@@ -1241,6 +1324,19 @@ class HazardAgent(BaseAgent):
             severity = report.get("severity", 0.0)
             confidence = report.get("confidence", 0.5)
             report_type = report.get("report_type", "flood")
+
+            # Skip "clear" reports from risk accumulation
+            # (clearance is handled by check_scout_validation_for_area)
+            if report_type == "clear":
+                continue
+
+            # Use estimated_depth_m if available (from ScoutAgent vision/text)
+            estimated_depth = report.get('estimated_depth_m')
+            if estimated_depth and estimated_depth > 0:
+                k = self._config.sigmoid_steepness
+                x0 = self._config.sigmoid_inflection
+                depth_risk = 1.0 / (1.0 + math.exp(-k * (estimated_depth - x0)))
+                severity = max(severity, depth_risk)
 
             # Apply time-based decay to severity
             if self.enable_risk_decay:
@@ -1748,9 +1844,9 @@ class HazardAgent(BaseAgent):
 
                     if last_update:
                         age_minutes = self.calculate_data_age_minutes(last_update)
-                        # Use spatial risk decay rate (8% per minute)
-                        decay_rate = 0.08
-                        decayed_risk = self.apply_time_decay(existing_risk, age_minutes, decay_rate)
+                        decayed_risk = self.apply_time_decay(
+                            existing_risk, age_minutes, self.flood_decay_rate
+                        )
 
                         # Only preserve risk above minimum threshold
                         if decayed_risk > self.min_risk_threshold:
@@ -1794,8 +1890,8 @@ class HazardAgent(BaseAgent):
                 if depth <= 0:
                     risk_from_depth = 0.0
                 else:
-                    k = 8.0   # Steepness: rapid transition around inflection
-                    x0 = 0.3  # Inflection: 50% risk at 0.3m (FEMA threshold)
+                    k = self._config.sigmoid_steepness
+                    x0 = self._config.sigmoid_inflection
                     risk_from_depth = 1.0 / (1.0 + math.exp(-k * (depth - x0)))
 
                 risk_scores[edge_tuple] = risk_from_depth * self.risk_weights["flood_depth"]
@@ -1881,7 +1977,6 @@ class HazardAgent(BaseAgent):
         Args:
             risk_scores: Dict mapping edge tuples to risk scores
         """
-        from datetime import datetime
         logger.debug(f"{self.agent_id} updating environment with risk scores")
 
         if not self.environment or not hasattr(self.environment, 'update_edge_risk'):
@@ -2119,7 +2214,6 @@ class HazardAgent(BaseAgent):
                 report_text = report.get('text', '')
 
                 # Create hash key for deduplication (location + text hash)
-                import hashlib
                 text_hash = hashlib.md5(report_text.encode()).hexdigest()[:16] if report_text else ''
                 cache_key = (report_location, text_hash)
 
@@ -2154,8 +2248,8 @@ class HazardAgent(BaseAgent):
 
                 is_visual_override = (
                     visual_evidence and
-                    risk_score > 0.8 and
-                    confidence > 0.8
+                    risk_score > self._config.visual_override_risk_threshold and
+                    confidence > self._config.visual_override_confidence_threshold
                 )
 
                 if is_visual_override:
@@ -2166,6 +2260,12 @@ class HazardAgent(BaseAgent):
 
                     # Get estimated depth from visual analysis
                     estimated_depth_m = report.get('estimated_depth_m')
+
+                    # Store vehicle passability at this coordinate
+                    vehicles_passable = report.get('vehicles_passable')
+                    if vehicles_passable and lat is not None and lon is not None:
+                        coord_key = (round(lat, 5), round(lon, 5))
+                        self.vehicle_passability_cache[coord_key] = vehicles_passable
 
                     logger.warning(
                         f"[VISUAL OVERRIDE] High-confidence visual evidence at {report_location}: "
@@ -2191,9 +2291,10 @@ class HazardAgent(BaseAgent):
                 nodes_updated += 1
 
                 # Propagate risk to nearby nodes (spatial diffusion)
-                # Risk decays with distance
-                radius_m = 500  # 500 meter radius
-                nearby_nodes = self.get_nodes_within_radius(lat, lon, radius_m)
+                # Risk decays with distance using configured radius
+                nearby_nodes = self.get_nodes_within_radius(
+                    lat, lon, self.environmental_risk_radius_m
+                )
 
                 for node in nearby_nodes:
                     if node == nearest_node:
@@ -2209,7 +2310,7 @@ class HazardAgent(BaseAgent):
 
                     # Apply Gaussian distance decay (physically correct for flood diffusion)
                     # Formula: exp(-(d/σ)²) where σ = radius/3 (99.7% coverage at boundary)
-                    sigma = radius_m / 3.0
+                    sigma = self.environmental_risk_radius_m / 3.0
                     decay_factor = math.exp(-((distance / sigma) ** 2))
                     decayed_risk = risk_level * decay_factor
 
@@ -2223,6 +2324,10 @@ class HazardAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"Error processing scout report: {e}", exc_info=True)
                 continue
+
+        # Mark that we have new data to process on next step()
+        if reports_processed > 0:
+            self._has_unprocessed_data = True
 
         # Log summary with visual override count
         override_msg = f", {visual_overrides} visual overrides applied" if visual_overrides > 0 else ""

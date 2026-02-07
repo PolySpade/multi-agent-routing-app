@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 from datetime import datetime
 
 # Ensure 'app' module can be imported
-sys.path.append(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Configure logging
 logging.basicConfig(

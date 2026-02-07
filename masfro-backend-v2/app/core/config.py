@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     """
     # Define the variables you expect to be in your .env file
     GOOGLE_API_KEY: str = ""
-    DATABASE_URL: str = "sqlite:///./masfro.db"
+    DATABASE_URL: str = ""
     TWITTER_EMAIL: str = ""
     TWITTER_PASSWORD: str = ""
     OPENWEATHERMAP_API_KEY: str = ""
@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     LLM_VISION_MODEL: str = "moondream:latest"
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_ENABLED: bool = True
+
+    # ========== STARTUP CONFIGURATION ==========
+    LOAD_INITIAL_FLOOD_DATA: bool = False  # Load rr01_step_01.tif at startup?
 
     # This tells Pydantic to load variables from a file named .env
     model_config = SettingsConfigDict(
