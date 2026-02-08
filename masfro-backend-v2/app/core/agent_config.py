@@ -199,12 +199,54 @@ class ScoutConfig:
     # Temporal deduplication
     temporal_dedup_window_minutes: float = 10.0
 
+    # Scraper mode (for mock server integration)
+    use_scraper: bool = False
+    scraper_base_url: str = "http://localhost:8081"
+
     def validate(self) -> None:
         """Validate configuration values."""
         assert self.batch_size > 0, "batch_size must be positive"
         assert 0 <= self.min_confidence <= 1, "min_confidence must be in [0, 1]"
         assert self.temporal_dedup_window_minutes >= 0, \
             "temporal_dedup_window_minutes must be non-negative"
+
+
+@dataclass
+class MockSourcesConfig:
+    """Configuration for mock data sources."""
+
+    enabled: bool = False
+    base_url: str = "http://localhost:8081"
+
+    # Individual endpoint URLs (override base_url when set)
+    river_scraper_url: Optional[str] = None
+    dam_scraper_url: Optional[str] = None
+    weather_api_url: Optional[str] = None
+    advisory_pagasa_url: Optional[str] = None
+    advisory_rss_url: Optional[str] = None
+    social_feed_url: Optional[str] = None
+    social_api_url: Optional[str] = None
+
+    def get_river_scraper_url(self) -> str:
+        return self.river_scraper_url or f"{self.base_url}/pagasa/water/map.do"
+
+    def get_dam_scraper_url(self) -> str:
+        return self.dam_scraper_url or f"{self.base_url}/pagasa/flood"
+
+    def get_weather_base_url(self) -> str:
+        return self.weather_api_url or f"{self.base_url}/weather"
+
+    def get_advisory_pagasa_url(self) -> str:
+        return self.advisory_pagasa_url or f"{self.base_url}/pagasa/flood"
+
+    def get_advisory_rss_url(self) -> str:
+        return self.advisory_rss_url or f"{self.base_url}/news/rss"
+
+    def get_social_feed_url(self) -> str:
+        return self.social_feed_url or f"{self.base_url}/social/feed"
+
+    def get_social_api_url(self) -> str:
+        return self.social_api_url or f"{self.base_url}/social/api/tweets"
 
 
 @dataclass
@@ -483,6 +525,7 @@ class AgentConfigLoader:
         sim = cfg.get('simulation', {})
         nlp = cfg.get('nlp', {})
         dedup = cfg.get('deduplication', {})
+        scraper = cfg.get('scraper', {})
 
         config = ScoutConfig(
             batch_size=cfg.get('batch_size', 10),
@@ -493,9 +536,36 @@ class AgentConfigLoader:
             extract_severity=nlp.get('extract_severity', True),
             extract_location=nlp.get('extract_location', True),
             temporal_dedup_window_minutes=dedup.get('temporal_window_minutes', 10.0),
+            use_scraper=scraper.get('enable', False),
+            scraper_base_url=scraper.get('base_url', 'http://localhost:8081'),
         )
         config.validate()
         return config
+
+    def get_mock_sources_config(self) -> MockSourcesConfig:
+        """Get mock data sources configuration."""
+        import os
+        cfg = self._config.get('mock_sources', {})
+        urls = cfg.get('urls', {})
+
+        # Environment variables override YAML config
+        enabled = os.environ.get('USE_MOCK_SOURCES', '').lower() in ('true', '1', 'yes')
+        if not enabled:
+            enabled = cfg.get('enabled', False)
+
+        base_url = os.environ.get('MOCK_SERVER_URL') or cfg.get('base_url', 'http://localhost:8081')
+
+        return MockSourcesConfig(
+            enabled=enabled,
+            base_url=base_url,
+            river_scraper_url=os.environ.get('MOCK_PAGASA_URL') or urls.get('river_scraper'),
+            dam_scraper_url=os.environ.get('MOCK_DAM_URL') or urls.get('dam_scraper'),
+            weather_api_url=os.environ.get('MOCK_WEATHER_URL') or urls.get('weather_api'),
+            advisory_pagasa_url=urls.get('advisory_pagasa'),
+            advisory_rss_url=os.environ.get('MOCK_RSS_URL') or urls.get('advisory_rss'),
+            social_feed_url=os.environ.get('MOCK_SOCIAL_URL') or urls.get('social_feed'),
+            social_api_url=urls.get('social_api'),
+        )
 
     def get_evacuation_config(self) -> EvacuationConfig:
         """Get EvacuationManagerAgent configuration."""

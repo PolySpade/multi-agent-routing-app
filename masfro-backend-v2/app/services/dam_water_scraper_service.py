@@ -99,14 +99,18 @@ def process_dataframe_to_json(df):
         
     return results
 
-def scrape_and_process():
+def scrape_and_process(target_url: str = None):
     """
     Main function to scrape the site and return the clean JSON.
+
+    Args:
+        target_url: Override URL to fetch. Defaults to module-level URL.
     """
-    print(f"Fetching {URL}...")
+    fetch_url = target_url or URL
+    print(f"Fetching {fetch_url}...")
     try:
         # Step 1: Download the HTML content
-        response = requests.get(URL, headers=HEADERS)
+        response = requests.get(fetch_url, headers=HEADERS)
         response.raise_for_status()  # Check for download errors
         html_content = response.text
         
@@ -157,11 +161,17 @@ class DamWaterScraperService:
         ...     print(f"{dam['Dam Name']}: {dam['Latest RWL (m)']}m")
     """
 
-    def __init__(self):
-        """Initialize the DamWaterScraperService."""
-        self.url = URL
+    def __init__(self, url: str = None):
+        """
+        Initialize the DamWaterScraperService.
+
+        Args:
+            url: Override URL (e.g. mock server URL).
+                 If None, uses real PAGASA URL.
+        """
+        self.url = url or URL
         self.headers = HEADERS
-        logger.info("DamWaterScraperService initialized")
+        logger.info(f"DamWaterScraperService initialized (url={self.url})")
 
     def get_dam_levels(self) -> List[Dict[str, Any]]:
         """
@@ -175,7 +185,7 @@ class DamWaterScraperService:
             None - errors are logged and empty list returned
         """
         try:
-            dam_data = scrape_and_process()
+            dam_data = scrape_and_process(target_url=self.url)
             if dam_data:
                 logger.info(f"Successfully scraped {len(dam_data)} dam water levels")
                 return dam_data

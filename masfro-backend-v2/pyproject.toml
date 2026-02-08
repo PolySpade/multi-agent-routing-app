@@ -34,6 +34,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     # v2: Qwen 3 LLM Integration via Ollama
     "ollama>=0.4.0",
+    "python-multipart>=0.0.22",
 ]
 
 [dependency-groups]

@@ -137,11 +137,29 @@ class FloodAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"{self.agent_id} failed to initialize LLM Service: {e}")
 
+        # Load mock sources config
+        mock_cfg = None
+        try:
+            from ..core.agent_config import AgentConfigLoader
+            mock_cfg = AgentConfigLoader().get_mock_sources_config()
+        except Exception as e:
+            logger.debug(f"{self.agent_id} mock sources config not available: {e}")
+
         # Initialize real API services
         if use_real_apis:
+            # Determine URLs: use mock URLs if enabled, else None (default to real)
+            river_url = mock_cfg.get_river_scraper_url() if (mock_cfg and mock_cfg.enabled) else None
+            dam_url = mock_cfg.get_dam_scraper_url() if (mock_cfg and mock_cfg.enabled) else None
+            weather_url = mock_cfg.get_weather_base_url() if (mock_cfg and mock_cfg.enabled) else None
+            pagasa_url = mock_cfg.get_advisory_pagasa_url() if (mock_cfg and mock_cfg.enabled) else None
+            rss_url = mock_cfg.get_advisory_rss_url() if (mock_cfg and mock_cfg.enabled) else None
+
+            if mock_cfg and mock_cfg.enabled:
+                logger.info(f"{self.agent_id} using MOCK data sources at {mock_cfg.base_url}")
+
             # PAGASA River Scraper Service
             try:
-                self.river_scraper = RiverScraperService()
+                self.river_scraper = RiverScraperService(base_url=river_url)
                 logger.info(f"{self.agent_id} initialized RiverScraperService")
             except Exception as e:
                 logger.error(f"Failed to initialize RiverScraperService: {e}")
@@ -149,7 +167,7 @@ class FloodAgent(BaseAgent):
 
             # OpenWeatherMap Service
             try:
-                self.weather_service = OpenWeatherMapService()
+                self.weather_service = OpenWeatherMapService(base_url=weather_url)
                 logger.info(f"{self.agent_id} initialized OpenWeatherMapService")
             except ValueError as e:
                 logger.warning(f"OpenWeatherMap not available: {e}")
@@ -160,15 +178,17 @@ class FloodAgent(BaseAgent):
 
             # Dam Water Scraper Service
             try:
-                self.dam_scraper = DamWaterScraperService()
+                self.dam_scraper = DamWaterScraperService(url=dam_url)
                 logger.info(f"{self.agent_id} initialized DamWaterScraperService")
             except Exception as e:
                 logger.error(f"Failed to initialize DamWaterScraperService: {e}")
                 self.dam_scraper = None
-            
+
             # Advisory Scraper Service (Text/RSS)
             try:
-                self.advisory_scraper = AdvisoryScraperService(max_age_hours=24)
+                self.advisory_scraper = AdvisoryScraperService(
+                    max_age_hours=24, pagasa_url=pagasa_url, rss_url=rss_url
+                )
                 logger.info(f"{self.agent_id} initialized AdvisoryScraperService")
             except Exception as e:
                 logger.error(f"Failed to initialize AdvisoryScraperService: {e}")

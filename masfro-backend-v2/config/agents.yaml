@@ -328,6 +328,24 @@ llm_service:
     log_overrides: true              # Log when visual override is triggered
 
 # ==========================================
+# MOCK DATA SOURCES
+# ==========================================
+# When enabled, scrapers connect to a local mock server instead of real sites.
+# Start mock server: python -m mock_server.run
+# Override with env vars: USE_MOCK_SOURCES=true MOCK_SERVER_URL=http://localhost:8081
+mock_sources:
+  enabled: false
+  base_url: "http://localhost:8081"
+  urls:
+    river_scraper: "http://localhost:8081/pagasa/water/map.do"
+    dam_scraper: "http://localhost:8081/pagasa/flood"
+    weather_api: "http://localhost:8081/weather"
+    advisory_pagasa: "http://localhost:8081/pagasa/flood"
+    advisory_rss: "http://localhost:8081/news/rss"
+    social_feed: "http://localhost:8081/social/feed"
+    social_api: "http://localhost:8081/social/api/tweets"
+
+# ==========================================
 # EXPERIMENTAL FEATURES
 # ==========================================
 experimental:

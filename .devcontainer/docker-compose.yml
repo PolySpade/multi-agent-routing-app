@@ -16,7 +16,9 @@ services:
       db:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
       - "3000:3000"
@@ -46,14 +48,36 @@ services:
       - ollama-data:/root/.ollama
     ports:
       - "11434:11434"
-    # Uncomment for NVIDIA GPU passthrough:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling LLM models..."
+        ollama pull llama3.2:latest
+        echo "llama3.2:latest done."
+        ollama pull moondream:latest
+        echo "moondream:latest done."
+        echo "All models pulled successfully."
+    restart: "no"
 
 volumes:
   pgdata:

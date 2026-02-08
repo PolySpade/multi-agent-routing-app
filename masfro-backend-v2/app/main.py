@@ -449,15 +449,28 @@ evacuation_manager = EvacuationManagerAgent(
     llm_service=get_llm_service()
 )
 
+# Load mock sources config for ScoutAgent scraper mode
+try:
+    from app.core.agent_config import AgentConfigLoader as _acl
+    _mock_cfg = _acl().get_mock_sources_config()
+    _scout_use_scraper = _mock_cfg.enabled
+    _scout_scraper_url = _mock_cfg.base_url
+except Exception:
+    _scout_use_scraper = False
+    _scout_scraper_url = "http://localhost:8081"
+
 # ScoutAgent in simulation mode with MAS communication
 # For simulation: uses synthetic data with ML processing enabled
+# When mock_sources.enabled=true, switches to live scraper mode
 scout_agent = ScoutAgent(
     "scout_agent_001",
     environment,
     message_queue=message_queue,    # MAS communication
     hazard_agent_id="hazard_agent_001",  # Target agent for messages
     simulation_scenario=1,          # Light scenario
-    use_ml_in_simulation=True       # Enable ML models for prediction
+    use_ml_in_simulation=True,      # Enable ML models for prediction
+    use_scraper=_scout_use_scraper,
+    scraper_base_url=_scout_scraper_url
 )
 
 # NOTE: FloodAgent, HazardAgent, ScoutAgent, and EvacuationManager now communicate via MessageQueue (MAS architecture)

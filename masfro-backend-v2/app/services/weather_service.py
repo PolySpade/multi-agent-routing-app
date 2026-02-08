@@ -23,21 +23,33 @@ class OpenWeatherMapService:
     Emulates the specific One Call API 3.0 structure required by FloodAgent.
     """
 
-    def __init__(self):
+    def __init__(self, base_url: str = None):
         """
         Initializes the service and retrieves the API key from environment variables.
+
+        Args:
+            base_url: Override base URL (e.g. mock server weather URL).
+                      When provided, API key validation is skipped.
         """
-        self.api_key = os.getenv("OPENWEATHERMAP_API_KEY")
-        if not self.api_key:
-            # Fallback check for different env var name
-            self.api_key = os.getenv("OPENWEATHER_API_KEY")
-            
-        if not self.api_key:
-            raise ValueError("OpenWeatherMap API key is not set in the .env file.")
-            
-        # Free tier endpoints
-        self.current_url = "https://api.openweathermap.org/data/2.5/weather"
-        self.forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
+        if base_url:
+            # Mock mode - no API key needed
+            self.api_key = "mock-key"
+            base = base_url.rstrip("/")
+            self.current_url = f"{base}/data/2.5/weather"
+            self.forecast_url = f"{base}/data/2.5/forecast"
+            logger.info(f"OpenWeatherMapService initialized with mock URL: {base}")
+        else:
+            self.api_key = os.getenv("OPENWEATHERMAP_API_KEY")
+            if not self.api_key:
+                # Fallback check for different env var name
+                self.api_key = os.getenv("OPENWEATHER_API_KEY")
+
+            if not self.api_key:
+                raise ValueError("OpenWeatherMap API key is not set in the .env file.")
+
+            # Free tier endpoints
+            self.current_url = "https://api.openweathermap.org/data/2.5/weather"
+            self.forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
 
     def get_forecast(self, lat: float, lon: float) -> dict:
         """
