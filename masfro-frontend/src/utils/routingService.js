@@ -171,7 +171,9 @@ export const findRoute = async (startPoint, endPoint, setRoutePath, setRouteMeta
           duration: data.estimated_time || data.summary?.duration,
           riskLevel: data.risk_level !== undefined ? data.risk_level : null,
           maxRisk: data.max_risk !== undefined ? data.max_risk : null,
+          numSegments: data.num_segments || null,
           warnings: data.warnings || [],
+          explanation: data.explanation || null,
           provider: 'backend',
           routingMode: routingMode,
         });

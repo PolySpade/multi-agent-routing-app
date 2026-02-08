@@ -764,7 +764,7 @@ User request: """
             return {"status": "error", "message": str(e)}
 
     _SUMMARIZE_PROMPT = """You are the brain of a multi-agent flood routing system for Marikina City.
-Summarize the following mission results in 2-3 sentences for a Filipino user who needs clear, actionable information.
+Summarize the following mission results in 2-3 sentences for a user who needs clear, actionable information.
 Use simple language. If there's a route, mention the distance. If there's risk data, mention the key findings.
 If the mission failed, explain what went wrong simply.
 

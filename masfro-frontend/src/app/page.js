@@ -8,6 +8,7 @@ import FeedbackForm from '@/components/FeedbackForm';
 import SimulationPanel from '@/components/SimulationPanel';
 import AgentDataPanel from '@/components/AgentDataPanel';
 import EvacuationCentersPanel from '@/components/EvacuationCentersPanel';
+import OrchestratorChat from '@/components/OrchestratorChat';
 import RiskLegend from '@/components/RiskLegend';
 import { findRoute } from '@/utils/routingService';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
@@ -809,31 +810,34 @@ export default function Home() {
                       marginTop: '0.5rem'
                     }}>
                       {routeMeta.warnings.map((warning, idx) => {
-                        const isImpassable = warning.includes('IMPASSABLE');
-                        const isCritical = warning.includes('CRITICAL');
-                        const isWarning = warning.includes('WARNING');
-                        const isFastestMode = warning.includes('FASTEST MODE ACTIVE');
+                        // Handle both structured (object) and legacy (string) warnings
+                        const isObject = typeof warning === 'object' && warning !== null;
+                        const severity = isObject ? warning.severity : null;
+                        const warningText = isObject ? warning.message : String(warning);
+                        const details = isObject ? warning.details : null;
+                        const actions = isObject ? warning.recommended_actions : null;
 
+                        // Determine styling based on severity or text content
                         let bgColor = 'rgba(156, 163, 175, 0.1)';
                         let textColor = '#9ca3af';
-                        let icon = '💬';
+                        let icon = 'i';
 
-                        if (isImpassable) {
+                        if (severity === 'critical' || (!isObject && warningText.includes('CRITICAL'))) {
                           bgColor = 'rgba(239, 68, 68, 0.15)';
                           textColor = '#ef4444';
-                          icon = '⛔';
-                        } else if (isCritical) {
-                          bgColor = 'rgba(239, 68, 68, 0.1)';
-                          textColor = '#f87171';
-                          icon = '🚨';
-                        } else if (isFastestMode) {
-                          bgColor = 'rgba(251, 191, 36, 0.15)';
-                          textColor = '#fbbf24';
-                          icon = '⚡';
-                        } else if (isWarning) {
+                          icon = '!!';
+                        } else if (severity === 'warning' || (!isObject && warningText.includes('WARNING'))) {
                           bgColor = 'rgba(251, 146, 60, 0.1)';
                           textColor = '#fb923c';
-                          icon = '⚠️';
+                          icon = '!';
+                        } else if (severity === 'caution' || (!isObject && warningText.includes('CAUTION'))) {
+                          bgColor = 'rgba(251, 191, 36, 0.15)';
+                          textColor = '#fbbf24';
+                          icon = '!';
+                        } else if (severity === 'info') {
+                          bgColor = 'rgba(59, 130, 246, 0.1)';
+                          textColor = '#60a5fa';
+                          icon = 'i';
                         }
 
                         return (
@@ -841,7 +845,7 @@ export default function Home() {
                             key={idx}
                             style={{
                               fontSize: '0.75rem',
-                              padding: '0.5rem',
+                              padding: '0.5rem 0.6rem',
                               background: bgColor,
                               borderRadius: '6px',
                               color: textColor,
@@ -850,11 +854,43 @@ export default function Home() {
                               borderLeft: `3px solid ${textColor}`
                             }}
                           >
-                            <span style={{ marginRight: '0.3rem' }}>{icon}</span>
-                            {warning}
+                            <div style={{ fontWeight: 700 }}>
+                              <span style={{ marginRight: '0.3rem' }}>[{icon}]</span>
+                              {warningText}
+                            </div>
+                            {details && (
+                              <div style={{ marginTop: '0.25rem', opacity: 0.85, fontSize: '0.7rem' }}>
+                                {details}
+                              </div>
+                            )}
+                            {actions && actions.length > 0 && (
+                              <ul style={{ margin: '0.25rem 0 0 1rem', padding: 0, fontSize: '0.65rem', opacity: 0.75 }}>
+                                {actions.map((a, i) => <li key={i}>{a}</li>)}
+                              </ul>
+                            )}
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {/* Display LLM explanation */}
+                  {routeMeta.explanation && (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      marginTop: '0.5rem',
+                      padding: '0.5rem 0.6rem',
+                      background: 'rgba(139, 92, 246, 0.1)',
+                      borderRadius: '6px',
+                      borderLeft: '3px solid rgba(139, 92, 246, 0.6)',
+                      fontSize: '0.75rem',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      lineHeight: '1.5'
+                    }}>
+                      <div style={{ fontWeight: 700, color: 'rgba(139, 92, 246, 0.9)', marginBottom: '0.2rem', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        AI Route Analysis
+                      </div>
+                      {routeMeta.explanation}
                     </div>
                   )}
 
@@ -956,6 +992,21 @@ export default function Home() {
       {/* --- Right Panels Container --- */}
       {(showAgentPanel || showEvacuationPanel) && (
         <section className="panels-container">
+          {/* AI Orchestrator Chat */}
+          <OrchestratorChat
+            onRouteResult={(result) => {
+              if (result?.path) {
+                setRoutePath(result.path);
+                setRouteMeta({
+                  distance: result.distance,
+                  estimated_time: result.estimated_time,
+                  risk_level: result.risk_level,
+                });
+                setMessage('Route calculated by AI Orchestrator');
+              }
+            }}
+          />
+
           {/* Simulation Panel */}
           <SimulationPanel
             isConnected={isConnected}

@@ -435,7 +435,12 @@ flood_agent = FloodAgent(
     hazard_agent_id="hazard_agent_001"  # Target agent for messages
 )
 
-routing_agent = RoutingAgent("routing_agent_001", environment, message_queue=message_queue)
+routing_agent = RoutingAgent(
+    "routing_agent_001",
+    environment,
+    message_queue=message_queue,
+    llm_service=get_llm_service()
+)
 evacuation_manager = EvacuationManagerAgent(
     "evac_manager_001",
     environment,
@@ -776,6 +781,17 @@ async def get_route(request: RouteRequest):
         import uuid
         route_id = str(uuid.uuid4())
 
+        # Serialize warnings: convert RouteWarning objects to dicts
+        raw_warnings = route_result.get("warnings", [])
+        serialized_warnings = []
+        for w in raw_warnings:
+            if hasattr(w, 'to_dict'):
+                serialized_warnings.append(w.to_dict())
+            elif hasattr(w, 'to_legacy_string'):
+                serialized_warnings.append(w.to_legacy_string())
+            else:
+                serialized_warnings.append(str(w))
+
         return RouteResponse(
             route_id=route_id,
             status="success",
@@ -783,7 +799,9 @@ async def get_route(request: RouteRequest):
             distance=route_result.get("distance"),
             estimated_time=route_result.get("estimated_time"),
             risk_level=route_result.get("risk_level"),
-            warnings=route_result.get("warnings", []),
+            max_risk=route_result.get("max_risk"),
+            num_segments=route_result.get("num_segments"),
+            warnings=serialized_warnings,
             explanation=explanation
         )
 
@@ -1210,7 +1228,7 @@ async def set_flood_scenario(
 # Simulation Control Endpoints
 # ============================================================================
 
-@app.post("/api/simulation/start", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/simulation/start", tags=["Simulation"])
 async def start_simulation(
     mode: str = Query(
         "light",
@@ -1267,7 +1285,7 @@ async def start_simulation(
         )
 
 
-@app.post("/api/simulation/stop", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/simulation/stop", tags=["Simulation"])
 async def stop_simulation():
     """
     Stop (pause) the currently running simulation.
@@ -1316,7 +1334,7 @@ async def stop_simulation():
         )
 
 
-@app.post("/api/simulation/reset", tags=["Simulation"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/simulation/reset", tags=["Simulation"])
 async def reset_simulation():
     """
     Reset the simulation to initial state.

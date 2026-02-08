@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
+
 export default function SimulationPanel({ isConnected, floodData }) {
   const { simulationState: wsSimulationState } = useWebSocketContext();
   const [simulationMode, setSimulationMode] = useState('light');
@@ -66,7 +68,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
     try {
       addLog('system', `⏳ Starting simulation - ${simulationMode.toUpperCase()} flood scenario...`);
 
-      const response = await fetch(`http://localhost:8000/api/simulation/start?mode=${simulationMode}`, {
+      const response = await fetch(`${API_BASE}/api/simulation/start?mode=${simulationMode}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -92,7 +94,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
     try {
       addLog('system', '⏳ Stopping simulation...');
 
-      const response = await fetch('http://localhost:8000/api/simulation/stop', {
+      const response = await fetch(`${API_BASE}/api/simulation/stop`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -118,7 +120,7 @@ export default function SimulationPanel({ isConnected, floodData }) {
     try {
       addLog('system', '⏳ Resetting simulation...');
 
-      const response = await fetch('http://localhost:8000/api/simulation/reset', {
+      const response = await fetch(`${API_BASE}/api/simulation/reset`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

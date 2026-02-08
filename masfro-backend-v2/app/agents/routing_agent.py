@@ -394,7 +394,9 @@ class RoutingAgent(BaseAgent):
         distance_weight = self.distance_weight  # Always 1.0
 
         if preferences:
-            if preferences.get("avoid_floods"):
+            # Resolve mode from either explicit flags or LLM-parsed 'mode' field
+            mode = preferences.get("mode", "balanced")
+            if preferences.get("avoid_floods") or mode == "safest":
                 # SAFEST MODE: Massive penalty makes risk dominate routing decisions
                 # 100,000 virtual meters = prefer 100km detour over 1.0 risk road
                 risk_penalty = 100000.0
@@ -403,7 +405,7 @@ class RoutingAgent(BaseAgent):
                     f"SAFEST MODE: risk_penalty={risk_penalty}, "
                     f"distance_weight={distance_weight}"
                 )
-            elif preferences.get("fastest"):
+            elif preferences.get("fastest") or mode == "fastest":
                 # FASTEST MODE: Ignore all risk, traverse any road
                 # risk_penalty = 0.0 means pure distance-based routing
                 # Note: Roads with risk >= 0.9 (impassable) are still blocked by A*
@@ -412,6 +414,11 @@ class RoutingAgent(BaseAgent):
                 logger.info(
                     f"FASTEST MODE: risk_penalty={risk_penalty}, "
                     f"distance_weight={distance_weight} (ignoring risk, blocking impassable only)"
+                )
+            else:
+                logger.info(
+                    f"BALANCED MODE: risk_penalty={risk_penalty}, "
+                    f"distance_weight={distance_weight}"
                 )
         else:
             logger.info(
