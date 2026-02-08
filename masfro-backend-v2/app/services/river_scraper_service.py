@@ -37,11 +37,21 @@ class RiverScraperService:
     - Critical levels
     """
 
-    def __init__(self):
-        """Initialize the scraper service."""
-        self.base_url = "https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph"
-        self.html_url = f"{self.base_url}/water/map.do"
-        logger.info("RiverScraperService initialized")
+    def __init__(self, base_url: str = None):
+        """
+        Initialize the scraper service.
+
+        Args:
+            base_url: Override base URL (e.g. mock server URL).
+                      If None, uses real PAGASA URL.
+        """
+        if base_url:
+            self.base_url = base_url.rstrip("/")
+            self.html_url = self.base_url if "/water/map.do" in self.base_url else f"{self.base_url}/water/map.do"
+        else:
+            self.base_url = "https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph"
+            self.html_url = f"{self.base_url}/water/map.do"
+        logger.info(f"RiverScraperService initialized (url={self.html_url})")
 
     def get_river_levels(self) -> List[Dict[str, Any]]:
         """

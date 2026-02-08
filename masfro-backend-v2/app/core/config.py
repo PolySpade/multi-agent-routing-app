@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_ENABLED: bool = True
 
+    # ========== MOCK DATA SOURCES ==========
+    USE_MOCK_SOURCES: bool = False
+    MOCK_SERVER_URL: str = "http://localhost:8081"
+
     # ========== STARTUP CONFIGURATION ==========
     LOAD_INITIAL_FLOOD_DATA: bool = False  # Load rr01_step_01.tif at startup?
 

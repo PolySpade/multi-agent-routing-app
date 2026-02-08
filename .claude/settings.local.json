@@ -89,7 +89,9 @@
       "Bash(docker ps:*)",
       "Bash(docker compose build:*)",
       "Bash(docker compose:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(ss:*)",
+      "Bash(.venv/bin/python:*)"
     ],
     "deny": []
   }

@@ -173,6 +173,35 @@ class SimulationManager:
             f"evacuation={evacuation_manager is not None}"
         )
 
+    def _sync_mock_server_scenario(self, mode: str) -> None:
+        """
+        Sync mock server scenario data when mock sources are enabled.
+
+        Sends HTTP POST to the mock server's /admin/scenario/load endpoint
+        so that mock data matches the current simulation scenario.
+
+        Args:
+            mode: Scenario name (light, medium, heavy)
+        """
+        try:
+            from ..core.agent_config import AgentConfigLoader
+            mock_cfg = AgentConfigLoader().get_mock_sources_config()
+            if not mock_cfg.enabled:
+                return
+
+            import requests as _requests
+            url = f"{mock_cfg.base_url}/admin/scenario/load"
+            logger.info(f"Syncing mock server scenario: {mode} -> {url}")
+
+            resp = _requests.post(url, json={"scenario": mode}, timeout=5)
+            if resp.status_code == 200:
+                result = resp.json()
+                logger.info(f"Mock server scenario synced: {result}")
+            else:
+                logger.warning(f"Mock server scenario sync failed: HTTP {resp.status_code}")
+        except Exception as e:
+            logger.debug(f"Mock server scenario sync skipped: {e}")
+
     async def start(self, mode: str = "light") -> Dict[str, Any]:
         """
         Start the simulation (async).
@@ -200,6 +229,9 @@ class SimulationManager:
 
         # Load scenario data
         self._load_scenario(self._mode)
+
+        # Sync mock server scenario if mock sources enabled
+        self._sync_mock_server_scenario(self._mode.value)
 
         # Update state
         previous_state = self._state

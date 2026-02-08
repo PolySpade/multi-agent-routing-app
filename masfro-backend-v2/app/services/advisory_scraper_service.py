@@ -17,15 +17,25 @@ class AdvisoryScraperService:
     Includes logic for date filtering to avoid processing stale news.
     """
 
-    def __init__(self, max_age_hours: int = 24):
+    def __init__(self, max_age_hours: int = 24, pagasa_url: str = None, rss_url: str = None):
+        """
+        Initialize AdvisoryScraperService.
+
+        Args:
+            max_age_hours: Maximum age of articles to include
+            pagasa_url: Override PAGASA base URL (e.g. mock server URL)
+            rss_url: Override Google News RSS URL (e.g. mock server URL)
+        """
         self.max_age_hours = max_age_hours
+        self._pagasa_base_url = pagasa_url or "https://bagong.pagasa.dost.gov.ph"
+        self._rss_base_url = rss_url  # None means use Google News
 
     def discover_pagasa_advisories(self) -> List[str]:
         """
         Dynamically discovers active flood advisory URLs from PAGASA's main flood portal.
         """
-        base_url = "https://bagong.pagasa.dost.gov.ph"
-        main_flood_url = f"{base_url}/flood"
+        base_url = self._pagasa_base_url
+        main_flood_url = f"{base_url}/flood" if "/flood" not in base_url else base_url
         discovered_urls = []
 
         try:
@@ -42,7 +52,15 @@ class AdvisoryScraperService:
                     href = link['href']
                     text = link.get_text().lower()
                     if "flood advisory" in text or "rainfall warning" in text or "flood-bulletin" in href:
-                        full_url = href if href.startswith("http") else f"{base_url}{href}"
+                        if href.startswith("http"):
+                            full_url = href
+                        elif href.startswith("/"):
+                            # Absolute path: join with scheme + authority only
+                            from urllib.parse import urlparse
+                            parsed = urlparse(base_url)
+                            full_url = f"{parsed.scheme}://{parsed.netloc}{href}"
+                        else:
+                            full_url = f"{base_url}/{href}"
                         if full_url not in discovered_urls:
                             discovered_urls.append(full_url)
                             
@@ -61,8 +79,11 @@ class AdvisoryScraperService:
         Returns:
             List of dicts: {"text": str, "pub_date": str, "link": str}
         """
-        # Google News RSS URL
-        rss_url = f"https://news.google.com/rss/search?q={query}&hl=en-PH&gl=PH&ceid=PH:en"
+        # Use override RSS URL if provided, otherwise default to Google News
+        if self._rss_base_url:
+            rss_url = f"{self._rss_base_url}?q={query}&hl=en-PH&gl=PH&ceid=PH:en"
+        else:
+            rss_url = f"https://news.google.com/rss/search?q={query}&hl=en-PH&gl=PH&ceid=PH:en"
         discovered_items = []
         
         try:

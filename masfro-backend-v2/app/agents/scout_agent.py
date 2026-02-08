@@ -101,7 +101,9 @@ class ScoutAgent(BaseAgent):
         hazard_agent_id: str = "hazard_agent_001",
         simulation_scenario: int = 1,
         use_ml_in_simulation: bool = True,
-        enable_llm: bool = True
+        enable_llm: bool = True,
+        use_scraper: bool = False,
+        scraper_base_url: str = "http://localhost:8081"
     ) -> None:
         """
         Initialize ScoutAgent for crowdsourced flood data collection.
@@ -114,6 +116,8 @@ class ScoutAgent(BaseAgent):
             simulation_scenario: Which scenario to load (1-3) for simulation
             use_ml_in_simulation: If True, process simulation tweets through ML models
             enable_llm: If True, attempt to use LLM for enhanced processing
+            use_scraper: If True, use SocialScraperService instead of JSON files
+            scraper_base_url: Base URL for the social scraper service
         """
         super().__init__(agent_id, environment)
 
@@ -129,8 +133,20 @@ class ScoutAgent(BaseAgent):
             except ValueError as e:
                 logger.warning(f"{self.agent_id} already registered: {e}")
 
+        # Scraper mode (for mock server / real social scraping)
+        self.use_scraper = use_scraper
+        self.social_scraper = None
+        if use_scraper:
+            try:
+                from ..services.social_scraper_service import SocialScraperService
+                self.social_scraper = SocialScraperService(base_url=scraper_base_url)
+                logger.info(f"{self.agent_id} initialized SocialScraperService (url={scraper_base_url})")
+            except Exception as e:
+                logger.warning(f"{self.agent_id} failed to init SocialScraperService: {e}")
+                self.use_scraper = False
+
         # Simulation mode settings
-        self.simulation_mode = True
+        self.simulation_mode = not use_scraper  # Disable simulation mode when scraper active
         self.simulation_scenario = simulation_scenario
         self.simulation_tweets = []
         self.simulation_index = 0
@@ -212,7 +228,7 @@ class ScoutAgent(BaseAgent):
 
     def step(self) -> list:
         """
-        Collects and processes synthetic flood data from simulation.
+        Collects and processes flood data from simulation or live scraper.
 
         This method is designed to be called repeatedly by the main simulation loop.
         Also processes any pending MQ requests from the orchestrator.
@@ -224,24 +240,47 @@ class ScoutAgent(BaseAgent):
         self._process_mq_requests()
 
         logger.debug(
-            f"{self.agent_id} collecting simulated data at {datetime.now().strftime('%H:%M:%S')}"
+            f"{self.agent_id} collecting data at {datetime.now().strftime('%H:%M:%S')}"
         )
 
-        # Get next batch of simulation tweets
-        raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+        # Scraper mode: fetch from live social scraper service
+        if self.use_scraper and self.social_scraper:
+            return self._step_scraper()
 
-        # Prepare simulation tweets for ML processing
+        # Simulation mode: load from JSON files
+        raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
         prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
 
         if prepared_tweets:
             logger.info(f"{self.agent_id} found {len(prepared_tweets)} simulated tweets")
-
-            # Process tweets with LLM/NLP and forward to HazardAgent
             self._process_and_forward_tweets(prepared_tweets)
         else:
             logger.debug(f"{self.agent_id} no more simulation data available")
 
         return prepared_tweets
+
+    def _step_scraper(self) -> list:
+        """
+        Fetch tweets from SocialScraperService and process them.
+
+        Uses the same _process_and_forward_tweets() pipeline as simulation mode.
+
+        Returns:
+            list: Processed tweet dictionaries from scraper.
+        """
+        try:
+            raw_tweets = self.social_scraper.scrape_feed()
+            if not raw_tweets:
+                logger.debug(f"{self.agent_id} scraper returned no tweets")
+                return []
+
+            logger.info(f"{self.agent_id} scraped {len(raw_tweets)} tweets from live feed")
+            self._process_and_forward_tweets(raw_tweets)
+            return raw_tweets
+
+        except Exception as e:
+            logger.error(f"{self.agent_id} scraper step failed: {e}")
+            return []
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
