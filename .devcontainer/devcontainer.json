@@ -4,11 +4,10 @@
   "service": "app",
   "workspaceFolder": "/workspace",
 
-  "forwardPorts": [8000, 3000, 11434, 5432],
+  "forwardPorts": [8000, 3000, 5432],
   "portsAttributes": {
     "8000": { "label": "FastAPI Backend", "onAutoForward": "notify" },
     "3000": { "label": "Next.js Frontend", "onAutoForward": "openBrowser" },
-    "11434": { "label": "Ollama LLM", "onAutoForward": "silent" },
     "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
   },
 
@@ -53,10 +52,10 @@
     "NODE_OPTIONS": "--max-old-space-size=4096",
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-    "OLLAMA_BASE_URL": "http://ollama:11434",
+    "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
     "DATABASE_URL": "postgresql://masfro:masfro@db:5432/masfro"
   },
 
-  "postCreateCommand": "cd /workspace/masfro-backend-v2 && uv sync; cd /workspace/masfro-frontend && npm install",
+  "postCreateCommand": "cd /workspace/masfro-backend-v2 && uv sync && cd /workspace/masfro-frontend && npm install",
   "postStartCommand": "echo 'Dev container ready!'"
 }
