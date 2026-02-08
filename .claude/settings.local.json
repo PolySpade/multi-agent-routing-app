@@ -85,7 +85,11 @@
       "Bash(uv pip install:*)",
       "mcp__plugin_playwright_playwright__browser_wait_for",
       "Bash(powershell -Command \".\\\\.venv\\\\Scripts\\\\Activate.ps1; uvicorn app.main:app --reload\")",
-      "mcp__plugin_playwright_playwright__browser_install"
+      "mcp__plugin_playwright_playwright__browser_install",
+      "Bash(docker ps:*)",
+      "Bash(docker compose build:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)"
     ],
     "deny": []
   }
