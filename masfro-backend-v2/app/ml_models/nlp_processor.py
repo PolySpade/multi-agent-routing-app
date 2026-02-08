@@ -133,9 +133,9 @@ class NLPProcessor:
         self._init_fallback_keywords()
 
         logger.info("NLPProcessor v3.0 initialized with ML models")
-        logger.info(f"  - Flood classifier: {'✓' if self.flood_classifier else '✗ (fallback)'}")
-        logger.info(f"  - Location model: {'✓' if self.location_model else '✗ (fallback)'}")
-        logger.info(f"  - Severity classifier: {'✓' if self.severity_classifier else '✗ (fallback)'}")
+        logger.info(f"  - Flood classifier: {'OK' if self.flood_classifier else 'FALLBACK'}")
+        logger.info(f"  - Location model: {'OK' if self.location_model else 'FALLBACK'}")
+        logger.info(f"  - Severity classifier: {'OK' if self.severity_classifier else 'FALLBACK'}")
 
     def _init_fallback_keywords(self):
         """Initialize fallback keywords for rule-based processing."""

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Simulation"])
 
 
-@router.post("/start", dependencies=[Depends(verify_api_key)])
+@router.post("/start")
 async def start_simulation(
     mode: str = Query(
         "light",
@@ -70,7 +70,7 @@ async def start_simulation(
         )
 
 
-@router.post("/stop", dependencies=[Depends(verify_api_key)])
+@router.post("/stop")
 async def stop_simulation(
     ws_manager=Depends(get_websocket_manager)
 ):
@@ -118,7 +118,7 @@ async def stop_simulation(
         )
 
 
-@router.post("/reset", dependencies=[Depends(verify_api_key)])
+@router.post("/reset")
 async def reset_simulation(
     ws_manager=Depends(get_websocket_manager),
     environment=Depends(get_environment)

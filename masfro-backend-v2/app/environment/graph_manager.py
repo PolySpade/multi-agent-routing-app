@@ -122,7 +122,7 @@ class DynamicGraphEnvironment:
                     restored_count += 1
 
             logger.info(
-                f"✓ Restored {restored_count} edge risk scores from "
+                f"[OK] Restored {restored_count} edge risk scores from "
                 f"{state['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}"
             )
 
@@ -158,7 +158,7 @@ class DynamicGraphEnvironment:
             temp_file.replace(self.state_file)
 
             logger.info(
-                f"✓ Saved graph state: {len(state['edges'])} edges with risk"
+                f"[OK] Saved graph state: {len(state['edges'])} edges with risk"
             )
             self._last_snapshot_time = time.time()
 
