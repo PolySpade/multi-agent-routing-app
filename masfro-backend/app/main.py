@@ -1088,6 +1088,15 @@ async def orchestrator_chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/orchestrator/chat/clear", tags=["Orchestrator"])
+async def clear_orchestrator_chat_history():
+    """Clear the orchestrator's conversation history."""
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+    orchestrator_agent.clear_chat_history()
+    return {"status": "ok", "message": "Chat history cleared"}
+
+
 @app.get("/api/orchestrator/mission/{mission_id}/summary", tags=["Orchestrator"])
 async def get_mission_summary(mission_id: str):
     """

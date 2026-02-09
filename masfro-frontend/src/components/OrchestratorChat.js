@@ -135,6 +135,13 @@ export default function OrchestratorChat({ onRouteResult }) {
 
       const data = await res.json();
 
+      // Handle off-topic rejection
+      if (data.status === 'off_topic') {
+        const reason = data.interpretation?.message || 'This query is outside my scope. I only handle flood routing, risk assessment, and evacuation for Marikina City.';
+        addMessage('assistant', reason, { isOffTopic: true });
+        return;
+      }
+
       const missionId = data.mission?.mission_id;
       const missionType = data.mission?.type || data.interpretation?.mission_type;
 
@@ -153,7 +160,7 @@ export default function OrchestratorChat({ onRouteResult }) {
         setPollingMissions(prev => new Set(prev).add(missionId));
         pollMissionStatus(missionId, msgId);
       } else if (data.status === 'error') {
-        const errorMsg = data.interpretation?.error || data.message || 'Could not process request.';
+        const errorMsg = data.interpretation?.message || data.interpretation?.error || data.message || 'Could not process request.';
         addMessage('assistant', errorMsg, { isError: true });
       } else {
         addMessage('assistant', data.message || 'Request received.');
@@ -163,6 +170,19 @@ export default function OrchestratorChat({ onRouteResult }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      await fetch(`${API_BASE}/api/orchestrator/chat/clear`, { method: 'POST' });
+    } catch (e) {
+      // Backend clear failed, still clear frontend
+    }
+    setMessages([]);
+    // Clear any active polling
+    Object.values(pollIntervalsRef.current).forEach(clearInterval);
+    pollIntervalsRef.current = {};
+    setPollingMissions(new Set());
   };
 
   const getStateColor = (state) => {
@@ -313,6 +333,13 @@ export default function OrchestratorChat({ onRouteResult }) {
           color: #fca5a5;
         }
 
+        .message.off-topic {
+          border-color: rgba(251, 191, 36, 0.4);
+          background: rgba(251, 191, 36, 0.1);
+          color: #fde68a;
+          font-style: italic;
+        }
+
         .mission-badge {
           display: inline-flex;
           align-items: center;
@@ -408,6 +435,24 @@ export default function OrchestratorChat({ onRouteResult }) {
           cursor: not-allowed;
         }
 
+        .clear-btn {
+          padding: 0.5rem 0.75rem;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: rgba(255, 255, 255, 0.05);
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 0.7rem;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .clear-btn:hover {
+          background: rgba(239, 68, 68, 0.15);
+          border-color: rgba(239, 68, 68, 0.3);
+          color: #fca5a5;
+        }
+
         .empty-state {
           text-align: center;
           padding: 2rem 1rem;
@@ -447,13 +492,24 @@ export default function OrchestratorChat({ onRouteResult }) {
             <div className="chat-subtitle">Natural Language Agent Control</div>
           </div>
         </div>
-        <button
-          className="collapse-btn"
-          onClick={(e) => { e.stopPropagation(); setIsCollapsed(!isCollapsed); }}
-          title={isCollapsed ? "Expand" : "Collapse"}
-        >
-          {isCollapsed ? '▲' : '▼'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {messages.length > 0 && !isCollapsed && (
+            <button
+              className="clear-btn"
+              onClick={(e) => { e.stopPropagation(); handleClearHistory(); }}
+              title="Clear chat history"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            className="collapse-btn"
+            onClick={(e) => { e.stopPropagation(); setIsCollapsed(!isCollapsed); }}
+            title={isCollapsed ? "Expand" : "Collapse"}
+          >
+            {isCollapsed ? '▲' : '▼'}
+          </button>
+        </div>
       </div>
 
       {!isCollapsed && (
@@ -471,7 +527,7 @@ export default function OrchestratorChat({ onRouteResult }) {
             {messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`message ${msg.role} ${msg.isError ? 'error' : ''}`}
+                className={`message ${msg.role} ${msg.isError ? 'error' : ''} ${msg.isOffTopic ? 'off-topic' : ''}`}
               >
                 {msg.missionId && msg.state && (
                   <div

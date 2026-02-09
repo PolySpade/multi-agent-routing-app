@@ -728,6 +728,40 @@ Return ONLY valid JSON."""
             logger.error(f"LLM text_chat failed: {e}")
             return ""
 
+    def text_chat_multi(self, messages: list) -> str:
+        """
+        Multi-turn LLM text chat with conversation history.
+
+        Args:
+            messages: List of {'role': 'system'|'user'|'assistant', 'content': str}
+
+        Returns:
+            Raw text response from the LLM, or empty string on failure
+        """
+        if not messages:
+            logger.warning("Empty messages list provided to text_chat_multi")
+            return ""
+
+        if not self.is_available():
+            logger.debug("LLM unavailable, returning empty result for text_chat_multi")
+            return ""
+
+        try:
+            response = ollama.chat(
+                model=self.text_model,
+                messages=messages,
+                options={'timeout': self.timeout}
+            )
+
+            text = response['message']['content'].strip()
+            if text:
+                logger.debug(f"[{self.text_model}] text_chat_multi response: {text[:80]}...")
+            return text
+
+        except Exception as e:
+            logger.error(f"LLM text_chat_multi failed: {e}")
+            return ""
+
     def _clean_json(self, content: str) -> Dict[str, Any]:
         """
         Helper to extract and parse JSON from LLM response.
