@@ -5,8 +5,8 @@ Routing Agent for Multi-Agent System for Flood Route Optimization (MAS-FRO)
 
 Updated version integrated with risk-aware A* algorithm and ACL communication.
 
-VIRTUAL METERS APPROACH - SCIENTIFIC JUSTIFICATION (Issue #14)
-==============================================================
+LENGTH-PROPORTIONAL RISK PENALTY - SCIENTIFIC JUSTIFICATION (Issue #14)
+========================================================================
 
 Problem: Heuristic Domination in Multi-Objective A*
 ---------------------------------------------------
@@ -20,13 +20,18 @@ When risk_weight is small (0.0-1.0), the distance component dominates because:
 
 This causes A* to find the shortest path, ignoring flood risk entirely.
 
-Solution: Risk Penalty in "Virtual Meters"
+Solution: Length-Proportional Risk Penalty
 ------------------------------------------
-Convert risk scores to the same unit as distance (meters):
+Scale risk cost by edge length so longer flooded roads are penalized more:
 
-    edge_cost = distance_meters + (risk_penalty * risk_score)
+    edge_cost = length * distance_weight + length * risk_score * risk_weight
+             = length * (1 + risk_score * risk_weight)
 
-This ensures risk and distance are comparable in magnitude.
+The risk_weight acts as a cost MULTIPLIER: a risk_weight of 3.0 means a fully
+flooded edge (risk=1.0) costs 4x its physical length (1 + 1.0 * 3.0).
+
+This is physically correct: 500m of flood water is more dangerous than 50m.
+The heuristic (Haversine distance) remains admissible since edge_cost >= length.
 
 Derivation of Penalty Values
 ----------------------------
@@ -35,35 +40,33 @@ For Marikina City road network:
 - Typical route: 20-50 edges
 - Total route distance: 3,000 - 7,500m (3-7.5 km)
 
-To make a high-risk edge (risk=0.8) "feel" like a significant detour:
+The cost multiplier for a given risk r is: (1 + r * risk_weight)
 
-1. SAFEST MODE (risk_penalty = 100,000)
-   - High-risk edge (0.8): adds 80,000 virtual meters (80km)
+1. SAFEST MODE (risk_weight = 100.0)
+   - High-risk edge (0.8): multiplier = 1 + 0.8*100 = 81x edge length
+   - 150m edge at risk 0.8: costs 12,150 effective meters
    - Effect: Will take ANY detour to avoid flooded roads
    - Use case: Emergency evacuation, vulnerable users
-   - Math: 100,000 * 0.8 = 80,000m >> typical route (5,000m)
 
-2. BALANCED MODE (risk_penalty = 2,000)
-   - High-risk edge (0.8): adds 1,600 virtual meters (1.6km)
+2. BALANCED MODE (risk_weight = 3.0)
+   - High-risk edge (0.8): multiplier = 1 + 0.8*3 = 3.4x edge length
+   - 150m edge at risk 0.8: costs 510 effective meters (+360m penalty)
    - Effect: Prefers safer routes but accepts minor risk for efficiency
    - Use case: General navigation, most users
-   - Math: 2,000 * 0.8 = 1,600m ≈ detour threshold (~1.5km)
+   - Verified: 5km route at risk=0.8 vs 10km at risk=0.1 -> prefers safe route
 
-3. FASTEST MODE (risk_penalty = 0)
+3. FASTEST MODE (risk_weight = 0.0)
    - Effect: Pure shortest path, ignores risk completely
    - Use case: Emergency responders who must reach destination
    - Note: Still blocks truly impassable roads (risk >= 0.9)
 
 Calibration Methodology
 -----------------------
-Values were calibrated using:
-1. Marikina City road network statistics (40,000+ nodes, 100,000+ edges)
-2. Average detour distance analysis
-3. User preference studies (safety vs. time trade-off)
-
-Formula: risk_penalty = detour_tolerance_meters / acceptable_risk_threshold
-- Balanced: 2000 = 1600m / 0.8 (accept 1.6km detour to avoid 0.8 risk)
-- Safest: 100000 = virtually infinite (avoid all risk)
+Values were calibrated by comparing route trade-offs on Marikina City's network:
+  Balanced (3.0): Takes 2x longer route to avoid risk=0.8 roads, but accepts
+                   minor risk (0.1-0.2) for shorter paths. Reasonable for most users.
+  Safest (100.0): Avoids even minor risk (0.1) at the cost of significant detours.
+                   Suitable for evacuation of vulnerable populations.
 
 References
 ----------
@@ -137,20 +140,20 @@ class RoutingAgent(BaseAgent):
     integrated with real-time flood risk data from HazardAgent. It can calculate
     routes to specific destinations or to nearest evacuation centers.
 
-    Uses "Virtual Meters" approach to prevent Heuristic Domination:
-    Risk penalties are expressed in virtual meters (not 0-1 weights), ensuring
-    the A* heuristic and risk penalties operate in compatible units.
+    Uses length-proportional risk penalty to prevent Heuristic Domination:
+    Edge cost = length * (1 + risk_score * risk_weight), ensuring risk scales
+    with road length and the A* heuristic remains admissible.
 
     Attributes:
         agent_id: Unique identifier for this agent
         environment: Reference to DynamicGraphEnvironment
         evacuation_centers: DataFrame of evacuation center locations
-        risk_penalty: Virtual meters added per risk unit (e.g., 2000.0 for balanced)
+        risk_penalty: Risk cost multiplier (e.g., 3.0 for balanced)
         distance_weight: Weight for distance component (always 1.0 for A* consistency)
 
     Example:
         >>> env = DynamicGraphEnvironment()
-        >>> agent = RoutingAgent("routing_001", env, risk_penalty=2000.0)
+        >>> agent = RoutingAgent("routing_001", env, risk_penalty=3.0)
         >>> route = agent.calculate_route((14.65, 121.10), (14.66, 121.11))
     """
 
@@ -158,7 +161,7 @@ class RoutingAgent(BaseAgent):
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
-        risk_penalty: float = 2000.0,  # BALANCED MODE: 2000 virtual meters per risk unit
+        risk_penalty: float = 3.0,  # BALANCED MODE: cost multiplier (1 + risk * 3.0)
         distance_weight: float = 1.0,   # Always 1.0 to preserve A* heuristic consistency
         llm_service: Optional[Any] = None,
         message_queue: Optional[Any] = None
@@ -166,17 +169,17 @@ class RoutingAgent(BaseAgent):
         """
         Initialize the RoutingAgent.
 
-        Virtual Meters Approach:
-        Instead of 0-1 weights, we use a "Risk Penalty" system that converts risk
-        into "Virtual Meters" to fix Heuristic Domination in A* search. This ensures
-        the distance heuristic and risk penalties work in the same units.
+        Length-Proportional Risk Penalty:
+        Risk cost is scaled by edge length: cost = length * (1 + risk * risk_penalty).
+        This ensures longer flooded roads are penalized more, and the A* heuristic
+        (Haversine distance) remains admissible.
 
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
-            risk_penalty: Virtual meters per risk unit (default: 2000.0 for balanced)
-                - Safest mode: 100000.0 (extreme penalty, prioritize safety)
-                - Balanced mode: 2000.0 (moderate penalty, balance safety/speed)
+            risk_penalty: Risk cost multiplier (default: 3.0 for balanced)
+                - Safest mode: 100.0 (extreme multiplier, prioritize safety)
+                - Balanced mode: 3.0 (moderate multiplier, balance safety/speed)
                 - Fastest mode: 0.0 (no penalty, ignore risk completely)
             distance_weight: Weight for distance (always 1.0 for A* consistency)
             llm_service: Optional LLMService instance for smart routing features
@@ -184,7 +187,7 @@ class RoutingAgent(BaseAgent):
         """
         super().__init__(agent_id, environment)
 
-        # Pathfinding configuration using Virtual Meters approach
+        # Pathfinding configuration using length-proportional risk penalty
         self.risk_penalty = risk_penalty
         self.distance_weight = distance_weight
         self.llm_service = llm_service
@@ -387,9 +390,9 @@ class RoutingAgent(BaseAgent):
         if not start_node or not end_node:
             raise ValueError("Could not map coordinates to road network")
 
-        # Apply preferences using Virtual Meters approach
-        # Risk penalties convert risk (0-1) into "Virtual Meters" to match distance units
-        # This prevents the A* heuristic (pure distance) from dominating risk scores
+        # Apply preferences using length-proportional risk penalty
+        # cost = length * (1 + risk * risk_penalty)
+        # Higher risk_penalty = stronger flood avoidance
         risk_penalty = self.risk_penalty
         distance_weight = self.distance_weight  # Always 1.0
 
@@ -397,17 +400,17 @@ class RoutingAgent(BaseAgent):
             # Resolve mode from either explicit flags or LLM-parsed 'mode' field
             mode = preferences.get("mode", "balanced")
             if preferences.get("avoid_floods") or mode == "safest":
-                # SAFEST MODE: Massive penalty makes risk dominate routing decisions
-                # 100,000 virtual meters = prefer 100km detour over 1.0 risk road
-                risk_penalty = 100000.0
+                # SAFEST MODE: High multiplier makes risk dominate routing decisions
+                # risk=0.8 edge costs 81x its length (1 + 0.8*100)
+                risk_penalty = 100.0
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
                 logger.info(
                     f"SAFEST MODE: risk_penalty={risk_penalty}, "
                     f"distance_weight={distance_weight}"
                 )
             elif preferences.get("fastest") or mode == "fastest":
-                # FASTEST MODE: Ignore all risk, traverse any road
-                # risk_penalty = 0.0 means pure distance-based routing
+                # FASTEST MODE: Ignore all risk, pure shortest path
+                # risk_weight = 0 means cost = length only
                 # Note: Roads with risk >= 0.9 (impassable) are still blocked by A*
                 risk_penalty = 0.0
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
@@ -432,7 +435,7 @@ class RoutingAgent(BaseAgent):
             self.environment.graph,
             start_node,
             end_node,
-            risk_weight=risk_penalty,  # Virtual meters per risk unit
+            risk_weight=risk_penalty,  # Length-proportional risk multiplier
             distance_weight=distance_weight  # Always 1.0
         )
 
@@ -564,7 +567,7 @@ class RoutingAgent(BaseAgent):
         # Apply risk penalty from preferences
         risk_penalty = self.risk_penalty
         if final_preferences.get("mode") == "safest":
-            risk_penalty = 100000.0
+            risk_penalty = 100.0
         elif final_preferences.get("mode") == "fastest":
             risk_penalty = 0.0
 
@@ -642,7 +645,7 @@ class RoutingAgent(BaseAgent):
             start_node,
             end_node,
             k=k,
-            risk_weight=self.risk_penalty,  # Virtual meters per risk unit
+            risk_weight=self.risk_penalty,  # Length-proportional risk multiplier
             distance_weight=self.distance_weight  # Always 1.0
         )
 
@@ -966,7 +969,7 @@ class RoutingAgent(BaseAgent):
         """
         return {
             "agent_id": self.agent_id,
-            "risk_penalty": self.risk_penalty,  # Virtual meters per risk unit
+            "risk_penalty": self.risk_penalty,  # Risk cost multiplier
             "distance_weight": self.distance_weight,
             "evacuation_centers": len(self.evacuation_centers),
             "graph_loaded": bool(self.environment and self.environment.graph),

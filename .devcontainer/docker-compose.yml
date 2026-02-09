@@ -27,8 +27,8 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: masfro
-      POSTGRES_PASSWORD: masfro
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin1234
       POSTGRES_DB: masfro
     volumes:
       - pgdata:/var/lib/postgresql/data

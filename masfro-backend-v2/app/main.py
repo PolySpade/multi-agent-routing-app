@@ -2013,21 +2013,40 @@ async def get_scout_reports(
         filtered_reports = []
         for report in all_reports:
             # Check if report has timestamp and is within time range
-            if "timestamp" in report:
+            ts = report.get("timestamp") if isinstance(report, dict) else None
+            if ts is not None:
                 try:
-                    report_time = datetime.fromisoformat(report["timestamp"].replace("Z", "+00:00"))
+                    if isinstance(ts, datetime):
+                        report_time = ts
+                    else:
+                        report_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                    # Strip timezone for comparison if cutoff is naive
+                    if report_time.tzinfo and not cutoff_time.tzinfo:
+                        report_time = report_time.replace(tzinfo=None)
                     if report_time >= cutoff_time:
                         filtered_reports.append(report)
-                except (ValueError, AttributeError):
-                    # Include reports with invalid timestamps
+                except (ValueError, TypeError):
+                    # Include reports with unparseable timestamps
                     filtered_reports.append(report)
             else:
                 # Include reports without timestamps
                 filtered_reports.append(report)
 
+        # Serialize datetime objects for JSON response
+        def _serialize_report(report):
+            out = {}
+            for k, v in report.items():
+                if isinstance(v, datetime):
+                    out[k] = v.isoformat()
+                else:
+                    out[k] = v
+            return out
+
+        serialized_reports = [_serialize_report(r) for r in filtered_reports]
+
         # Apply pagination
         from app.core.pagination import paginate
-        paginated = paginate(filtered_reports, page=page, page_size=page_size)
+        paginated = paginate(serialized_reports, page=page, page_size=page_size)
 
         return {
             "status": "success",

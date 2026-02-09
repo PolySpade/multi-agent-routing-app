@@ -838,6 +838,44 @@ class HazardAgent(BaseAgent):
                         f"{self.agent_id}: failed to reply to "
                         f"{message.sender}: {e}"
                     )
+
+        elif action == "query_risk_at_location":
+            # Query current map risk at a specific location
+            lat = data.get("lat")
+            lon = data.get("lon")
+            radius_m = data.get("radius_m", 500)
+            result_data = {"status": "error", "error": "Missing lat/lon"}
+
+            if lat is not None and lon is not None:
+                try:
+                    result_data = self.get_risk_at_location(
+                        float(lat), float(lon), float(radius_m)
+                    )
+                except Exception as e:
+                    result_data = {"status": "error", "error": str(e)}
+
+            logger.info(
+                f"{self.agent_id}: query_risk_at_location "
+                f"({lat}, {lon}) -> {result_data.get('risk_level', 'error')}"
+            )
+
+            if message.sender and self.message_queue:
+                try:
+                    from app.communication.acl_protocol import create_inform_message
+                    reply = create_inform_message(
+                        sender=self.agent_id,
+                        receiver=message.sender,
+                        info_type="location_risk_result",
+                        data=result_data,
+                        conversation_id=message.conversation_id,
+                        in_reply_to=message.reply_with,
+                    )
+                    self.message_queue.send_message(reply)
+                except Exception as e:
+                    logger.error(
+                        f"{self.agent_id}: failed to reply to "
+                        f"{message.sender}: {e}"
+                    )
         else:
             logger.warning(
                 f"{self.agent_id} received unknown action: {action}"
@@ -1185,6 +1223,14 @@ class HazardAgent(BaseAgent):
 
         # Update cache for all locations
         for location, location_data in data.items():
+            # Skip non-dict entries (e.g. "advisories" key contains a list)
+            if not isinstance(location_data, dict):
+                logger.debug(
+                    f"{self.agent_id} skipping non-dict entry '{location}' "
+                    f"(type={type(location_data).__name__})"
+                )
+                continue
+
             flood_data = {
                 "location": location,
                 "flood_depth": location_data.get("flood_depth", 0.0),
@@ -2142,6 +2188,119 @@ class HazardAgent(BaseAgent):
             logger.error(f"Error finding nodes within radius: {e}")
 
         return nearby_nodes
+
+    def get_risk_at_location(
+        self,
+        lat: float,
+        lon: float,
+        radius_m: float = 500,
+    ) -> Dict[str, Any]:
+        """
+        Query the current map risk around a coordinate.
+
+        Finds all graph edges within radius_m of (lat, lon) and returns
+        aggregate risk statistics plus the flood/scout cache data for
+        the area. This represents the risk that is currently displayed
+        on the map.
+
+        Args:
+            lat: Latitude of the query point
+            lon: Longitude of the query point
+            radius_m: Search radius in meters (default 500)
+
+        Returns:
+            Dict with risk summary for the location
+        """
+        if not self.environment or not self.environment.graph:
+            return {"status": "error", "message": "Graph not available"}
+
+        nearby_nodes = self.get_nodes_within_radius(lat, lon, radius_m)
+        if not nearby_nodes:
+            return {
+                "status": "ok",
+                "location": {"lat": lat, "lon": lon},
+                "radius_m": radius_m,
+                "nearby_nodes": 0,
+                "edges_checked": 0,
+                "avg_risk": 0.0,
+                "max_risk": 0.0,
+                "risk_level": "unknown",
+                "high_risk_edges": 0,
+                "impassable_edges": 0,
+                "message": "No graph nodes found within radius",
+            }
+
+        # Collect risk scores from edges connected to nearby nodes
+        edge_risks = []
+        seen_edges = set()
+        graph = self.environment.graph
+
+        for node in nearby_nodes:
+            for u, v, key in graph.edges(node, keys=True):
+                edge_id = (min(u, v), max(u, v), key)
+                if edge_id not in seen_edges:
+                    seen_edges.add(edge_id)
+                    risk = graph[u][v][key].get("risk_score", 0.0)
+                    edge_risks.append(risk)
+
+        if not edge_risks:
+            avg_risk = 0.0
+            max_risk = 0.0
+        else:
+            avg_risk = sum(edge_risks) / len(edge_risks)
+            max_risk = max(edge_risks)
+
+        # Classify risk level
+        if max_risk >= 0.9:
+            risk_level = "critical"
+        elif max_risk >= 0.7:
+            risk_level = "high"
+        elif avg_risk >= 0.4:
+            risk_level = "moderate"
+        elif avg_risk >= 0.1:
+            risk_level = "low"
+        else:
+            risk_level = "minimal"
+
+        high_risk = sum(1 for r in edge_risks if r >= 0.7)
+        impassable = sum(1 for r in edge_risks if r >= 0.9)
+
+        # Include relevant flood cache entries near the location
+        nearby_flood_data = {}
+        for loc_key, flood_entry in self.flood_data_cache.items():
+            entry_coords = flood_entry.get("coordinates")
+            if entry_coords:
+                try:
+                    elat = float(entry_coords[0]) if isinstance(entry_coords, (list, tuple)) else float(entry_coords.get("lat", 0))
+                    elon = float(entry_coords[1]) if isinstance(entry_coords, (list, tuple)) else float(entry_coords.get("lon", 0))
+                    # Rough distance check (~0.005 degrees is ~500m)
+                    if abs(elat - lat) < 0.01 and abs(elon - lon) < 0.01:
+                        nearby_flood_data[loc_key] = {
+                            "water_level": flood_entry.get("water_level"),
+                            "rainfall": flood_entry.get("rainfall"),
+                            "status": flood_entry.get("status"),
+                            "timestamp": flood_entry.get("timestamp"),
+                        }
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+        return {
+            "status": "ok",
+            "location": {"lat": round(lat, 5), "lon": round(lon, 5)},
+            "radius_m": radius_m,
+            "nearby_nodes": len(nearby_nodes),
+            "edges_checked": len(edge_risks),
+            "avg_risk": round(avg_risk, 4),
+            "max_risk": round(max_risk, 4),
+            "risk_level": risk_level,
+            "high_risk_edges": high_risk,
+            "impassable_edges": impassable,
+            "nearby_flood_data": nearby_flood_data,
+            "risk_history": [
+                {"timestamp": str(ts), "avg_risk": round(r, 4)}
+                for ts, r in self.risk_history[-5:]
+            ],
+        }
 
     def update_node_risk(
         self,

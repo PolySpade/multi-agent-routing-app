@@ -241,7 +241,7 @@ class FloodDataScheduler:
                             data
                         )
                         logger.info(
-                            f"✓ Flood data sent to HazardAgent via MessageQueue "
+                            f"[OK] Flood data sent to HazardAgent via MessageQueue "
                             f"({len(data)} data points)"
                         )
                     except Exception as msg_error:
@@ -423,7 +423,7 @@ class FloodDataScheduler:
                         data
                     )
                     logger.info(
-                        f"✓ Manual collection: Flood data sent to HazardAgent via MessageQueue "
+                        f"[OK] Manual collection: Flood data sent to HazardAgent via MessageQueue "
                         f"({len(data)} data points)"
                     )
                 except Exception as msg_error:

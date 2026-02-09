@@ -8,12 +8,12 @@
 # ROUTING AGENT CONFIGURATION
 # ==========================================
 routing_agent:
-  # Risk penalty system (Virtual Meters approach)
-  # These values convert risk scores (0-1) into "virtual meters"
-  # to prevent A* heuristic domination
+  # Risk penalty system (Length-Proportional approach)
+  # edge_cost = length * (1 + risk_score * risk_weight)
+  # The risk_weight acts as a cost multiplier on flooded edges
   risk_penalties:
-    safest_mode: 100000.0     # Extreme penalty: prefer 100km detour over high-risk road
-    balanced_mode: 2000.0     # Moderate penalty: 2km per risk unit (default)
+    safest_mode: 100.0        # risk=0.8 -> 81x edge length (avoids all risk)
+    balanced_mode: 3.0        # risk=0.8 -> 3.4x edge length (reasonable trade-off)
     fastest_mode: 0.0         # No penalty: ignore risk completely (dangerous!)
 
   # Node search configuration
@@ -103,8 +103,8 @@ hazard_agent:
     # Flood depth to risk conversion
     depth_to_risk:
       method: "sigmoid"             # Options: "linear", "sigmoid", "exponential"
-      sigmoid_steepness: 2.0        # k parameter in sigmoid curve
-      sigmoid_inflection: 0.5       # x0 parameter (50% risk at 0.5m)
+      sigmoid_steepness: 8.0        # k parameter in sigmoid curve (steep = clear transition)
+      sigmoid_inflection: 0.3       # x0 parameter (FEMA standard: 50% risk at 0.3m / 1ft)
       max_depth_m: 2.0              # Depth >= this is 100% risk
 
     # Rainfall to risk conversion
@@ -334,7 +334,7 @@ llm_service:
 # Start mock server: python -m mock_server.run
 # Override with env vars: USE_MOCK_SOURCES=true MOCK_SERVER_URL=http://localhost:8081
 mock_sources:
-  enabled: false
+  enabled: true
   base_url: "http://localhost:8081"
   urls:
     river_scraper: "http://localhost:8081/pagasa/water/map.do"

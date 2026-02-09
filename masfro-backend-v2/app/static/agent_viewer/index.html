@@ -223,10 +223,6 @@
         flex-direction: column;
         gap: 10px;
       }
-      .injection-section {
-        margin-bottom: 15px;
-        flex-shrink: 0;
-      }
       .filter-bar {
         display: flex;
         gap: 10px;
@@ -435,31 +431,6 @@
         <!-- Tab: Scout Agent -->
         <div class="tab-panel" id="panel-scout">
           <div id="scout-stats" class="stats-grid"></div>
-          <div class="injection-section">
-            <div class="card">
-              <div class="card-header">Inject Tweet</div>
-              <div class="control-group">
-                <textarea
-                  id="tweet-text"
-                  rows="2"
-                  placeholder="Enter tweet text..."
-                ></textarea>
-                <div style="display: flex; align-items: center; gap: 10px">
-                  <input
-                    type="file"
-                    id="tweet-image"
-                    accept="image/*"
-                    style="flex: 1"
-                  />
-                  <span
-                    id="image-preview"
-                    style="font-size: 0.75rem; color: var(--text-secondary)"
-                  ></span>
-                </div>
-                <button onclick="injectTweet()">Send Tweet</button>
-              </div>
-            </div>
-          </div>
           <div class="card logs-card">
             <div
               class="card-header"
@@ -492,24 +463,6 @@
         <!-- Tab: Flood Agent -->
         <div class="tab-panel" id="panel-flood">
           <div id="flood-stats" class="stats-grid"></div>
-          <div class="injection-section">
-            <div class="card">
-              <div class="card-header">Inject Advisory</div>
-              <div class="control-group">
-                <textarea
-                  id="advisory-text"
-                  rows="2"
-                  placeholder="News/Advisory text..."
-                ></textarea>
-                <select id="advisory-type">
-                  <option value="news">News Report</option>
-                  <option value="pagasa">PAGASA Advisory</option>
-                  <option value="manual">Manual Report</option>
-                </select>
-                <button onclick="injectAdvisory()">Send Advisory</button>
-              </div>
-            </div>
-          </div>
           <div class="card logs-card">
             <div
               class="card-header"
@@ -805,64 +758,6 @@
           <span class="log-logger">[${log.logger.split(".").pop()}]</span>
           <span class="log-msg">${escapeHtml(log.message)}</span>
         </div>`;
-      }
-
-      async function injectTweet() {
-        const text = document.getElementById("tweet-text").value;
-        if (!text) return alert("Please enter text");
-        const imageInput = document.getElementById("tweet-image");
-        const formData = new FormData();
-        formData.append("text", text);
-        if (imageInput.files && imageInput.files[0])
-          formData.append("image", imageInput.files[0]);
-        try {
-          const res = await fetch(API_BASE + "/scout/inject", {
-            method: "POST",
-            body: formData,
-          });
-          const data = await res.json();
-          if (res.ok) {
-            alert("Tweet Injected Successfully!");
-            document.getElementById("tweet-text").value = "";
-            imageInput.value = "";
-            document.getElementById("image-preview").textContent = "";
-            fetchAgentLogs("scout");
-          } else alert("Error: " + data.detail);
-        } catch (e) {
-          alert("Injection failed: " + e);
-        }
-      }
-
-      document.addEventListener("DOMContentLoaded", function () {
-        const imageInput = document.getElementById("tweet-image");
-        if (imageInput) {
-          imageInput.addEventListener("change", function () {
-            const preview = document.getElementById("image-preview");
-            preview.textContent =
-              this.files && this.files[0] ? this.files[0].name : "";
-          });
-        }
-      });
-
-      async function injectAdvisory() {
-        const text = document.getElementById("advisory-text").value;
-        if (!text) return alert("Please enter text");
-        const type = document.getElementById("advisory-type").value;
-        try {
-          const res = await fetch(API_BASE + "/flood/inject", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, type }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            alert("Advisory Injected Successfully!");
-            document.getElementById("advisory-text").value = "";
-            fetchAgentLogs("flood");
-          } else alert("Error: " + data.detail);
-        } catch (e) {
-          alert("Injection failed: " + e);
-        }
       }
 
       function escapeHtml(unsafe) {

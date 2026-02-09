@@ -187,7 +187,7 @@ class LocationGeocoder:
             ]
             query_lower = location_name.lower()
             if any(city in query_lower for city in excluded_keywords):
-                logger.warning(f"❌ Rejected out-of-bounds location query: '{location_name}'")
+                logger.warning(f"[MISS] Rejected out-of-bounds location query: '{location_name}'")
                 return None
 
             # Sample a subset of locations for the prompt (to avoid token limits)
@@ -249,7 +249,7 @@ Do not add any explanation or markdown."""
                         fixed = json_candidate.replace("'", '"')
                         data = json.loads(fixed)
                     except Exception:
-                        logger.warning(f"❌ Failed to parse LLM response: {json_candidate[:100]}")
+                        logger.warning(f"[MISS] Failed to parse LLM response: {json_candidate[:100]}")
                         return None
                 
                 matched_loc = data.get('match') or data.get('matched_location')  # Support both formats
@@ -260,16 +260,16 @@ Do not add any explanation or markdown."""
                     coords = self.location_coordinates.get(matched_loc)
                     if coords:
                         logger.info(
-                            f"✅ LLM matched '{location_name}' -> '{matched_loc}' "
+                            f"[OK] LLM matched '{location_name}' -> '{matched_loc}' "
                             f"(confidence: {confidence:.2f}) -> {coords}"
                         )
                         return coords
                     else:
-                        logger.warning(f"❌ LLM returned location not in database: {matched_loc}")
+                        logger.warning(f"[MISS] LLM returned location not in database: {matched_loc}")
                 else:
-                    logger.info(f"❌ No confident match found for '{location_name}' (confidence: {confidence:.2f})")
+                    logger.info(f"[MISS] No confident match found for '{location_name}' (confidence: {confidence:.2f})")
             else:
-                logger.warning("❌ Could not find JSON in LLM response")
+                logger.warning("[MISS] Could not find JSON in LLM response")
             
         except Exception as e:
             logger.error(f"LLM semantic matching error: {e}")
