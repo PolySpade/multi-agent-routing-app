@@ -62,6 +62,7 @@ from app.services.agent_lifecycle_manager import (
 
 # LLM Service
 from app.services.llm_service import LLMService, get_llm_service
+from app.services.evacuation_service import get_evacuation_service
 
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
@@ -439,7 +440,8 @@ routing_agent = RoutingAgent(
     "routing_agent_001",
     environment,
     message_queue=message_queue,
-    llm_service=get_llm_service()
+    llm_service=get_llm_service(),
+    evacuation_service=get_evacuation_service()
 )
 evacuation_manager = EvacuationManagerAgent(
     "evac_manager_001",
@@ -562,6 +564,22 @@ async def startup_event():
             logger.info("Database connection successful")
             # Initialize database tables (if not exist)
             init_db()
+
+            # Seed evacuation centers from CSV if table is empty
+            try:
+                from pathlib import Path
+                csv_path = Path(__file__).parent / "data" / "evacuation_centers.csv"
+                if csv_path.exists():
+                    evac_svc = get_evacuation_service()
+                    seeded = evac_svc.seed_from_csv(csv_path)
+                    if seeded:
+                        logger.info(f"Seeded {seeded} evacuation centers from CSV")
+                    else:
+                        logger.info("Evacuation centers table already populated")
+                else:
+                    logger.warning(f"Evacuation CSV not found at {csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to seed evacuation centers: {e}")
         else:
             logger.warning("Database connection failed - historical data storage disabled")
     except Exception as e:
@@ -964,6 +982,19 @@ async def create_orchestrator_mission(request: MissionRequest):
             request.mission_type,
             request.params
         )
+
+        # Broadcast WebSocket events for evacuation missions
+        if request.mission_type == "coordinated_evacuation":
+            try:
+                await ws_manager.broadcast_distress_alert({
+                    "mission_id": result.get("mission_id"),
+                    "mission_type": request.mission_type,
+                    "params": request.params,
+                    "status": "started",
+                })
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast distress alert: {ws_err}")
+
         return result
     except Exception as e:
         logger.error(f"Orchestrator mission creation failed: {e}")
@@ -990,6 +1021,20 @@ async def get_orchestrator_mission_status(mission_id: str):
     status = orchestrator_agent.get_mission_status(mission_id)
     if not status:
         raise HTTPException(status_code=404, detail=f"Mission {mission_id} not found")
+
+    # Broadcast evacuation update when a coordinated_evacuation mission completes
+    if (status.get("mission_type") == "coordinated_evacuation"
+            and status.get("state") in ("COMPLETED", "completed")):
+        try:
+            await ws_manager.broadcast_evacuation_update({
+                "mission_id": mission_id,
+                "mission_type": "coordinated_evacuation",
+                "state": status.get("state"),
+                "results": status.get("results"),
+            })
+        except Exception as ws_err:
+            logger.warning(f"Failed to broadcast evacuation update: {ws_err}")
+
     return status
 
 @app.get("/api/orchestrator/missions", tags=["Orchestrator"])

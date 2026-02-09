@@ -284,3 +284,45 @@ class ConnectionManager:
                     if key.startswith(station_name)
                 }
                 self.critical_stations -= to_remove
+
+    async def broadcast_evacuation_update(self, evacuation_data: Dict[str, Any]):
+        """
+        Broadcast evacuation status update to all connected clients.
+
+        Args:
+            evacuation_data: Dictionary with evacuation mission status info
+        """
+        if not self.active_connections:
+            return
+
+        message = {
+            "type": "evacuation_update",
+            "data": convert_datetimes_to_strings(evacuation_data),
+            "timestamp": datetime.now().isoformat(),
+            "source": "evacuation_manager"
+        }
+
+        await self.broadcast(message)
+        logger.info(f"Broadcasted evacuation update to {len(self.active_connections)} clients")
+
+    async def broadcast_distress_alert(self, distress_data: Dict[str, Any]):
+        """
+        Broadcast a distress call alert to all connected clients.
+
+        Args:
+            distress_data: Dictionary with distress call details (location, urgency, etc.)
+        """
+        if not self.active_connections:
+            return
+
+        message = {
+            "type": "distress_alert",
+            "data": convert_datetimes_to_strings(distress_data),
+            "timestamp": datetime.now().isoformat(),
+            "source": "orchestrator"
+        }
+
+        await self.broadcast(message)
+        logger.warning(
+            f"Broadcasted distress alert to {len(self.active_connections)} clients"
+        )

@@ -10,7 +10,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:80
  * Dedicated panel for displaying evacuation centers with detailed information
  * including location, capacity, contact details, and availability status.
  */
-export default function EvacuationCentersPanel({ onSelectDestination }) {
+export default function EvacuationCentersPanel({ onSelectDestination, onReportIssue }) {
   const [evacuationCenters, setEvacuationCenters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -197,6 +197,45 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
           transform: scale(0.95);
         }
 
+        .report-btn {
+          position: absolute;
+          bottom: 1rem;
+          right: 5rem;
+          background: rgba(139, 92, 246, 0.2);
+          border: 1px solid rgba(139, 92, 246, 0.4);
+          color: #c4b5fd;
+          padding: 0.2rem 0.6rem;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.75rem;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+
+        .report-btn:hover {
+          background: rgba(139, 92, 246, 0.3);
+          border-color: rgba(139, 92, 246, 0.6);
+        }
+
+        .feedback-top-btn {
+          width: 100%;
+          padding: 0.5rem;
+          border-radius: 8px;
+          border: 1px solid rgba(139, 92, 246, 0.3);
+          background: rgba(139, 92, 246, 0.15);
+          color: #c4b5fd;
+          cursor: pointer;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 0.75rem;
+          transition: all 0.2s;
+        }
+
+        .feedback-top-btn:hover {
+          background: rgba(139, 92, 246, 0.25);
+          border-color: rgba(139, 92, 246, 0.5);
+        }
+
         .center-header {
           display: flex;
           justify-content: space-between;
@@ -381,6 +420,16 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
 
           {!loading && !error && evacuationCenters.length > 0 && (
             <>
+              {/* Submit Feedback Button */}
+              {onReportIssue && (
+                <button
+                  className="feedback-top-btn"
+                  onClick={() => onReportIssue(null)}
+                >
+                  Submit Evacuation Feedback
+                </button>
+              )}
+
               {/* Summary Statistics */}
               <div className="summary-stats">
                 <div className="stat-box">
@@ -418,6 +467,17 @@ export default function EvacuationCentersPanel({ onSelectDestination }) {
                       title={`Set ${center.name} as destination`}
                     >
                       GO
+                    </button>
+                  )}
+
+                  {/* Report Issue Button */}
+                  {onReportIssue && (
+                    <button
+                      className="report-btn"
+                      onClick={() => onReportIssue(center.name)}
+                      title={`Report issue at ${center.name}`}
+                    >
+                      Report
                     </button>
                   )}
 

@@ -467,14 +467,28 @@ class EvacuationManagerAgent(BaseAgent):
                     response, distress_context
                 )
 
-                # Step 5: Record in distress_history
+                # Step 5: Record in distress_history and route_history
+                now = datetime.now()
                 self.distress_history.append({
                     "location": location,
                     "message": message,
                     "urgency": urgency,
                     "distress_context": distress_context,
                     "result": response,
-                    "timestamp": datetime.now(),
+                    "timestamp": now,
+                })
+                self.route_history.append({
+                    "route_id": result.get("route_id", str(uuid.uuid4())),
+                    "origin": location,
+                    "destination": response["target_center"],
+                    "route": {
+                        "risk_level": response["route_summary"]["risk"],
+                        "distance": response["route_summary"]["distance"],
+                        "time_min": response["route_summary"]["time_min"],
+                    },
+                    "source": "distress_call",
+                    "urgency": urgency,
+                    "timestamp": now,
                 })
                 return response
             else:

@@ -381,7 +381,7 @@ class OrchestratorAgent(BaseAgent):
                 m["completed_at"].isoformat() if m["completed_at"] else None
             ),
             "elapsed_seconds": (
-                datetime.now() - m["created_at"]
+                (m["completed_at"] or datetime.now()) - m["created_at"]
             ).total_seconds(),
         }
 
