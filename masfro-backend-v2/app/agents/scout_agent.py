@@ -199,6 +199,9 @@ class ScoutAgent(BaseAgent):
             )
             self.geocoder = None
 
+        # ========== TWEET ID DEDUPLICATION ==========
+        self._processed_tweet_ids: set = set()
+
         # ========== TEMPORAL DEDUPLICATION ==========
         self._recent_locations: Dict[str, datetime] = {}
         try:
@@ -422,6 +425,16 @@ class ScoutAgent(BaseAgent):
 
         for tweet in tweets:
             try:
+                # Tweet ID deduplication: skip already-processed tweets
+                tweet_id = tweet.get('tweet_id') or tweet.get('id')
+                if tweet_id and tweet_id in self._processed_tweet_ids:
+                    continue
+                if tweet_id:
+                    self._processed_tweet_ids.add(tweet_id)
+                    # Bound the set to prevent unbounded growth
+                    if len(self._processed_tweet_ids) > 10000:
+                        self._processed_tweet_ids.clear()
+
                 # Temporal deduplication: skip if same location reported recently
                 quick_loc = self._extract_quick_location(tweet.get('text', ''))
                 if quick_loc and self._is_recently_reported(quick_loc):
