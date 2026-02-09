@@ -128,7 +128,12 @@ def risk_aware_astar(
     flood risk are treated as more expensive to traverse.
 
     The total cost of an edge is calculated as:
-        cost = (distance * distance_weight) + (risk_score * distance * risk_weight)
+        cost = length * distance_weight + length * risk_score * risk_weight
+             = length * (1 + risk_score * risk_weight)   [when distance_weight=1.0]
+
+    The risk_weight acts as a cost multiplier: risk_weight=3.0 means a fully
+    flooded edge (risk=1.0) costs 4x its physical length. This is length-
+    proportional, so longer flooded roads are penalized more (physically correct).
 
     Roads exceeding max_risk_threshold are considered impassable (infinite cost).
 
@@ -138,8 +143,11 @@ def risk_aware_astar(
             Required edge attributes: 'length' (meters), 'risk_score' (0-1)
         start: Start node ID
         end: End node ID
-        risk_weight: Weight for risk component (default: 0.5)
-        distance_weight: Weight for distance component (default: 0.5)
+        risk_weight: Risk cost multiplier (default: 0.5)
+            - Safest: 100.0 (risk=0.8 -> 81x edge length)
+            - Balanced: 3.0 (risk=0.8 -> 3.4x edge length)
+            - Fastest: 0.0 (pure shortest path)
+        distance_weight: Weight for distance component (default: 0.5, use 1.0)
         max_risk_threshold: Maximum acceptable risk (default: 0.9)
             Edges with risk >= 90% are considered impassable (critical flood danger)
 

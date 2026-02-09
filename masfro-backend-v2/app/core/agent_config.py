@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 class RoutingConfig:
     """Configuration for RoutingAgent."""
 
-    # Risk penalties (virtual meters approach)
-    safest_risk_penalty: float = 100000.0
-    balanced_risk_penalty: float = 2000.0
+    # Risk penalties (length-proportional: cost = length * (1 + risk * weight))
+    safest_risk_penalty: float = 100.0
+    balanced_risk_penalty: float = 3.0
     fastest_risk_penalty: float = 0.0
 
     # Node search
@@ -344,7 +344,7 @@ class AgentConfigLoader:
         >>> loader = AgentConfigLoader()
         >>> routing = loader.get_routing_config()
         >>> print(routing.balanced_risk_penalty)
-        2000.0
+        3.0
     """
 
     _instance: Optional['AgentConfigLoader'] = None
@@ -414,8 +414,8 @@ class AgentConfigLoader:
         evac = cfg.get('evacuation', {})
 
         config = RoutingConfig(
-            safest_risk_penalty=penalties.get('safest_mode', 100000.0),
-            balanced_risk_penalty=penalties.get('balanced_mode', 2000.0),
+            safest_risk_penalty=penalties.get('safest_mode', 100.0),
+            balanced_risk_penalty=penalties.get('balanced_mode', 3.0),
             fastest_risk_penalty=penalties.get('fastest_mode', 0.0),
             max_node_distance_m=search.get('max_node_distance_m', 500.0),
             cache_enabled=search.get('cache_enabled', True),

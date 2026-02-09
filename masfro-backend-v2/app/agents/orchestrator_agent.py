@@ -46,6 +46,7 @@ class MissionState(str, Enum):
     AWAITING_HAZARD = "AWAITING_HAZARD"
     AWAITING_ROUTING = "AWAITING_ROUTING"
     AWAITING_EVACUATION = "AWAITING_EVACUATION"
+    AWAITING_RISK_QUERY = "AWAITING_RISK_QUERY"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
@@ -205,11 +206,20 @@ class OrchestratorAgent(BaseAgent):
 
         mission = self._missions[conv_id]
         data = msg.content.get("data", {})
-        mission["results"][msg.sender] = data
+        info_type = msg.content.get("info_type", "")
+
+        # Use info_type as key when available to avoid overwriting
+        # multiple responses from the same agent (e.g. hazard sends
+        # both risk_update_result and location_risk_result)
+        if info_type == "location_risk_result":
+            result_key = "map_risk"
+        else:
+            result_key = msg.sender
+        mission["results"][result_key] = data
 
         logger.info(
-            f"Mission {conv_id}: received INFORM from {msg.sender}, "
-            f"state={mission['state']}"
+            f"Mission {conv_id}: received INFORM from {msg.sender} "
+            f"(info_type={info_type}), state={mission['state']}"
         )
         self._advance_mission(conv_id)
 
@@ -447,9 +457,12 @@ class OrchestratorAgent(BaseAgent):
     def _advance_assess_risk(self, mission: Dict[str, Any]) -> None:
         """
         assess_risk FSM:
-        PENDING -> AWAITING_SCOUT -> AWAITING_FLOOD -> AWAITING_HAZARD -> COMPLETED
+        PENDING -> AWAITING_SCOUT -> AWAITING_FLOOD -> AWAITING_HAZARD
+               -> AWAITING_RISK_QUERY -> COMPLETED
 
         If no location is provided, skips AWAITING_SCOUT and goes to AWAITING_FLOOD.
+        After hazard processes data, queries current map risk at the location
+        so the results include what's actually displayed on the map.
         """
         mid = mission["id"]
         state = mission["state"]
@@ -474,6 +487,31 @@ class OrchestratorAgent(BaseAgent):
             mission["state"] = MissionState.AWAITING_HAZARD
 
         elif state == MissionState.AWAITING_HAZARD:
+            # After hazard updates the map, query the current risk at the location
+            location = mission["params"].get("location")
+            # Try to get coordinates from scout results
+            scout_data = mission["results"].get("scout", {})
+            coords = scout_data.get("coordinates")
+            if coords and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                lat, lon = float(coords[0]), float(coords[1])
+            elif location:
+                # Fallback: use known barangay coordinates
+                lat, lon = self._location_to_coords(location)
+            else:
+                lat, lon = None, None
+
+            if lat is not None and lon is not None:
+                self._send_request(
+                    "hazard",
+                    "query_risk_at_location",
+                    {"lat": lat, "lon": lon, "radius_m": 500},
+                    mid,
+                )
+                mission["state"] = MissionState.AWAITING_RISK_QUERY
+            else:
+                self._complete_mission(mid, MissionState.COMPLETED)
+
+        elif state == MissionState.AWAITING_RISK_QUERY:
             self._complete_mission(mid, MissionState.COMPLETED)
 
     def _advance_evacuation(self, mission: Dict[str, Any]) -> None:
@@ -608,6 +646,53 @@ class OrchestratorAgent(BaseAgent):
         if agent:
             return agent.agent_id
         return None
+
+    # ---------------------------------------------------------------
+    # Location helpers
+    # ---------------------------------------------------------------
+
+    # Known barangay coordinates for fallback geocoding
+    _BARANGAY_COORDS = {
+        "tumana": (14.6608, 121.1004),
+        "malanday": (14.6653, 121.1023),
+        "concepcion uno": (14.6416, 121.0978),
+        "concepcion dos": (14.6440, 121.0958),
+        "nangka": (14.6568, 121.1107),
+        "sto. nino": (14.6395, 121.0908),
+        "santo nino": (14.6395, 121.0908),
+        "industrial valley": (14.6332, 121.0959),
+        "jesus dela pena": (14.6283, 121.0985),
+        "marikina heights": (14.6350, 121.1080),
+        "parang": (14.6475, 121.0955),
+        "kalumpang": (14.6540, 121.0970),
+        "shoe ave": (14.6380, 121.1010),
+        "sta. elena": (14.6490, 121.1060),
+        "santa elena": (14.6490, 121.1060),
+        "barangka": (14.6445, 121.1020),
+        "tañong": (14.6520, 121.0990),
+        "tanong": (14.6520, 121.0990),
+    }
+
+    def _location_to_coords(
+        self, location: str
+    ) -> tuple:
+        """
+        Convert a location name to (lat, lon) using known barangay list.
+        Returns (None, None) if not found.
+        """
+        loc_lower = location.lower().strip()
+        # Try direct match
+        for name, coords in self._BARANGAY_COORDS.items():
+            if name in loc_lower or loc_lower in name:
+                return coords
+        # Remove common prefixes
+        for prefix in ("barangay ", "brgy. ", "brgy "):
+            if loc_lower.startswith(prefix):
+                stripped = loc_lower[len(prefix):]
+                for name, coords in self._BARANGAY_COORDS.items():
+                    if name in stripped or stripped in name:
+                        return coords
+        return (None, None)
 
     # ---------------------------------------------------------------
     # System status
@@ -768,6 +853,11 @@ Summarize the following mission results in 2-3 sentences for a user who needs cl
 Use simple language. If there's a route, mention the distance. If there's risk data, mention the key findings.
 If the mission failed, explain what went wrong simply.
 
+IMPORTANT: The results may include a "map_risk" key. This contains the CURRENT risk displayed on the map
+at the queried location, including avg_risk (0-1 scale), max_risk, risk_level (minimal/low/moderate/high/critical),
+high_risk_edges, and impassable_edges. Always include this map risk information in your summary when available,
+as it reflects the actual risk on the road network.
+
 Mission data:
 """
 
@@ -918,12 +1008,27 @@ Mission data:
         state = mission_data.get("state", "unknown")
         mtype = mission_data.get("type", "unknown")
         elapsed = mission_data.get("elapsed_seconds", 0)
+        results = mission_data.get("results", {})
 
         if state == "COMPLETED":
-            return (
+            summary = (
                 f"Mission '{mtype}' completed successfully "
                 f"in {elapsed:.1f} seconds."
             )
+            # Include map risk data if available
+            map_risk = results.get("map_risk", {})
+            if map_risk and map_risk.get("status") == "ok":
+                risk_level = map_risk.get("risk_level", "unknown")
+                avg_risk = map_risk.get("avg_risk", 0)
+                max_risk = map_risk.get("max_risk", 0)
+                high = map_risk.get("high_risk_edges", 0)
+                impassable = map_risk.get("impassable_edges", 0)
+                summary += (
+                    f" Current map risk: {risk_level} "
+                    f"(avg={avg_risk:.2f}, max={max_risk:.2f}, "
+                    f"{high} high-risk edges, {impassable} impassable)."
+                )
+            return summary
         elif state in ("FAILED", "TIMED_OUT"):
             error = mission_data.get("error", "unknown error")
             return f"Mission '{mtype}' {state.lower()}: {error}"

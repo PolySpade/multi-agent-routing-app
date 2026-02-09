@@ -2,15 +2,21 @@
 Admin endpoints for the mock server.
 
 Provides CRUD operations and scenario loading for interactive testing.
+Serves a full-featured dashboard for managing all mock data.
 """
 
-from fastapi import APIRouter
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 
 from ..data_store import get_data_store
 from ..scenarios import load_scenario
+
+UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
 
 router = APIRouter()
 
@@ -51,6 +57,8 @@ class WeatherUpdateRequest(BaseModel):
     rain_1h: Optional[float] = None
     rain_3h_forecast: Optional[float] = None
     weather_main: str = "Rain"
+    weather_description: Optional[str] = None
+    wind_speed: Optional[float] = None
 
 class AdvisoryCreateRequest(BaseModel):
     title: str
@@ -58,87 +66,651 @@ class AdvisoryCreateRequest(BaseModel):
     pub_date: Optional[str] = None
 
 
-# --- Endpoints ---
+# --- Dashboard ---
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard():
-    """Simple admin dashboard HTML page."""
+    """Full-featured admin dashboard."""
     store = get_data_store()
+
+    # Build river station rows
+    river_rows = ""
+    for s in store.get_river_stations():
+        wl = s.get("water_level_m", 0)
+        al = s.get("alert_level_m", 0)
+        am = s.get("alarm_level_m", 0)
+        cl = s.get("critical_level_m", 0)
+        # Determine status
+        if wl >= cl:
+            badge = '<span class="badge badge-critical">CRITICAL</span>'
+        elif wl >= am:
+            badge = '<span class="badge badge-alarm">ALARM</span>'
+        elif wl >= al:
+            badge = '<span class="badge badge-alert">ALERT</span>'
+        else:
+            badge = '<span class="badge badge-normal">Normal</span>'
+        river_rows += f"""<tr>
+            <td class="font-medium">{s.get('station_name','')}</td>
+            <td>{wl}</td><td>{al}</td><td>{am}</td><td>{cl}</td>
+            <td>{badge}</td>
+        </tr>"""
+
+    # Build dam rows
+    dam_rows = ""
+    for d in store.get_dam_levels():
+        rwl = d.get("latest_rwl", 0)
+        nhwl = d.get("nhwl", 0)
+        dev = d.get("dev_nhwl", 0)
+        dev_class = "text-danger" if dev > 0 else "text-success"
+        dam_rows += f"""<tr>
+            <td class="font-medium">{d.get('dam_name','')}</td>
+            <td>{rwl}</td><td>{nhwl}</td>
+            <td class="{dev_class}">{dev:+.2f}</td>
+            <td>{d.get('rule_curve','')}</td>
+            <td>{d.get('dev_rule_curve','')}</td>
+        </tr>"""
+
+    # Build advisory rows
+    advisory_rows = ""
+    for a in store.get_advisories():
+        advisory_rows += f"""<tr>
+            <td>#{a.get('id','')}</td>
+            <td class="font-medium">{a.get('title','')}</td>
+            <td class="text-muted" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{a.get('text','')[:100]}...</td>
+            <td class="text-muted">{a.get('pub_date','')[:20]}</td>
+        </tr>"""
+
+    # Build social post rows
+    post_rows = ""
+    for p in store.get_social_posts():
+        img_cell = ""
+        if p.get("image_path"):
+            img_cell = f'<img src="{p["image_path"]}" style="max-height:32px;border-radius:4px" alt="img">'
+        post_rows += f"""<tr>
+            <td class="font-medium">@{p.get('username','')}</td>
+            <td style="max-width:350px">{p.get('text','')[:120]}</td>
+            <td>{img_cell}</td>
+            <td class="text-muted">{p.get('timestamp','')[:19]}</td>
+        </tr>"""
+
+    # Weather summary
+    w = store.get_current_weather()
+    if w:
+        w_main = w.get("weather", [{}])[0].get("main", "N/A")
+        w_desc = w.get("weather", [{}])[0].get("description", "")
+        w_temp = w.get("main", {}).get("temp", "N/A")
+        w_humidity = w.get("main", {}).get("humidity", "N/A")
+        w_pressure = w.get("main", {}).get("pressure", "N/A")
+        w_wind = w.get("wind", {}).get("speed", "N/A")
+        w_rain = w.get("rain", {}).get("1h", 0)
+    else:
+        w_main = w_desc = "N/A"
+        w_temp = w_humidity = w_pressure = w_wind = w_rain = "N/A"
+
     html = f"""<!DOCTYPE html>
-<html>
-<head><title>Mock Server Admin</title>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAS-FRO Mock Server</title>
 <style>
-body {{ font-family: sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }}
-h1 {{ color: #333; }}
-.stats {{ background: #f0f0f0; padding: 15px; border-radius: 8px; margin: 15px 0; }}
-.section {{ margin: 20px 0; }}
-form {{ background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin: 10px 0; }}
-input, select, textarea {{ margin: 5px 0; padding: 8px; width: 100%; box-sizing: border-box; }}
-button {{ background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; }}
-button:hover {{ background: #0056b3; }}
+:root {{
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2d3140;
+    --text: #e4e6ed;
+    --text-muted: #8b8fa3;
+    --primary: #6366f1;
+    --primary-hover: #818cf8;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+    --radius: 8px;
+}}
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ font-family: 'Segoe UI', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }}
+
+/* Layout */
+.container {{ max-width: 1200px; margin: 0 auto; padding: 24px; }}
+.header {{ display: flex; align-items: center; justify-content: space-between; padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px; }}
+.header h1 {{ font-size: 1.5rem; font-weight: 700; }}
+.header h1 span {{ color: var(--primary); }}
+
+/* Stats bar */
+.stats-bar {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }}
+.stat-card {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }}
+.stat-card .label {{ font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }}
+.stat-card .value {{ font-size: 1.5rem; font-weight: 700; }}
+
+/* Scenario selector */
+.scenario-bar {{ display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 24px; }}
+.scenario-bar label {{ font-weight: 600; white-space: nowrap; }}
+.scenario-btns {{ display: flex; gap: 8px; }}
+.scenario-btn {{ padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.15s; }}
+.scenario-btn:hover {{ border-color: var(--primary); color: var(--primary); }}
+.scenario-btn.active {{ background: var(--primary); border-color: var(--primary); color: #fff; }}
+
+/* Tabs */
+.tabs {{ display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; overflow-x: auto; }}
+.tab {{ padding: 10px 20px; border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 0.875rem; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; }}
+.tab:hover {{ color: var(--text); }}
+.tab.active {{ color: var(--primary); border-bottom-color: var(--primary); }}
+.tab-panel {{ display: none; }}
+.tab-panel.active {{ display: block; }}
+
+/* Cards */
+.card {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; overflow: hidden; }}
+.card-header {{ padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }}
+.card-header h3 {{ font-size: 0.95rem; font-weight: 600; }}
+.card-body {{ padding: 20px; }}
+
+/* Tables */
+table {{ width: 100%; border-collapse: collapse; font-size: 0.875rem; }}
+th {{ text-align: left; padding: 10px 12px; color: var(--text-muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }}
+td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); }}
+tr:last-child td {{ border-bottom: none; }}
+tr:hover td {{ background: var(--surface2); }}
+
+/* Forms */
+.form-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }}
+.form-group {{ display: flex; flex-direction: column; gap: 4px; }}
+.form-group label {{ font-size: 0.75rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }}
+.form-group input, .form-group textarea, .form-group select {{
+    padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 0.875rem; font-family: inherit; transition: border-color 0.15s;
+}}
+.form-group input:focus, .form-group textarea:focus {{ outline: none; border-color: var(--primary); }}
+.form-group textarea {{ resize: vertical; min-height: 60px; }}
+.form-row {{ grid-column: 1 / -1; }}
+
+/* Buttons */
+.btn {{ padding: 8px 20px; border-radius: 6px; border: none; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }}
+.btn-primary {{ background: var(--primary); color: #fff; }}
+.btn-primary:hover {{ background: var(--primary-hover); }}
+.btn-success {{ background: var(--success); color: #fff; }}
+.btn-success:hover {{ opacity: 0.9; }}
+.btn-sm {{ padding: 6px 14px; font-size: 0.8rem; }}
+.form-actions {{ display: flex; gap: 8px; margin-top: 12px; }}
+
+/* Badges */
+.badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }}
+.badge-normal {{ background: rgba(34,197,94,0.15); color: var(--success); }}
+.badge-alert {{ background: rgba(245,158,11,0.15); color: var(--warning); }}
+.badge-alarm {{ background: rgba(239,68,68,0.15); color: var(--danger); }}
+.badge-critical {{ background: rgba(239,68,68,0.3); color: #ff6b6b; animation: pulse 1.5s infinite; }}
+@keyframes pulse {{ 0%,100% {{ opacity: 1; }} 50% {{ opacity: 0.6; }} }}
+
+/* Weather card */
+.weather-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; }}
+.weather-item {{ text-align: center; }}
+.weather-item .wi-value {{ font-size: 1.25rem; font-weight: 700; }}
+.weather-item .wi-label {{ font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }}
+
+/* Toast */
+.toast {{ position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 20px; font-size: 0.875rem; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1000; }}
+.toast.show {{ transform: translateY(0); opacity: 1; }}
+.toast.success {{ border-left: 3px solid var(--success); }}
+.toast.error {{ border-left: 3px solid var(--danger); }}
+
+.font-medium {{ font-weight: 500; }}
+.text-muted {{ color: var(--text-muted); }}
+.text-danger {{ color: var(--danger); }}
+.text-success {{ color: var(--success); }}
+.text-warning {{ color: var(--warning); }}
+.empty-state {{ text-align: center; padding: 40px; color: var(--text-muted); }}
 </style>
 </head>
 <body>
-<h1>MAS-FRO Mock Server Admin</h1>
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <h1><span>MAS-FRO</span> Mock Data Server</h1>
+        <span class="text-muted" style="font-size:0.8rem">localhost:8081</span>
+    </div>
 
-<div class="stats">
-    <h3>Current Data</h3>
-    <p>River Stations: {len(store.river_stations)}</p>
-    <p>Dam Levels: {len(store.dam_levels)}</p>
-    <p>Advisories: {len(store.advisories)}</p>
-    <p>Social Posts: {len(store.social_posts)}</p>
-    <p>Weather: {"Loaded" if store.current_weather else "Empty"}</p>
-</div>
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+        <div class="stat-card">
+            <div class="label">River Stations</div>
+            <div class="value" id="statRiver">{len(store.river_stations)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Dams</div>
+            <div class="value" id="statDam">{len(store.dam_levels)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Advisories</div>
+            <div class="value" id="statAdvisory">{len(store.advisories)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Social Posts</div>
+            <div class="value" id="statSocial">{len(store.social_posts)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Weather</div>
+            <div class="value" style="font-size:1rem">{w_main}</div>
+        </div>
+    </div>
 
-<div class="section">
-    <h3>Load Scenario</h3>
-    <form action="/admin/scenario/load" method="post" id="scenarioForm">
-        <select name="scenario" id="scenarioSelect">
-            <option value="light">Light (Normal)</option>
-            <option value="medium">Medium (Alert)</option>
-            <option value="heavy">Heavy (Critical)</option>
-        </select>
-        <button type="button" onclick="loadScenario()">Load Scenario</button>
-    </form>
-</div>
+    <!-- Scenario Bar -->
+    <div class="scenario-bar">
+        <label>Load Scenario:</label>
+        <div class="scenario-btns">
+            <button class="scenario-btn" onclick="loadScenario('light')">Light</button>
+            <button class="scenario-btn" onclick="loadScenario('medium')">Medium</button>
+            <button class="scenario-btn" onclick="loadScenario('heavy')">Heavy</button>
+        </div>
+    </div>
 
-<div class="section">
-    <h3>Add Social Post</h3>
-    <form id="socialForm">
-        <input type="text" id="postUsername" placeholder="Username" value="mock_user">
-        <textarea id="postText" placeholder="Tweet text" rows="3"></textarea>
-        <button type="button" onclick="addPost()">Add Post</button>
-    </form>
-</div>
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('river')">River Stations</button>
+        <button class="tab" onclick="switchTab('dam')">Dam Levels</button>
+        <button class="tab" onclick="switchTab('weather')">Weather</button>
+        <button class="tab" onclick="switchTab('advisory')">Advisories</button>
+        <button class="tab" onclick="switchTab('social')">Social Posts</button>
+    </div>
+
+    <!-- River Stations Tab -->
+    <div class="tab-panel active" id="panel-river">
+        <div class="card">
+            <div class="card-header">
+                <h3>River Monitoring Stations</h3>
+            </div>
+            <div class="card-body" style="padding:0">
+                <table>
+                    <thead><tr><th>Station</th><th>Water Level (m)</th><th>Alert (m)</th><th>Alarm (m)</th><th>Critical (m)</th><th>Status</th></tr></thead>
+                    <tbody id="riverTableBody">{river_rows if river_rows else '<tr><td colspan="6" class="empty-state">No stations loaded</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Add / Update River Station</h3></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Station Name</label>
+                        <input type="text" id="riverName" placeholder="e.g. Sto Nino">
+                    </div>
+                    <div class="form-group">
+                        <label>Water Level (m)</label>
+                        <input type="number" step="0.1" id="riverWL" placeholder="e.g. 15.2">
+                    </div>
+                    <div class="form-group">
+                        <label>Alert Level (m)</label>
+                        <input type="number" step="0.1" id="riverAL" placeholder="e.g. 15.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Alarm Level (m)</label>
+                        <input type="number" step="0.1" id="riverAM" placeholder="e.g. 16.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Critical Level (m)</label>
+                        <input type="number" step="0.1" id="riverCL" placeholder="e.g. 17.0">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="submitRiver()">Save Station</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dam Levels Tab -->
+    <div class="tab-panel" id="panel-dam">
+        <div class="card">
+            <div class="card-header"><h3>Dam Water Levels</h3></div>
+            <div class="card-body" style="padding:0">
+                <table>
+                    <thead><tr><th>Dam</th><th>RWL (m)</th><th>NHWL (m)</th><th>Dev NHWL</th><th>Rule Curve (m)</th><th>Dev RC</th></tr></thead>
+                    <tbody id="damTableBody">{dam_rows if dam_rows else '<tr><td colspan="6" class="empty-state">No dams loaded</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Add / Update Dam</h3></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Dam Name</label>
+                        <input type="text" id="damName" placeholder="e.g. ANGAT">
+                    </div>
+                    <div class="form-group">
+                        <label>Reservoir Water Level (m)</label>
+                        <input type="number" step="0.1" id="damRWL" placeholder="e.g. 212.3">
+                    </div>
+                    <div class="form-group">
+                        <label>NHWL (m)</label>
+                        <input type="number" step="0.1" id="damNHWL" placeholder="e.g. 212.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Dev from NHWL (m)</label>
+                        <input type="number" step="0.01" id="damDevNHWL" placeholder="e.g. 0.3">
+                    </div>
+                    <div class="form-group">
+                        <label>Rule Curve (m)</label>
+                        <input type="number" step="0.1" id="damRC" placeholder="e.g. 209.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Dev from Rule Curve (m)</label>
+                        <input type="number" step="0.01" id="damDevRC" placeholder="e.g. 3.3">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="submitDam()">Save Dam</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weather Tab -->
+    <div class="tab-panel" id="panel-weather">
+        <div class="card">
+            <div class="card-header"><h3>Current Weather</h3></div>
+            <div class="card-body">
+                <div class="weather-grid">
+                    <div class="weather-item">
+                        <div class="wi-value">{w_temp}C</div>
+                        <div class="wi-label">Temperature</div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="wi-value">{w_humidity}%</div>
+                        <div class="wi-label">Humidity</div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="wi-value">{w_pressure}</div>
+                        <div class="wi-label">Pressure (hPa)</div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="wi-value">{w_wind}</div>
+                        <div class="wi-label">Wind (m/s)</div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="wi-value">{w_rain}</div>
+                        <div class="wi-label">Rain 1h (mm)</div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="wi-value">{w_desc}</div>
+                        <div class="wi-label">Condition</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Update Weather</h3></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Condition</label>
+                        <select id="wxMain">
+                            <option value="Clear">Clear</option>
+                            <option value="Clouds">Clouds</option>
+                            <option value="Rain">Rain</option>
+                            <option value="Thunderstorm">Thunderstorm</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="wxDesc" placeholder="e.g. heavy intensity rain">
+                    </div>
+                    <div class="form-group">
+                        <label>Temperature (C)</label>
+                        <input type="number" step="0.1" id="wxTemp" placeholder="e.g. 26.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Humidity (%)</label>
+                        <input type="number" id="wxHumidity" placeholder="e.g. 88">
+                    </div>
+                    <div class="form-group">
+                        <label>Pressure (hPa)</label>
+                        <input type="number" id="wxPressure" placeholder="e.g. 1005">
+                    </div>
+                    <div class="form-group">
+                        <label>Wind Speed (m/s)</label>
+                        <input type="number" step="0.1" id="wxWind" placeholder="e.g. 5.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Rain 1h (mm)</label>
+                        <input type="number" step="0.1" id="wxRain1h" placeholder="e.g. 7.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Rain 3h Forecast (mm)</label>
+                        <input type="number" step="0.1" id="wxRain3h" placeholder="e.g. 15.0">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="submitWeather()">Update Weather</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advisories Tab -->
+    <div class="tab-panel" id="panel-advisory">
+        <div class="card">
+            <div class="card-header"><h3>Active Advisories</h3></div>
+            <div class="card-body" style="padding:0">
+                <table>
+                    <thead><tr><th>ID</th><th>Title</th><th>Text</th><th>Published</th></tr></thead>
+                    <tbody id="advisoryTableBody">{advisory_rows if advisory_rows else '<tr><td colspan="4" class="empty-state">No advisories loaded</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Create Advisory</h3></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group form-row">
+                        <label>Title</label>
+                        <input type="text" id="advTitle" placeholder="e.g. PAGASA Red Rainfall Warning - Marikina City">
+                    </div>
+                    <div class="form-group form-row">
+                        <label>Advisory Text</label>
+                        <textarea id="advText" rows="4" placeholder="Full advisory text..."></textarea>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="submitAdvisory()">Create Advisory</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Social Posts Tab -->
+    <div class="tab-panel" id="panel-social">
+        <div class="card">
+            <div class="card-header"><h3>Social Media Feed</h3></div>
+            <div class="card-body" style="padding:0">
+                <table>
+                    <thead><tr><th>User</th><th>Text</th><th>Image</th><th>Timestamp</th></tr></thead>
+                    <tbody id="socialTableBody">{post_rows if post_rows else '<tr><td colspan="4" class="empty-state">No posts loaded</td></tr>'}</tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Create Social Post</h3></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="postUser" placeholder="@marikina_resident" value="mock_user">
+                    </div>
+                    <div class="form-group">
+                        <label>Image (optional)</label>
+                        <input type="file" id="postImage" accept="image/*" style="padding:6px">
+                    </div>
+                    <div class="form-group form-row">
+                        <label>Tweet Text</label>
+                        <textarea id="postText" rows="3" placeholder="e.g. Waist-deep flooding sa Tumana! #BahaMarikina"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Replies</label>
+                        <input type="number" id="postReplies" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Retweets</label>
+                        <input type="number" id="postRetweets" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Likes</label>
+                        <input type="number" id="postLikes" value="0" min="0">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="submitPost()">Create Post</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- container -->
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
 
 <script>
-async function loadScenario() {{
-    const scenario = document.getElementById('scenarioSelect').value;
-    const resp = await fetch('/admin/scenario/load', {{
-        method: 'POST', headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{scenario}})
+// --- Tab switching ---
+function switchTab(name) {{
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    // Find the matching tab button
+    document.querySelectorAll('.tab').forEach(t => {{
+        if (t.textContent.toLowerCase().includes(name.replace('advisory','advisor').replace('social','social'))) t.classList.add('active');
     }});
-    const data = await resp.json();
-    alert(JSON.stringify(data, null, 2));
-    location.reload();
+    event.target.classList.add('active');
 }}
-async function addPost() {{
-    const resp = await fetch('/admin/social/post', {{
-        method: 'POST', headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{
-            username: document.getElementById('postUsername').value,
-            text: document.getElementById('postText').value
-        }})
+
+// --- Toast ---
+function showToast(msg, type) {{
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (type || 'success');
+    setTimeout(() => t.className = 'toast', 3000);
+}}
+
+// --- API helpers ---
+async function api(url, body) {{
+    try {{
+        const resp = await fetch(url, {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify(body)
+        }});
+        const data = await resp.json();
+        if (data.status === 'error') throw new Error(data.message);
+        return data;
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+        throw e;
+    }}
+}}
+
+// --- Scenario ---
+async function loadScenario(name) {{
+    const data = await api('/admin/scenario/load', {{scenario: name}});
+    showToast('Loaded ' + name + ' scenario (' + data.river_stations + ' stations, ' + data.social_posts + ' posts)');
+    document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    setTimeout(() => location.reload(), 800);
+}}
+
+// --- River ---
+async function submitRiver() {{
+    const name = document.getElementById('riverName').value.trim();
+    if (!name) {{ showToast('Station name is required', 'error'); return; }}
+    const body = {{ station_name: name }};
+    const wl = document.getElementById('riverWL').value;
+    const al = document.getElementById('riverAL').value;
+    const am = document.getElementById('riverAM').value;
+    const cl = document.getElementById('riverCL').value;
+    if (wl) body.water_level_m = parseFloat(wl);
+    if (al) body.alert_level_m = parseFloat(al);
+    if (am) body.alarm_level_m = parseFloat(am);
+    if (cl) body.critical_level_m = parseFloat(cl);
+    await api('/admin/river/update', body);
+    showToast('Station "' + name + '" saved');
+    setTimeout(() => location.reload(), 800);
+}}
+
+// --- Dam ---
+async function submitDam() {{
+    const name = document.getElementById('damName').value.trim();
+    if (!name) {{ showToast('Dam name is required', 'error'); return; }}
+    const body = {{ dam_name: name }};
+    const fields = [['damRWL','latest_rwl'],['damNHWL','nhwl'],['damDevNHWL','dev_nhwl'],['damRC','rule_curve'],['damDevRC','dev_rule_curve']];
+    fields.forEach(([id, key]) => {{
+        const v = document.getElementById(id).value;
+        if (v) body[key] = parseFloat(v);
     }});
-    const data = await resp.json();
-    alert('Post added: ' + data.tweet_id);
-    location.reload();
+    await api('/admin/dam/update', body);
+    showToast('Dam "' + name + '" saved');
+    setTimeout(() => location.reload(), 800);
+}}
+
+// --- Weather ---
+async function submitWeather() {{
+    const body = {{ weather_main: document.getElementById('wxMain').value }};
+    const desc = document.getElementById('wxDesc').value.trim();
+    if (desc) body.weather_description = desc;
+    const fields = [['wxTemp','temp'],['wxHumidity','humidity'],['wxPressure','pressure'],['wxWind','wind_speed'],['wxRain1h','rain_1h'],['wxRain3h','rain_3h_forecast']];
+    fields.forEach(([id, key]) => {{
+        const v = document.getElementById(id).value;
+        if (v) body[key] = parseFloat(v);
+    }});
+    await api('/admin/weather/update', body);
+    showToast('Weather updated');
+    setTimeout(() => location.reload(), 800);
+}}
+
+// --- Advisory ---
+async function submitAdvisory() {{
+    const title = document.getElementById('advTitle').value.trim();
+    const text = document.getElementById('advText').value.trim();
+    if (!title || !text) {{ showToast('Title and text are required', 'error'); return; }}
+    await api('/admin/advisory/create', {{ title, text }});
+    showToast('Advisory created');
+    setTimeout(() => location.reload(), 800);
+}}
+
+// --- Social Post ---
+async function submitPost() {{
+    const text = document.getElementById('postText').value.trim();
+    if (!text) {{ showToast('Tweet text is required', 'error'); return; }}
+    const fileInput = document.getElementById('postImage');
+    const formData = new FormData();
+    formData.append('username', document.getElementById('postUser').value.trim() || 'mock_user');
+    formData.append('text', text);
+    formData.append('replies', document.getElementById('postReplies').value || '0');
+    formData.append('retweets', document.getElementById('postRetweets').value || '0');
+    formData.append('likes', document.getElementById('postLikes').value || '0');
+    if (fileInput.files.length > 0) {{
+        formData.append('image', fileInput.files[0]);
+    }}
+    try {{
+        const resp = await fetch('/admin/social/post-with-image', {{
+            method: 'POST',
+            body: formData
+        }});
+        const data = await resp.json();
+        if (data.status === 'error') throw new Error(data.message);
+        showToast('Post created');
+        setTimeout(() => location.reload(), 800);
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
 }}
 </script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
 
+
+# --- API Endpoints ---
 
 @router.post("/admin/scenario/load")
 async def load_scenario_endpoint(req: ScenarioRequest):
@@ -151,6 +723,36 @@ async def create_social_post(req: SocialPostRequest):
     """Create a new social post."""
     store = get_data_store()
     return store.add_social_post(req.model_dump())
+
+
+@router.post("/admin/social/post-with-image")
+async def create_social_post_with_image(
+    username: str = Form("mock_user"),
+    text: str = Form(...),
+    replies: str = Form("0"),
+    retweets: str = Form("0"),
+    likes: str = Form("0"),
+    image: Optional[UploadFile] = File(None),
+):
+    """Create a social post with an optional image file upload."""
+    image_path = None
+    if image and image.filename:
+        ext = Path(image.filename).suffix or ".jpg"
+        filename = f"{uuid.uuid4().hex}{ext}"
+        save_path = UPLOADS_DIR / filename
+        content = await image.read()
+        save_path.write_bytes(content)
+        image_path = f"/uploads/{filename}"
+
+    store = get_data_store()
+    return store.add_social_post({
+        "username": username,
+        "text": text,
+        "image_path": image_path,
+        "replies": replies,
+        "retweets": retweets,
+        "likes": likes,
+    })
 
 
 @router.post("/admin/river/update")
@@ -181,8 +783,9 @@ async def update_weather(req: WeatherUpdateRequest):
     if not weather_update["current"]:
         weather_update["current"] = {
             "coord": {"lon": 121.1029, "lat": 14.6507},
-            "weather": [{"main": req.weather_main}],
+            "weather": [{"main": req.weather_main, "description": req.weather_description or req.weather_main.lower()}],
             "main": {"temp": 30.0, "humidity": 70, "pressure": 1013},
+            "wind": {"speed": 3.0},
             "rain": {},
             "dt": int(time.time()),
             "name": "Marikina",
@@ -194,9 +797,14 @@ async def update_weather(req: WeatherUpdateRequest):
         weather_update["current"].setdefault("main", {})["humidity"] = req.humidity
     if req.pressure is not None:
         weather_update["current"].setdefault("main", {})["pressure"] = req.pressure
+    if req.wind_speed is not None:
+        weather_update["current"].setdefault("wind", {})["speed"] = req.wind_speed
     if req.rain_1h is not None:
         weather_update["current"]["rain"] = {"1h": req.rain_1h}
-    weather_update["current"]["weather"] = [{"main": req.weather_main}]
+    weather_update["current"]["weather"] = [{
+        "main": req.weather_main,
+        "description": req.weather_description or req.weather_main.lower(),
+    }]
 
     store.update_weather(weather_update)
     return {"status": "success"}

@@ -11,11 +11,17 @@ Usage:
     uvicorn mock_server.main:app --host 0.0.0.0 --port 8081
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .routers import pagasa_router, weather_router, news_router, social_router, admin_router
 from .scenarios import load_scenario
+
+UPLOADS_DIR = Path(__file__).parent / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(
     title="MAS-FRO Mock Data Server",
@@ -38,6 +44,9 @@ app.include_router(weather_router.router)
 app.include_router(news_router.router)
 app.include_router(social_router.router)
 app.include_router(admin_router.router)
+
+# Serve uploaded images
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
 @app.get("/")
