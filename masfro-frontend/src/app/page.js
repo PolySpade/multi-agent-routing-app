@@ -5,7 +5,8 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import LocationSearch from '@/components/LocationSearch';
 import FeedbackForm from '@/components/FeedbackForm';
-import SimulationPanel from '@/components/SimulationPanel';
+import DistressCallModal from '@/components/DistressCallModal';
+import EvacuationFeedbackForm from '@/components/EvacuationFeedbackForm';
 import AgentDataPanel from '@/components/AgentDataPanel';
 import EvacuationCentersPanel from '@/components/EvacuationCentersPanel';
 import OrchestratorChat from '@/components/OrchestratorChat';
@@ -85,8 +86,12 @@ export default function Home() {
   const [showAgentPanel, setShowAgentPanel] = useState(true);
   const [showEvacuationPanel, setShowEvacuationPanel] = useState(true);
   const [routingMode, setRoutingMode] = useState('balanced'); // 'safest', 'balanced', 'fastest'
+  const [showDistressModal, setShowDistressModal] = useState(false);
+  const [showEvacFeedback, setShowEvacFeedback] = useState(false);
+  const [evacFeedbackCenter, setEvacFeedbackCenter] = useState(null);
+  const [evacuationToast, setEvacuationToast] = useState(null);
 
-  const { isConnected, systemStatus } = useWebSocketContext();
+  const { isConnected, systemStatus, evacuationUpdates, distressAlerts } = useWebSocketContext();
 
   // --- Map Component ---
   const MapboxMap = useMemo(() => dynamic(() => import('@/components/MapboxMap'), { 
@@ -191,6 +196,25 @@ export default function Home() {
       else if (systemStatus.graph_status === 'not_loaded') setMessage('System Warning: Graph offline.');
     }
   }, [systemStatus, loading]);
+
+  // Evacuation toast notifications
+  useEffect(() => {
+    if (evacuationUpdates.length > 0) {
+      const latest = evacuationUpdates[0];
+      setEvacuationToast(`Evacuation update: ${latest.data?.state || 'new event'}`);
+      const timer = setTimeout(() => setEvacuationToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [evacuationUpdates]);
+
+  useEffect(() => {
+    if (distressAlerts.length > 0) {
+      const latest = distressAlerts[0];
+      setEvacuationToast(`Distress alert: Mission ${latest.data?.mission_id?.slice(0, 8) || 'started'}...`);
+      const timer = setTimeout(() => setEvacuationToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [distressAlerts]);
 
   const hasRoute = Array.isArray(routePath) && routePath.length > 0;
 
@@ -625,6 +649,19 @@ export default function Home() {
                 >
                   🏥 {showEvacuationPanel ? 'Hide' : 'Show'} Centers
                 </button>
+                <button
+                  onClick={() => setShowDistressModal(true)}
+                  className="nav-link"
+                  style={{
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    cursor: 'pointer',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    color: '#fca5a5',
+                    fontWeight: 700,
+                  }}
+                >
+                  SOS
+                </button>
               </div>
             </header>
 
@@ -1007,12 +1044,6 @@ export default function Home() {
             }}
           />
 
-          {/* Simulation Panel */}
-          <SimulationPanel
-            isConnected={isConnected}
-            floodData={null}
-          />
-
           {/* Agent Data Panel */}
           {showAgentPanel && <AgentDataPanel />}
 
@@ -1022,6 +1053,10 @@ export default function Home() {
               onSelectDestination={(lat, lng, name) => {
                 setEndPoint({ lat, lng });
                 setMessage(`Destination set to ${name}. Click "Find Safest Route" to calculate.`);
+              }}
+              onReportIssue={(centerName) => {
+                setEvacFeedbackCenter(centerName);
+                setShowEvacFeedback(true);
               }}
             />
           )}
@@ -1038,6 +1073,63 @@ export default function Home() {
               currentLocation={feedbackLocation}
             />
           </div>
+        </div>
+      )}
+
+      {/* --- Distress Call Modal --- */}
+      {showDistressModal && (
+        <div className="modal-overlay" onClick={() => setShowDistressModal(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <DistressCallModal
+              onClose={() => setShowDistressModal(false)}
+              onRouteResult={(route) => {
+                if (route?.path) {
+                  setRoutePath(route.path);
+                  setRouteMeta({
+                    distance: route.distance,
+                    riskLevel: route.risk_level,
+                    provider: 'backend',
+                  });
+                  setMessage('Evacuation route displayed.');
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* --- Evacuation Feedback Modal --- */}
+      {showEvacFeedback && (
+        <div className="modal-overlay" onClick={() => setShowEvacFeedback(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <EvacuationFeedbackForm
+              onClose={() => { setShowEvacFeedback(false); setEvacFeedbackCenter(null); }}
+              prefilledCenter={evacFeedbackCenter}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* --- Evacuation Toast --- */}
+      {evacuationToast && (
+        <div style={{
+          position: 'fixed',
+          top: '1.5rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2000,
+          background: 'rgba(139, 92, 246, 0.9)',
+          backdropFilter: 'blur(8px)',
+          color: 'white',
+          padding: '0.75rem 1.5rem',
+          borderRadius: '12px',
+          fontSize: '0.9rem',
+          fontWeight: 600,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          border: '1px solid rgba(139, 92, 246, 0.5)',
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          {evacuationToast}
         </div>
       )}
     </div>

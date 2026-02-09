@@ -4,17 +4,22 @@
 Evacuation Center Service for MAS-FRO
 
 Manages evacuation center capacity tracking, occupancy updates, and
-availability status. Integrates with simulation to show centers filling up.
+availability status. Backed by PostgreSQL for persistent occupancy.
 
 Author: MAS-FRO Development Team
-Date: November 2025
+Date: February 2026
 """
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 import logging
 from datetime import datetime
+
+from sqlalchemy.orm import Session
+
+from app.database.connection import SessionLocal
+from app.database.repository import EvacuationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -23,153 +28,92 @@ class EvacuationCenterService:
     """
     Service for managing evacuation center data and capacity.
 
-    Tracks current occupancy, calculates availability status, and provides
-    methods for updating occupancy during simulations.
-
-    Attributes:
-        centers: DataFrame containing evacuation center information
-        occupancy: Dict mapping center names to current occupancy counts
+    Uses PostgreSQL via EvacuationRepository for persistent storage.
+    Each public method opens its own DB session so the service is
+    safe to use as a long-lived singleton.
     """
 
-    def __init__(self, csv_path: Optional[Path] = None):
+    def __init__(self, db_session_factory: Optional[Callable[[], Session]] = None):
         """
         Initialize the evacuation center service.
 
         Args:
-            csv_path: Optional path to evacuation centers CSV file
+            db_session_factory: Callable returning a new SQLAlchemy Session.
+                                Defaults to SessionLocal.
         """
-        self.centers: pd.DataFrame = pd.DataFrame()
-        self.occupancy: Dict[str, int] = {}
-        self.last_update: datetime = datetime.now()
+        self._session_factory = db_session_factory or SessionLocal
+        logger.info("EvacuationCenterService initialized (DB-backed)")
 
-        # Load centers from CSV
-        if csv_path and csv_path.exists():
-            self.load_from_csv(csv_path)
-        else:
-            # Try default paths
-            self._load_default_centers()
+    def _get_repo(self, db: Session) -> EvacuationRepository:
+        return EvacuationRepository(db)
 
-        logger.info(
-            f"EvacuationCenterService initialized with {len(self.centers)} centers"
-        )
-
-    def _load_default_centers(self) -> None:
-        """Load evacuation centers from default paths."""
-        possible_paths = [
-            Path(__file__).parent.parent / "data" / "evacuation_centers.csv",
-            Path(__file__).parent.parent.parent / "data" / "evacuation_centers.csv",
-        ]
-
-        for csv_path in possible_paths:
-            if csv_path.exists():
-                self.load_from_csv(csv_path)
-                return
-
-        logger.warning("No evacuation centers CSV found, using empty dataset")
-
-    def load_from_csv(self, csv_path: Path) -> None:
-        """
-        Load evacuation centers from CSV file.
-
-        Args:
-            csv_path: Path to CSV file
-        """
+    def seed_from_csv(self, csv_path: Path) -> int:
+        """Seed the DB from CSV if table is empty. Returns count inserted."""
+        db = self._session_factory()
         try:
-            self.centers = pd.read_csv(csv_path)
-            logger.info(f"Loaded {len(self.centers)} evacuation centers from {csv_path}")
-
-            # Initialize occupancy to 0 for all centers
-            self.occupancy = {row['name']: 0 for _, row in self.centers.iterrows()}
-
-        except Exception as e:
-            logger.error(f"Failed to load evacuation centers: {e}")
-            self.centers = pd.DataFrame()
-            self.occupancy = {}
+            return self._get_repo(db).seed_from_csv(csv_path)
+        finally:
+            db.close()
 
     def get_all_centers(self) -> List[Dict[str, Any]]:
         """
         Get all evacuation centers with current status.
 
         Returns:
-            List of center dictionaries with capacity status
+            List of center dictionaries with capacity status.
         """
-        if self.centers.empty:
-            return []
+        db = self._session_factory()
+        try:
+            repo = self._get_repo(db)
+            centers = repo.get_all_centers()
 
-        centers_list = []
-        for _, row in self.centers.iterrows():
-            lat = row.get('latitude')
-            lon = row.get('longitude')
-            # Skip rows with invalid coordinates
-            if pd.isna(lat) or pd.isna(lon):
-                continue
+            centers_list = []
+            for c in centers:
+                capacity = c.capacity or 0
+                current_occupancy = c.current_occupancy or 0
+                occupancy_ratio = current_occupancy / capacity if capacity > 0 else 0
 
-            center_name = str(row['name']) if pd.notna(row.get('name')) else 'Unknown'
-            try:
-                capacity = int(row['capacity']) if pd.notna(row.get('capacity')) else 0
-            except (ValueError, TypeError, OverflowError):
-                capacity = 0
-            current_occupancy = self.occupancy.get(center_name, 0)
+                if occupancy_ratio >= 0.95:
+                    status = "full"
+                elif occupancy_ratio >= 0.70:
+                    status = "limited"
+                else:
+                    status = "available"
 
-            # Calculate availability status
-            occupancy_ratio = current_occupancy / capacity if capacity > 0 else 0
-            if occupancy_ratio >= 0.95:
-                status = 'full'
-            elif occupancy_ratio >= 0.70:
-                status = 'limited'
-            else:
-                status = 'available'
+                centers_list.append({
+                    "name": c.name,
+                    "coordinates": {
+                        "lat": c.latitude,
+                        "lon": c.longitude,
+                    },
+                    "location": "",
+                    "barangay": c.barangay or "",
+                    "capacity": capacity,
+                    "current_occupancy": current_occupancy,
+                    "available_slots": max(0, capacity - current_occupancy),
+                    "occupancy_percentage": round(occupancy_ratio * 100, 1),
+                    "status": status,
+                    "type": c.type or "unknown",
+                    "contact": c.contact or "",
+                    "facilities": c.facilities.split(", ") if c.facilities else [],
+                })
 
-            def _safe_str(val, default=''):
-                return str(val) if pd.notna(val) else default
-
-            centers_list.append({
-                'name': center_name,
-                'coordinates': {
-                    'lat': float(lat),
-                    'lon': float(lon)
-                },
-                'location': _safe_str(row.get('address')),
-                'barangay': _safe_str(row.get('barangay')),
-                'capacity': capacity,
-                'current_occupancy': current_occupancy,
-                'available_slots': max(0, capacity - current_occupancy),
-                'occupancy_percentage': round(occupancy_ratio * 100, 1),
-                'status': status,
-                'type': _safe_str(row.get('type'), 'unknown'),
-                'contact': _safe_str(row.get('contact')),
-                'facilities': _safe_str(row.get('facilities')).split(', ') if pd.notna(row.get('facilities')) else []
-            })
-
-        # Sort by availability (available first, then limited, then full)
-        status_order = {'available': 0, 'limited': 1, 'full': 2}
-        centers_list.sort(key=lambda x: (status_order[x['status']], -x['available_slots']))
-
-        return centers_list
+            status_order = {"available": 0, "limited": 1, "full": 2}
+            centers_list.sort(key=lambda x: (status_order[x["status"]], -x["available_slots"]))
+            return centers_list
+        finally:
+            db.close()
 
     def get_available_centers(self) -> List[Dict[str, Any]]:
-        """
-        Get only available evacuation centers (not full).
-
-        Returns:
-            List of centers with status 'available' or 'limited'
-        """
+        """Get only available evacuation centers (not full)."""
         all_centers = self.get_all_centers()
-        return [c for c in all_centers if c['status'] != 'full']
+        return [c for c in all_centers if c["status"] != "full"]
 
     def get_center_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """
-        Get specific evacuation center by name.
-
-        Args:
-            name: Name of the evacuation center
-
-        Returns:
-            Center dictionary or None if not found
-        """
+        """Get specific evacuation center by name."""
         all_centers = self.get_all_centers()
         for center in all_centers:
-            if center['name'] == name:
+            if center["name"] == name:
                 return center
         return None
 
@@ -177,113 +121,54 @@ class EvacuationCenterService:
         """
         Update occupancy for a specific center.
 
-        Args:
-            center_name: Name of the evacuation center
-            occupancy: New occupancy count
-
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise.
         """
-        if center_name not in self.occupancy:
-            logger.warning(f"Center '{center_name}' not found")
-            return False
-
-        # Get capacity to validate
-        center_row = self.centers[self.centers['name'] == center_name]
-        if center_row.empty:
-            return False
-
-        raw_cap = center_row.iloc[0].get('capacity')
+        db = self._session_factory()
         try:
-            capacity = int(raw_cap) if pd.notna(raw_cap) else 0
-        except (ValueError, TypeError, OverflowError):
-            capacity = 0
-
-        # Clamp occupancy to valid range
-        occupancy = max(0, min(occupancy, capacity))
-
-        old_occupancy = self.occupancy[center_name]
-        self.occupancy[center_name] = occupancy
-        self.last_update = datetime.now()
-
-        logger.info(
-            f"Updated {center_name}: {old_occupancy} -> {occupancy} "
-            f"({occupancy}/{capacity} = {(occupancy/capacity*100):.1f}%)"
-        )
-
-        return True
+            repo = self._get_repo(db)
+            return repo.update_occupancy(center_name, occupancy, event_type="manual_update")
+        finally:
+            db.close()
 
     def add_evacuees(self, center_name: str, count: int) -> Dict[str, Any]:
-        """
-        Add evacuees to a center (for simulation).
-
-        Args:
-            center_name: Name of the evacuation center
-            count: Number of evacuees to add
-
-        Returns:
-            Dict with result status and updated center info
-        """
-        center = self.get_center_by_name(center_name)
-        if not center:
-            return {
-                'success': False,
-                'message': f"Center '{center_name}' not found"
-            }
-
-        new_occupancy = center['current_occupancy'] + count
-        available_slots = center['available_slots']
-
-        if count > available_slots:
-            return {
-                'success': False,
-                'message': f"Not enough space. Requested: {count}, Available: {available_slots}",
-                'center': center
-            }
-
-        self.update_occupancy(center_name, new_occupancy)
-
-        return {
-            'success': True,
-            'message': f"Added {count} evacuees to {center_name}",
-            'center': self.get_center_by_name(center_name)
-        }
+        """Add evacuees to a center."""
+        db = self._session_factory()
+        try:
+            repo = self._get_repo(db)
+            result = repo.add_evacuees(center_name, count)
+            if result["success"]:
+                # Re-fetch formatted center dict for response
+                result["center"] = self.get_center_by_name(center_name)
+            return result
+        finally:
+            db.close()
 
     def reset_all_occupancy(self) -> None:
-        """Reset occupancy to 0 for all centers (for simulation reset)."""
-        for center_name in self.occupancy:
-            self.occupancy[center_name] = 0
-        self.last_update = datetime.now()
-        logger.info("Reset all evacuation center occupancy to 0")
+        """Reset occupancy to 0 for all centers."""
+        db = self._session_factory()
+        try:
+            self._get_repo(db).reset_all_occupancy()
+        finally:
+            db.close()
 
     def get_statistics(self) -> Dict[str, Any]:
+        """Get overall statistics about evacuation centers."""
+        db = self._session_factory()
+        try:
+            return self._get_repo(db).get_statistics()
+        finally:
+            db.close()
+
+    def get_centers_as_dataframe(self) -> pd.DataFrame:
         """
-        Get overall statistics about evacuation centers.
-
-        Returns:
-            Dict with statistics
+        Get all centers as a DataFrame (for routing_agent compatibility).
         """
-        all_centers = self.get_all_centers()
-
-        total_capacity = sum(c['capacity'] for c in all_centers)
-        total_occupancy = sum(c['current_occupancy'] for c in all_centers)
-        total_available = sum(c['available_slots'] for c in all_centers)
-
-        status_counts = {
-            'available': len([c for c in all_centers if c['status'] == 'available']),
-            'limited': len([c for c in all_centers if c['status'] == 'limited']),
-            'full': len([c for c in all_centers if c['status'] == 'full'])
-        }
-
-        return {
-            'total_centers': len(all_centers),
-            'total_capacity': total_capacity,
-            'total_occupancy': total_occupancy,
-            'total_available_slots': total_available,
-            'overall_occupancy_percentage': round((total_occupancy / total_capacity * 100) if total_capacity > 0 else 0, 1),
-            'status_counts': status_counts,
-            'last_update': self.last_update.isoformat()
-        }
+        db = self._session_factory()
+        try:
+            return self._get_repo(db).get_centers_as_dataframe()
+        finally:
+            db.close()
 
 
 # Global instance (singleton pattern)

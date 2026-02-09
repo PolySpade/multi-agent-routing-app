@@ -164,7 +164,8 @@ class RoutingAgent(BaseAgent):
         risk_penalty: float = 3.0,  # BALANCED MODE: cost multiplier (1 + risk * 3.0)
         distance_weight: float = 1.0,   # Always 1.0 to preserve A* heuristic consistency
         llm_service: Optional[Any] = None,
-        message_queue: Optional[Any] = None
+        message_queue: Optional[Any] = None,
+        evacuation_service: Optional[Any] = None
     ) -> None:
         """
         Initialize the RoutingAgent.
@@ -184,6 +185,7 @@ class RoutingAgent(BaseAgent):
             distance_weight: Weight for distance (always 1.0 for A* consistency)
             llm_service: Optional LLMService instance for smart routing features
             message_queue: Optional MessageQueue for MAS communication
+            evacuation_service: Optional EvacuationCenterService for DB-backed centers
         """
         super().__init__(agent_id, environment)
 
@@ -210,7 +212,8 @@ class RoutingAgent(BaseAgent):
         self._cache_misses = 0
         self._max_cache_size = 10000
 
-        # Load evacuation centers
+        # Load evacuation centers from DB service or fall back to CSV
+        self._evacuation_service = evacuation_service
         self.evacuation_centers = self._load_evacuation_centers()
 
         logger.info(
@@ -899,66 +902,39 @@ class RoutingAgent(BaseAgent):
 
     def _load_evacuation_centers(self) -> pd.DataFrame:
         """
-        Load evacuation center data from CSV file.
+        Load evacuation center data from the DB-backed EvacuationCenterService.
+
+        Falls back to CSV if no service is provided (e.g., during tests).
 
         Returns:
             DataFrame with evacuation center information
         """
+        # Prefer DB-backed service
+        if self._evacuation_service is not None:
+            try:
+                df = self._evacuation_service.get_centers_as_dataframe()
+                if not df.empty:
+                    logger.info(f"Loaded {len(df)} evacuation centers from DB")
+                    return df
+            except Exception as e:
+                logger.warning(f"Failed to load centers from DB, falling back to CSV: {e}")
+
+        # Fallback: load directly from CSV
         try:
-            # Try multiple possible paths
             possible_paths = [
                 Path(__file__).parent.parent / "data" / "evacuation_centers.csv",
                 Path(__file__).parent.parent.parent / "data" / "evacuation_centers.csv",
             ]
-
             for csv_path in possible_paths:
                 if csv_path.exists():
                     df = pd.read_csv(csv_path)
                     logger.info(f"Loaded {len(df)} evacuation centers from {csv_path}")
                     return df
-
-            # If no file found, create sample data
-            logger.warning("Evacuation centers file not found, creating sample data")
-            return self._create_sample_evacuation_centers()
-
         except Exception as e:
-            logger.error(f"Failed to load evacuation centers: {e}")
-            return pd.DataFrame(
-                columns=['name', 'latitude', 'longitude', 'capacity', 'type']
-            )
+            logger.error(f"Failed to load evacuation centers from CSV: {e}")
 
-    def _create_sample_evacuation_centers(self) -> pd.DataFrame:
-        """
-        Create sample evacuation center data for testing.
-
-        Returns:
-            DataFrame with sample evacuation centers
-        """
-        sample_data = [
-            {
-                "name": "Marikina Elementary School",
-                "latitude": 14.6507,
-                "longitude": 121.1029,
-                "capacity": 200,
-                "type": "school"
-            },
-            {
-                "name": "Marikina Sports Center",
-                "latitude": 14.6545,
-                "longitude": 121.1089,
-                "capacity": 500,
-                "type": "gymnasium"
-            },
-            {
-                "name": "Barangay Concepcion Covered Court",
-                "latitude": 14.6480,
-                "longitude": 121.0980,
-                "capacity": 150,
-                "type": "covered_court"
-            },
-        ]
-
-        return pd.DataFrame(sample_data)
+        logger.warning("No evacuation centers available")
+        return pd.DataFrame(columns=["name", "latitude", "longitude", "capacity", "type"])
 
     def get_statistics(self) -> Dict[str, Any]:
         """

@@ -913,6 +913,51 @@ class HazardAgent(BaseAgent):
         # Use existing batch processing method
         self.process_flood_data_batch(data)
 
+    def _geocode_report(self, report: Dict[str, Any]) -> bool:
+        """
+        Attempt to geocode a scout report that lacks coordinates.
+
+        Uses LocationGeocoder to resolve the report's location name to
+        (lat, lon) coordinates. If successful, adds 'coordinates' dict
+        to the report in-place.
+
+        Args:
+            report: Scout report dict (modified in-place if geocoding succeeds)
+
+        Returns:
+            True if coordinates were resolved, False otherwise
+        """
+        if not self.geocoder:
+            return False
+
+        # Already has valid coordinates
+        coords = report.get('coordinates')
+        if (coords and isinstance(coords, dict)
+                and coords.get('lat') is not None
+                and coords.get('lon') is not None):
+            return True
+
+        location_name = report.get('location', '')
+        if not location_name:
+            return False
+
+        # Try geocoding with fuzzy match (threshold 0.6 for messy NLP text)
+        resolved = self.geocoder.get_coordinates(location_name, fuzzy=True, threshold=0.6)
+        if resolved:
+            lat, lon = resolved
+            report['coordinates'] = {'lat': lat, 'lon': lon}
+            report['geocoded'] = True  # Flag so we know this was resolved
+            logger.info(
+                f"{self.agent_id} geocoded '{location_name}' -> "
+                f"({lat:.4f}, {lon:.4f})"
+            )
+            return True
+
+        logger.debug(
+            f"{self.agent_id} failed to geocode location: '{location_name}'"
+        )
+        return False
+
     def _handle_scout_report_batch(self, data: Dict[str, Any], sender: str) -> None:
         """
         Handle scout report batch from ScoutAgent.
@@ -934,14 +979,34 @@ class HazardAgent(BaseAgent):
             f"{report_count} reports ({'with' if has_coordinates else 'without'} coordinates)"
         )
 
-        # Use appropriate processing method based on coordinate availability
         if has_coordinates:
             # Process reports with coordinates (spatial filtering enabled)
             self.process_scout_data_with_coordinates(reports)
         else:
-            # Process reports without coordinates (legacy method)
+            # Attempt geocoding for reports without coordinates
+            geocoded_reports = []
+            ungeocodable_reports = []
+
             for report in reports:
-                self.process_scout_data(report)
+                if self._geocode_report(report):
+                    geocoded_reports.append(report)
+                else:
+                    ungeocodable_reports.append(report)
+
+            if geocoded_reports:
+                logger.info(
+                    f"{self.agent_id} geocoded {len(geocoded_reports)}/{len(reports)} "
+                    f"scout reports -> routing to spatial processing"
+                )
+                self.process_scout_data_with_coordinates(geocoded_reports)
+
+            if ungeocodable_reports:
+                logger.warning(
+                    f"{self.agent_id} {len(ungeocodable_reports)} reports could not "
+                    f"be geocoded -> using global risk fallback"
+                )
+                for report in ungeocodable_reports:
+                    self.process_scout_data([report])
 
     def process_and_update(self) -> Dict[str, Any]:
         """
@@ -1267,6 +1332,10 @@ class HazardAgent(BaseAgent):
         """
         Process crowdsourced data from ScoutAgent.
 
+        Attempts geocoding for reports without coordinates. Successfully
+        geocoded reports are routed to spatial processing; others are
+        cached by location name for global risk fusion.
+
         Args:
             scout_reports: List of crowdsourced reports
                 Expected format:
@@ -1283,8 +1352,10 @@ class HazardAgent(BaseAgent):
         """
         logger.info(f"{self.agent_id} received {len(scout_reports)} scout reports")
 
-        # Validate, deduplicate, and add to cache
+        # Validate, deduplicate, geocode, and add to cache
         valid_count = 0
+        geocoded_reports = []
+
         for report in scout_reports:
             if not self._validate_scout_data(report):
                 logger.warning(f"Invalid scout report: {report}")
@@ -1302,8 +1373,20 @@ class HazardAgent(BaseAgent):
                 logger.debug(f"Skipping duplicate scout report: {report_location}")
                 continue
 
+            # Try geocoding before caching
+            if self._geocode_report(report):
+                geocoded_reports.append(report)
+
             self._add_to_scout_cache(report, cache_key)
             valid_count += 1
+
+        # Route geocoded reports to spatial processing for precise edge updates
+        if geocoded_reports:
+            logger.info(
+                f"{self.agent_id} geocoded {len(geocoded_reports)}/{valid_count} "
+                f"reports in process_scout_data -> spatial processing"
+            )
+            self.process_scout_data_with_coordinates(geocoded_reports)
 
         # Mark that we have new data to process on next step()
         if valid_count > 0:
@@ -1482,12 +1565,24 @@ class HazardAgent(BaseAgent):
                 fused_data[location]["confidence"] += min(scout_total_weights[location], 1.0) * 0.6
                 fused_data[location]["sources"].append("scout_agent")
 
-        # Normalize risk levels to 0-1 scale (cap, not rescale)
+        # Normalize risk levels and pre-geocode locations for spatial filtering
+        geocoded_count = 0
         for location in fused_data:
             fused_data[location]["risk_level"] = min(fused_data[location]["risk_level"], 1.0)
             fused_data[location]["confidence"] = min(fused_data[location]["confidence"], 1.0)
 
-        logger.info(f"Data fusion complete for {len(fused_data)} locations")
+            # Pre-geocode: attach coordinates so calculate_risk_scores can
+            # apply spatial filtering without a second geocoding call
+            if self.geocoder and isinstance(location, str):
+                coords = self.geocoder.get_coordinates(location, fuzzy=True, threshold=0.6)
+                if coords:
+                    fused_data[location]["_coords"] = coords
+                    geocoded_count += 1
+
+        logger.info(
+            f"Data fusion complete for {len(fused_data)} locations "
+            f"({geocoded_count} geocoded for spatial filtering)"
+        )
         return fused_data
 
     def get_flood_depth_at_edge(
@@ -2013,8 +2108,11 @@ class HazardAgent(BaseAgent):
 
             # Spatial filtering: Apply risk only to edges near the reported location
             if self.enable_spatial_filtering and self.geocoder:
-                # Get coordinates for the location name
-                if isinstance(location_name, (list, tuple)) and len(location_name) == 2:
+                # Check for pre-geocoded coordinates from fuse_data()
+                pre_geocoded = data.get("_coords")
+                if pre_geocoded:
+                    location_coords = pre_geocoded
+                elif isinstance(location_name, (list, tuple)) and len(location_name) == 2:
                     # Already coordinates
                     try:
                         lat, lon = float(location_name[0]), float(location_name[1])
@@ -2048,15 +2146,12 @@ class HazardAgent(BaseAgent):
                         f"{self.environmental_risk_radius_m}m"
                     )
                 else:
-                    # Fallback: If location coordinates not found, apply globally
+                    # Could not geocode location - skip rather than pollute all edges
                     logger.warning(
-                        f"No coordinates found for '{location_name}' - "
-                        f"applying environmental risk globally"
+                        f"No coordinates found for '{location_name}' "
+                        f"(risk={risk_level:.3f}) - skipping spatial risk update. "
+                        f"Consider adding this location to location.csv"
                     )
-                    for edge_tuple in list(self.environment.graph.edges(keys=True)):
-                        current_risk = risk_scores.get(edge_tuple, 0.0)
-                        combined_risk = current_risk + environmental_factor
-                        risk_scores[edge_tuple] = min(combined_risk, 1.0)
             else:
                 # Spatial filtering disabled - apply globally (old behavior)
                 for edge_tuple in list(self.environment.graph.edges(keys=True)):

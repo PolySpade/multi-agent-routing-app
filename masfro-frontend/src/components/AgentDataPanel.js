@@ -26,7 +26,6 @@ export default function AgentDataPanel() {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [simulationState, setSimulationState] = useState(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
 
   const activeTabRef = useRef(activeTab);
@@ -44,23 +43,6 @@ export default function AgentDataPanel() {
       }
     } catch (err) {
       console.error('[AgentDataPanel] Failed to fetch agent status', err);
-    }
-  }, []);
-
-  const fetchSimulationStatus = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/simulation/status`);
-      const data = await res.json();
-      if (data.status === 'success') {
-        setSimulationState(data);
-        const isRunning = data.state === 'running';
-        setAutoRefreshEnabled(prev => {
-          if (prev !== isRunning) return isRunning;
-          return prev;
-        });
-      }
-    } catch (err) {
-      // silent
     }
   }, []);
 
@@ -152,17 +134,14 @@ export default function AgentDataPanel() {
   // On mount: fetch status + initial tab data
   useEffect(() => {
     fetchAgentsStatus();
-    fetchSimulationStatus();
     fetchTabData();
 
     const agentInterval = setInterval(fetchAgentsStatus, 30000);
-    const simInterval = setInterval(fetchSimulationStatus, 5000);
 
     return () => {
       clearInterval(agentInterval);
-      clearInterval(simInterval);
     };
-  }, [fetchAgentsStatus, fetchSimulationStatus, fetchTabData]);
+  }, [fetchAgentsStatus, fetchTabData]);
 
   // Tab change
   useEffect(() => {
@@ -500,16 +479,6 @@ export default function AgentDataPanel() {
           font-size: 0.75rem;
           color: rgba(255, 255, 255, 0.6);
         }
-        .sim-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.25rem;
-          padding: 0.15rem 0.5rem;
-          border-radius: 10px;
-          font-size: 0.6rem;
-          font-weight: 700;
-          text-transform: uppercase;
-        }
         .empty-state {
           text-align: center;
           padding: 1.5rem;
@@ -551,14 +520,6 @@ export default function AgentDataPanel() {
                   {label}
                 </div>
               ))}
-              {simulationState?.state === 'running' && (
-                <span
-                  className="sim-badge"
-                  style={{ background: 'rgba(34,197,94,0.2)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.4)' }}
-                >
-                  <span className="dot dot-active dot-pulse" /> SIM
-                </span>
-              )}
               {lastUpdate && (
                 <div className="status-item" style={{ marginLeft: 'auto' }}>
                   {lastUpdate.toLocaleTimeString()}
