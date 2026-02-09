@@ -125,6 +125,10 @@ class OrchestratorAgent(BaseAgent):
             if role not in sub_agents:
                 logger.warning(f"Orchestrator missing '{role}' agent")
 
+        # Conversation history for multi-turn chat (capped at 20 turns)
+        self._chat_history: list = []
+        self._max_chat_turns = 20
+
         llm_status = "enabled" if self.llm_service else "disabled"
         logger.info(
             f"Orchestrator {agent_id} initialized with MQ support, "
@@ -729,8 +733,14 @@ class OrchestratorAgent(BaseAgent):
     # LLM-powered intelligence
     # ---------------------------------------------------------------
 
-    _INTERPRET_PROMPT = """You are the brain of a multi-agent flood routing system for Marikina City, Philippines.
+    _SYSTEM_PROMPT = """You are the brain of a multi-agent flood routing system EXCLUSIVELY for Marikina City, Philippines.
 Your job is to interpret a user's natural language request and decide which mission to create.
+You have conversation history, so you can understand follow-up messages like "now route me there" or "what about Nangka instead?".
+
+SCOPE RESTRICTION - VERY IMPORTANT:
+You ONLY handle queries related to Marikina City flood routing, risk assessment, evacuation, and navigation.
+If the user asks about topics unrelated to flood routing/risk/evacuation in Marikina City (e.g., general knowledge questions, coding help, weather in other cities, math problems, jokes), you MUST respond with:
+{"mission_type": "off_topic", "params": {}, "reasoning": "This query is outside my scope. I only handle flood routing, risk assessment, and evacuation for Marikina City."}
 
 Available mission types:
 1. "assess_risk" - Full risk assessment pipeline (Scout scans a location -> Flood collects data -> Hazard updates risk).
@@ -764,19 +774,21 @@ If the user asks about flooding, risk, or danger at a location, use "assess_risk
 If the user asks to go somewhere or needs a route, use "route_calculation".
 If the user is in danger or needs evacuation, use "coordinated_evacuation".
 If the user asks to refresh or update data, use "cascade_risk_update".
+If the user references something from a previous message (like "there", "that place", "same route"), use the conversation history to resolve what they mean.
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {
-  "mission_type": "<one of the 4 types>",
+  "mission_type": "<one of the 4 types or off_topic>",
   "params": { ... },
   "reasoning": "<1-sentence explanation of your choice>"
-}
-
-User request: """
+}"""
 
     def interpret_request(self, user_message: str) -> Dict[str, Any]:
         """
         Use LLM to interpret a natural language request into a mission.
+
+        Uses multi-turn conversation history so follow-up messages
+        like "now route me there" resolve correctly.
 
         Args:
             user_message: Natural language request from user
@@ -797,8 +809,12 @@ User request: """
             }
 
         try:
-            prompt = self._INTERPRET_PROMPT + user_message
-            raw_response = self.llm_service.text_chat(prompt)
+            # Build multi-turn messages: system + history + current user msg
+            messages = [{"role": "system", "content": self._SYSTEM_PROMPT}]
+            messages.extend(self._chat_history)
+            messages.append({"role": "user", "content": user_message})
+
+            raw_response = self.llm_service.text_chat_multi(messages)
 
             if not raw_response:
                 return {
@@ -819,6 +835,17 @@ User request: """
                 }
 
             mission_type = parsed.get("mission_type")
+
+            # Handle off-topic rejection
+            if mission_type == "off_topic":
+                reasoning = parsed.get("reasoning", "Query outside scope.")
+                # Still save to history so LLM remembers the exchange
+                self._append_to_history(user_message, raw_response)
+                return {
+                    "status": "off_topic",
+                    "message": reasoning,
+                }
+
             valid_types = {
                 "assess_risk",
                 "coordinated_evacuation",
@@ -831,6 +858,9 @@ User request: """
                     "message": f"LLM chose invalid mission type: {mission_type}",
                     "raw_response": raw_response[:500],
                 }
+
+            # Save successful exchange to history
+            self._append_to_history(user_message, raw_response)
 
             logger.info(
                 f"LLM interpreted request as {mission_type}: "
@@ -847,6 +877,20 @@ User request: """
         except Exception as e:
             logger.error(f"LLM interpret_request failed: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
+
+    def _append_to_history(self, user_msg: str, assistant_msg: str) -> None:
+        """Append a user/assistant exchange to chat history, capping at max turns."""
+        self._chat_history.append({"role": "user", "content": user_msg})
+        self._chat_history.append({"role": "assistant", "content": assistant_msg})
+        # Cap: each turn = 2 messages, keep last N turns
+        max_messages = self._max_chat_turns * 2
+        if len(self._chat_history) > max_messages:
+            self._chat_history = self._chat_history[-max_messages:]
+
+    def clear_chat_history(self) -> None:
+        """Clear the conversation history."""
+        self._chat_history.clear()
+        logger.info("Orchestrator chat history cleared")
 
     _SUMMARIZE_PROMPT = """You are the brain of a multi-agent flood routing system for Marikina City.
 Summarize the following mission results in 2-3 sentences for a user who needs clear, actionable information.
@@ -925,6 +969,13 @@ Mission data:
             Dict with interpretation, mission creation result, and reasoning
         """
         interpretation = self.interpret_request(user_message)
+
+        if interpretation.get("status") == "off_topic":
+            return {
+                "status": "off_topic",
+                "interpretation": interpretation,
+                "mission": None,
+            }
 
         if interpretation.get("status") != "ok":
             return {

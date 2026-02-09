@@ -133,6 +133,9 @@ async def admin_dashboard():
             <td class="text-muted">{p.get('timestamp','')[:19]}</td>
         </tr>"""
 
+    # Evacuation stats placeholder (fetched client-side from main backend)
+    evac_stat_count = "..."
+
     # Weather summary
     w = store.get_current_weather()
     if w:
@@ -291,6 +294,10 @@ tr:hover td {{ background: var(--surface2); }}
             <div class="value" id="statSocial">{len(store.social_posts)}</div>
         </div>
         <div class="stat-card">
+            <div class="label">Evac Centers</div>
+            <div class="value" id="statEvac">{evac_stat_count}</div>
+        </div>
+        <div class="stat-card">
             <div class="label">Weather</div>
             <div class="value" style="font-size:1rem">{w_main}</div>
         </div>
@@ -313,6 +320,7 @@ tr:hover td {{ background: var(--surface2); }}
         <button class="tab" onclick="switchTab('weather')">Weather</button>
         <button class="tab" onclick="switchTab('advisory')">Advisories</button>
         <button class="tab" onclick="switchTab('social')">Social Posts</button>
+        <button class="tab" onclick="switchTab('evacuation')">Evacuation</button>
     </div>
 
     <!-- River Stations Tab -->
@@ -520,6 +528,110 @@ tr:hover td {{ background: var(--surface2); }}
         </div>
     </div>
 
+    <!-- Evacuation Tab -->
+    <div class="tab-panel" id="panel-evacuation">
+        <div class="card">
+            <div class="card-header">
+                <h3>Evacuation Centers <span class="text-muted" style="font-size:0.75rem;margin-left:8px" id="evacSourceLabel">(from main backend :8000)</span></h3>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-sm btn-primary" onclick="loadEvacCenters()">Refresh</button>
+                    <button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="resetAllOccupancy()">Reset All Occupancy</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="evacStats" style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap"></div>
+                <div style="max-height:400px;overflow-y:auto">
+                    <table>
+                        <thead><tr><th>Name</th><th>Barangay</th><th>Status</th><th>Capacity</th><th>Occupancy</th><th>Available</th><th>Actions</th></tr></thead>
+                        <tbody id="evacTableBody"><tr><td colspan="7" class="empty-state">Click Refresh to load from backend</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <!-- Distress Call Form -->
+            <div class="card">
+                <div class="card-header"><h3>Send Distress Call</h3></div>
+                <div class="card-body">
+                    <p class="text-muted" style="font-size:0.8rem;margin-bottom:12px">Triggers a coordinated_evacuation mission via the Orchestrator agent</p>
+                    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+                        <div class="form-group">
+                            <label>Latitude</label>
+                            <input type="number" step="0.0001" id="distressLat" placeholder="14.6507" value="14.6507">
+                        </div>
+                        <div class="form-group">
+                            <label>Longitude</label>
+                            <input type="number" step="0.0001" id="distressLon" placeholder="121.1029" value="121.1029">
+                        </div>
+                        <div class="form-group">
+                            <label>Urgency</label>
+                            <select id="distressUrgency">
+                                <option value="critical">Critical</option>
+                                <option value="high" selected>High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Evacuees</label>
+                            <input type="number" id="distressEvacuees" value="5" min="1">
+                        </div>
+                        <div class="form-group form-row">
+                            <label>Message</label>
+                            <textarea id="distressMsg" rows="2" placeholder="Water rising fast, need evacuation!">Water rising fast in our area, need immediate evacuation assistance!</textarea>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="sendDistressCall()" id="distressBtn">Send Distress Call</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Update Occupancy Form -->
+            <div class="card">
+                <div class="card-header"><h3>Update Center Occupancy</h3></div>
+                <div class="card-body">
+                    <p class="text-muted" style="font-size:0.8rem;margin-bottom:12px">Manually set or add evacuees to a center</p>
+                    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+                        <div class="form-group form-row">
+                            <label>Center Name</label>
+                            <select id="occupancyCenter" style="width:100%">
+                                <option value="">-- Load centers first --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Set Occupancy To</label>
+                            <input type="number" id="occupancyValue" placeholder="e.g. 50" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Or Add Evacuees (+)</label>
+                            <input type="number" id="addEvacueesCount" placeholder="e.g. 10" min="1">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="setOccupancy()">Set Occupancy</button>
+                        <button class="btn btn-success" onclick="addEvacuees()">Add Evacuees</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mission Tracker -->
+        <div class="card">
+            <div class="card-header">
+                <h3>Orchestrator Missions</h3>
+                <button class="btn btn-sm btn-primary" onclick="loadMissions()">Refresh</button>
+            </div>
+            <div class="card-body" style="padding:0">
+                <table>
+                    <thead><tr><th>Mission ID</th><th>Type</th><th>State</th><th>Created</th><th>Actions</th></tr></thead>
+                    <tbody id="missionTableBody"><tr><td colspan="5" class="empty-state">Click Refresh to load missions</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Social Posts Tab -->
     <div class="tab-panel" id="panel-social">
         <div class="card">
@@ -700,6 +812,209 @@ async function submitPost() {{
         if (data.status === 'error') throw new Error(data.message);
         showToast('Post created');
         setTimeout(() => location.reload(), 800);
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
+}}
+
+// --- Evacuation (talks to main backend on :8000) ---
+const BACKEND = 'http://localhost:8000';
+
+async function backendApi(path, options) {{
+    const resp = await fetch(BACKEND + path, options);
+    if (!resp.ok) {{
+        const err = await resp.json().catch(() => ({{detail: resp.statusText}}));
+        throw new Error(err.detail || resp.statusText);
+    }}
+    return resp.json();
+}}
+
+async function loadEvacCenters() {{
+    try {{
+        const data = await backendApi('/api/agents/evacuation/centers');
+        const centers = data.centers || [];
+        const stats = data.statistics || {{}};
+
+        // Update stat card
+        document.getElementById('statEvac').textContent = centers.length;
+
+        // Stats row
+        document.getElementById('evacStats').innerHTML = `
+            <div class="stat-card" style="padding:10px;min-width:100px"><div class="label">Total</div><div class="value" style="font-size:1.1rem">${{stats.total_centers || centers.length}}</div></div>
+            <div class="stat-card" style="padding:10px;min-width:100px"><div class="label">Capacity</div><div class="value" style="font-size:1.1rem">${{stats.total_capacity || 0}}</div></div>
+            <div class="stat-card" style="padding:10px;min-width:100px"><div class="label">Occupancy</div><div class="value" style="font-size:1.1rem">${{stats.total_occupancy || 0}}</div></div>
+            <div class="stat-card" style="padding:10px;min-width:100px"><div class="label">Available Slots</div><div class="value" style="font-size:1.1rem">${{stats.total_available_slots || 0}}</div></div>
+        `;
+
+        // Table
+        if (centers.length === 0) {{
+            document.getElementById('evacTableBody').innerHTML = '<tr><td colspan="7" class="empty-state">No evacuation centers found</td></tr>';
+            return;
+        }}
+
+        const rows = centers.map(c => {{
+            const statusBadge = c.status === 'OFFICIAL'
+                ? '<span class="badge badge-normal">OFFICIAL</span>'
+                : '<span class="badge" style="background:rgba(99,102,241,0.15);color:var(--info)">POTENTIAL</span>';
+            const occ = c.current_occupancy || 0;
+            const cap = c.capacity || 0;
+            const avail = Math.max(0, cap - occ);
+            const occClass = cap > 0 && occ >= cap ? 'text-danger' : occ > cap * 0.8 ? 'text-warning' : '';
+            return `<tr>
+                <td class="font-medium">${{c.name}}</td>
+                <td>${{c.barangay || '-'}}</td>
+                <td>${{statusBadge}}</td>
+                <td>${{cap}}</td>
+                <td class="${{occClass}}">${{occ}}</td>
+                <td>${{avail}}</td>
+                <td><button class="btn btn-sm btn-primary" onclick="quickAddEvac('${{c.name.replace(/'/g, "\\\\'")}}')">+5</button></td>
+            </tr>`;
+        }}).join('');
+        document.getElementById('evacTableBody').innerHTML = rows;
+
+        // Populate center dropdown
+        const sel = document.getElementById('occupancyCenter');
+        sel.innerHTML = '<option value="">-- Select Center --</option>' +
+            centers.map(c => `<option value="${{c.name}}">${{c.name}} (${{c.barangay || 'N/A'}})</option>`).join('');
+
+        showToast('Loaded ' + centers.length + ' evacuation centers');
+    }} catch(e) {{
+        showToast('Backend error: ' + e.message, 'error');
+    }}
+}}
+
+async function quickAddEvac(name) {{
+    try {{
+        await backendApi('/api/agents/evacuation/centers/add-evacuees', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{ center_name: name, count: 5 }})
+        }});
+        showToast('Added 5 evacuees to ' + name);
+        loadEvacCenters();
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
+}}
+
+async function setOccupancy() {{
+    const name = document.getElementById('occupancyCenter').value;
+    const val = document.getElementById('occupancyValue').value;
+    if (!name) {{ showToast('Select a center first', 'error'); return; }}
+    if (val === '') {{ showToast('Enter an occupancy value', 'error'); return; }}
+    try {{
+        await backendApi('/api/agents/evacuation/centers/occupancy', {{
+            method: 'PUT',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{ center_name: name, occupancy: parseInt(val) }})
+        }});
+        showToast('Occupancy set for ' + name);
+        loadEvacCenters();
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
+}}
+
+async function addEvacuees() {{
+    const name = document.getElementById('occupancyCenter').value;
+    const count = document.getElementById('addEvacueesCount').value;
+    if (!name) {{ showToast('Select a center first', 'error'); return; }}
+    if (!count || parseInt(count) < 1) {{ showToast('Enter a valid count', 'error'); return; }}
+    try {{
+        await backendApi('/api/agents/evacuation/centers/add-evacuees', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{ center_name: name, count: parseInt(count) }})
+        }});
+        showToast('Added ' + count + ' evacuees to ' + name);
+        loadEvacCenters();
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
+}}
+
+async function resetAllOccupancy() {{
+    if (!confirm('Reset ALL center occupancy to 0?')) return;
+    try {{
+        await backendApi('/api/agents/evacuation/centers/reset', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}}
+        }});
+        showToast('All occupancy reset');
+        loadEvacCenters();
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }}
+}}
+
+async function sendDistressCall() {{
+    const lat = parseFloat(document.getElementById('distressLat').value);
+    const lon = parseFloat(document.getElementById('distressLon').value);
+    const urgency = document.getElementById('distressUrgency').value;
+    const evacuees = parseInt(document.getElementById('distressEvacuees').value) || 5;
+    const msg = document.getElementById('distressMsg').value.trim();
+    if (!lat || !lon) {{ showToast('Latitude and longitude are required', 'error'); return; }}
+
+    const btn = document.getElementById('distressBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {{
+        const result = await backendApi('/api/orchestrator/mission', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{
+                mission_type: 'coordinated_evacuation',
+                params: {{
+                    user_location: [lat, lon],
+                    urgency: urgency,
+                    evacuees: evacuees,
+                    message: msg || 'Emergency distress call from mock server'
+                }}
+            }})
+        }});
+        showToast('Distress call sent! Mission: ' + (result.mission_id || 'created'));
+        setTimeout(loadMissions, 1500);
+    }} catch(e) {{
+        showToast('Error: ' + e.message, 'error');
+    }} finally {{
+        btn.disabled = false;
+        btn.textContent = 'Send Distress Call';
+    }}
+}}
+
+async function loadMissions() {{
+    try {{
+        const data = await backendApi('/api/orchestrator/missions');
+        const all = [...(data.active || []), ...(data.completed || [])];
+        if (all.length === 0) {{
+            document.getElementById('missionTableBody').innerHTML = '<tr><td colspan="5" class="empty-state">No missions</td></tr>';
+            return;
+        }}
+        const rows = all.map(m => {{
+            const state = m.state || 'unknown';
+            let badgeClass = 'badge-normal';
+            if (state.toLowerCase().includes('completed')) badgeClass = 'badge-normal';
+            else if (state.toLowerCase().includes('fail') || state.toLowerCase().includes('timeout')) badgeClass = 'badge-critical';
+            else badgeClass = 'badge-alert';
+            const created = m.created_at ? new Date(m.created_at).toLocaleTimeString() : '-';
+            return `<tr>
+                <td class="font-medium" style="font-size:0.75rem">${{m.mission_id || '-'}}</td>
+                <td>${{m.mission_type || '-'}}</td>
+                <td><span class="badge ${{badgeClass}}">${{state}}</span></td>
+                <td class="text-muted">${{created}}</td>
+                <td><button class="btn btn-sm" style="background:var(--surface2)" onclick="viewMission('${{m.mission_id}}')">View</button></td>
+            </tr>`;
+        }}).join('');
+        document.getElementById('missionTableBody').innerHTML = rows;
+    }} catch(e) {{
+        showToast('Backend error: ' + e.message, 'error');
+    }}
+}}
+
+async function viewMission(id) {{
+    try {{
+        const data = await backendApi('/api/orchestrator/mission/' + id);
+        alert(JSON.stringify(data, null, 2));
     }} catch(e) {{
         showToast('Error: ' + e.message, 'error');
     }}
