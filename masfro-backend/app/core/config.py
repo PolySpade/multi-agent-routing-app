@@ -41,8 +41,8 @@ class Settings(BaseSettings):
 
     # ========== LLM CONFIGURATION (v2) ==========
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    LLM_TEXT_MODEL: str = "llama3.2:latest"
-    LLM_VISION_MODEL: str = "moondream:latest"
+    LLM_TEXT_MODEL: str = ""
+    LLM_VISION_MODEL: str = ""
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_ENABLED: bool = True
 

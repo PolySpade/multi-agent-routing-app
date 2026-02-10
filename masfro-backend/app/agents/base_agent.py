@@ -3,13 +3,15 @@
 """
 Base agent class for MAS-FRO multi-agent system.
 
-Provides common functionality and interface for all agents.
+Provides common functionality and interface for all agents including
+MessageQueue registration and message processing utilities.
 """
 
-from typing import TYPE_CHECKING
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
+    from ..communication.message_queue import MessageQueue
 
 
 class BaseAgent:
@@ -17,29 +19,98 @@ class BaseAgent:
     A base class for all agents in the MAS-FRO simulation.
 
     Provides common attributes like an ID and a reference to the environment,
-    and defines a common interface ('step') for the simulation loop.
+    MessageQueue registration, a reusable message drain loop, and defines
+    a common interface ('step') for the simulation loop.
     """
-    
-    def __init__(self, agent_id: str, environment: "DynamicGraphEnvironment") -> None:
+
+    def __init__(
+        self,
+        agent_id: str,
+        environment: "DynamicGraphEnvironment",
+        message_queue: Optional["MessageQueue"] = None,
+    ) -> None:
         """
         Initialize the base agent.
 
         Args:
             agent_id: Unique identifier for this agent
             environment: Reference to the DynamicGraphEnvironment instance
+            message_queue: Optional MessageQueue for MAS communication
         """
         from ..core.logging_config import get_logger
-        
+
         self.agent_id = agent_id
         self.environment = environment
+        self.message_queue = message_queue
         self.logger = get_logger(f"app.agents.{agent_id}")
+
+        # Register with message queue if provided
+        if self.message_queue:
+            try:
+                self.message_queue.register_agent(self.agent_id)
+                self.logger.info(f"{self.agent_id} registered with MessageQueue")
+            except ValueError:
+                self.logger.debug(f"{self.agent_id} already registered with MQ")
+
         self.logger.info(f"Agent {self.agent_id} created")
+
+    def _drain_messages(self, handlers: Dict[str, Callable]) -> int:
+        """
+        Drain all pending messages from the queue and dispatch them.
+
+        This is the shared message-processing loop that replaces the
+        duplicated while-True pattern in every agent.
+
+        Args:
+            handlers: Dict mapping Performative values to handler callables.
+                      Each handler receives the ACLMessage as its sole argument.
+                      Example: {Performative.REQUEST: self._handle_request}
+
+        Returns:
+            Number of messages processed.
+        """
+        if not self.message_queue:
+            return 0
+
+        processed = 0
+        while True:
+            msg = self.message_queue.receive_message(
+                agent_id=self.agent_id, timeout=0.0, block=False
+            )
+            if msg is None:
+                break
+
+            handler = handlers.get(msg.performative)
+            if handler:
+                try:
+                    handler(msg)
+                except Exception as e:
+                    self.logger.error(
+                        f"{self.agent_id} error handling {msg.performative} "
+                        f"from {msg.sender}: {e}",
+                        exc_info=True,
+                    )
+            else:
+                self.logger.debug(
+                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
+                )
+            processed += 1
+
+        return processed
+
+    def shutdown(self) -> None:
+        """
+        Gracefully shut down the agent.
+
+        Subclasses should override to flush caches or close connections.
+        """
+        self.logger.info(f"{self.agent_id} shutting down")
 
     def step(self) -> None:
         """
         Represents a single time-step of action for the agent.
         This method must be implemented by each child agent.
-        
+
         Raises:
             NotImplementedError: This method must be implemented by subclasses
         """

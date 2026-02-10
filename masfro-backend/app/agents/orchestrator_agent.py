@@ -18,6 +18,7 @@ This orchestrator:
 
 import json
 import logging
+import threading
 import uuid
 from collections import deque
 from datetime import datetime
@@ -94,23 +95,15 @@ class OrchestratorAgent(BaseAgent):
             sub_agents: Dict of {'role': agent_instance}
             llm_service: Optional LLMService for natural language interpretation
         """
-        super().__init__(agent_id, environment)
-        self.message_queue = message_queue
+        super().__init__(agent_id, environment, message_queue=message_queue)
         self.sub_agents = sub_agents
         self.llm_service = llm_service
-
-        # Register with MessageQueue
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError:
-                logger.warning(f"{self.agent_id} already registered with MQ")
 
         # Load config from YAML
         self._config = self._load_config()
 
-        # Mission tracking
+        # Mission tracking (thread-safe: accessed from MQ processing and API threads)
+        self._missions_lock = threading.Lock()
         self._missions: Dict[str, Dict[str, Any]] = {}
         max_history = (
             self._config.max_completed_history if self._config else 100
@@ -264,16 +257,17 @@ class OrchestratorAgent(BaseAgent):
         """Fail missions that have exceeded their deadline."""
         now = datetime.now()
         timed_out = []
-        for mid, mission in self._missions.items():
-            if mission["state"] in (
-                MissionState.COMPLETED,
-                MissionState.FAILED,
-                MissionState.TIMED_OUT,
-            ):
-                continue
-            elapsed = (now - mission["created_at"]).total_seconds()
-            if elapsed > mission["timeout_seconds"]:
-                timed_out.append(mid)
+        with self._missions_lock:
+            for mid, mission in self._missions.items():
+                if mission["state"] in (
+                    MissionState.COMPLETED,
+                    MissionState.FAILED,
+                    MissionState.TIMED_OUT,
+                ):
+                    continue
+                elapsed = (now - mission["created_at"]).total_seconds()
+                if elapsed > mission["timeout_seconds"]:
+                    timed_out.append(mid)
 
         for mid in timed_out:
             logger.warning(
@@ -303,32 +297,33 @@ class OrchestratorAgent(BaseAgent):
         Returns:
             Dict with mission_id, type, state for tracking
         """
-        max_concurrent = (
-            self._config.max_concurrent_missions if self._config else 10
-        )
-        if len(self._missions) >= max_concurrent:
-            return {
-                "status": "error",
-                "message": (
-                    f"Max concurrent missions ({max_concurrent}) reached"
-                ),
+        with self._missions_lock:
+            max_concurrent = (
+                self._config.max_concurrent_missions if self._config else 10
+            )
+            if len(self._missions) >= max_concurrent:
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Max concurrent missions ({max_concurrent}) reached"
+                    ),
+                }
+
+            mission_id = uuid.uuid4().hex[:8]
+            timeout = self._get_timeout(mission_type)
+
+            mission = {
+                "id": mission_id,
+                "type": mission_type,
+                "state": MissionState.PENDING,
+                "params": params,
+                "results": {},
+                "created_at": datetime.now(),
+                "timeout_seconds": timeout,
+                "error": None,
+                "completed_at": None,
             }
-
-        mission_id = uuid.uuid4().hex[:8]
-        timeout = self._get_timeout(mission_type)
-
-        mission = {
-            "id": mission_id,
-            "type": mission_type,
-            "state": MissionState.PENDING,
-            "params": params,
-            "results": {},
-            "created_at": datetime.now(),
-            "timeout_seconds": timeout,
-            "error": None,
-            "completed_at": None,
-        }
-        self._missions[mission_id] = mission
+            self._missions[mission_id] = mission
 
         logger.info(
             f"Mission {mission_id} created: "
@@ -349,8 +344,9 @@ class OrchestratorAgent(BaseAgent):
         self, mission_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get current status of a mission (active or completed)."""
-        if mission_id in self._missions:
-            return self._mission_to_dict(self._missions[mission_id])
+        with self._missions_lock:
+            if mission_id in self._missions:
+                return self._mission_to_dict(self._missions[mission_id])
 
         m = self._completed_missions_index.get(mission_id)
         if m:
@@ -360,17 +356,18 @@ class OrchestratorAgent(BaseAgent):
 
     def get_active_missions(self) -> List[Dict[str, Any]]:
         """Get list of all active missions."""
-        return [
-            {
-                "mission_id": m["id"],
-                "type": m["type"],
-                "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
-                "elapsed_seconds": round((
-                    datetime.now() - m["created_at"]
-                ).total_seconds(), 1),
-            }
-            for m in self._missions.values()
-        ]
+        with self._missions_lock:
+            return [
+                {
+                    "mission_id": m["id"],
+                    "type": m["type"],
+                    "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
+                    "elapsed_seconds": round((
+                        datetime.now() - m["created_at"]
+                    ).total_seconds(), 1),
+                }
+                for m in self._missions.values()
+            ]
 
     def _mission_to_dict(self, m: Dict[str, Any]) -> Dict[str, Any]:
         """Convert mission dict to API-friendly format."""
@@ -396,24 +393,25 @@ class OrchestratorAgent(BaseAgent):
         error: Optional[str] = None,
     ) -> None:
         """Move mission to a terminal state and archive it."""
-        mission = self._missions.get(mission_id)
-        if not mission:
-            return
+        with self._missions_lock:
+            mission = self._missions.get(mission_id)
+            if not mission:
+                return
 
-        mission["state"] = state
-        mission["completed_at"] = datetime.now()
-        if error:
-            mission["error"] = error
+            mission["state"] = state
+            mission["completed_at"] = datetime.now()
+            if error:
+                mission["error"] = error
 
-        # Archive to completed history
-        # If deque is at capacity, the oldest will be evicted — remove from index
-        if len(self._completed_missions) == self._completed_missions.maxlen:
-            evicted = self._completed_missions[0]
-            self._completed_missions_index.pop(evicted["id"], None)
-        self._completed_missions.append(mission)
-        self._completed_missions_index[mission["id"]] = mission
+            # Archive to completed history
+            # If deque is at capacity, the oldest will be evicted — remove from index
+            if len(self._completed_missions) == self._completed_missions.maxlen:
+                evicted = self._completed_missions[0]
+                self._completed_missions_index.pop(evicted["id"], None)
+            self._completed_missions.append(mission)
+            self._completed_missions_index[mission["id"]] = mission
 
-        del self._missions[mission_id]
+            del self._missions[mission_id]
 
         logger.info(
             f"Mission {mission_id} -> {state} "

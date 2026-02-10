@@ -25,6 +25,7 @@ Date: February 2026
 
 from .base_agent import BaseAgent
 from typing import Dict, Any, Optional, List, Set, Tuple, TYPE_CHECKING
+import asyncio
 import hashlib
 import logging
 from datetime import datetime
@@ -107,18 +108,9 @@ class FloodAgent(BaseAgent):
             hazard_agent_id: ID of HazardAgent to send messages to
             enable_llm: Enable Qwen 3 LLM for advisory parsing (default: True)
         """
-        super().__init__(agent_id, environment)
-        self.message_queue = message_queue
+        super().__init__(agent_id, environment, message_queue=message_queue)
         self.hazard_agent_id = hazard_agent_id
         self.use_real_apis = use_real_apis
-
-        # Register with message queue
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError as e:
-                logger.warning(f"{self.agent_id} already registered: {e}")
 
         # ========== LLM SERVICE INITIALIZATION (v2) ==========
         self.llm_service = None
@@ -227,6 +219,11 @@ class FloodAgent(BaseAgent):
 
         # Advisory deduplication — track hashes of already-processed advisories
         self._processed_advisory_hashes: Set[str] = set()
+
+        # API failure tracking — alert after consecutive failures
+        self._consecutive_api_failures: int = 0
+        self._api_failure_alert_threshold: int = 3
+        self._last_successful_real_fetch: Optional[datetime] = None
 
         logger.info(
             f"{self.agent_id} initialized with update interval "
@@ -433,11 +430,36 @@ class FloodAgent(BaseAgent):
                 except Exception as e:
                     logger.error(f"Failed to collect advisories: {e}")
 
+        # ========== API FAILURE TRACKING ==========
+        if self.use_real_apis:
+            if combined_data:
+                # Reset failure counter on any successful real data
+                if self._consecutive_api_failures > 0:
+                    logger.info(
+                        f"[RECOVERY] Real API data restored after "
+                        f"{self._consecutive_api_failures} consecutive failures"
+                    )
+                self._consecutive_api_failures = 0
+                self._last_successful_real_fetch = datetime.now()
+            else:
+                self._consecutive_api_failures += 1
+                if self._consecutive_api_failures >= self._api_failure_alert_threshold:
+                    staleness = ""
+                    if self._last_successful_real_fetch:
+                        elapsed = (datetime.now() - self._last_successful_real_fetch).total_seconds()
+                        staleness = f" Last success: {elapsed:.0f}s ago."
+                    logger.critical(
+                        f"[ALERT] All real APIs failed {self._consecutive_api_failures} "
+                        f"consecutive times!{staleness} System is operating on STALE "
+                        f"or SIMULATED data — risk scores may be inaccurate."
+                    )
+
         # ========== FALLBACK: SIMULATED DATA ==========
         # Only use if no real data was collected
         if not combined_data and self.data_collector:
             logger.warning(
-                "[WARN] No real data available, falling back to simulated data"
+                f"[WARN] No real data available (failures={self._consecutive_api_failures}), "
+                f"falling back to simulated data"
             )
             simulated = self.data_collector.collect_flood_data(
                 location="Marikina",
@@ -451,6 +473,74 @@ class FloodAgent(BaseAgent):
             logger.info(
                 f"[COLLECTED] {len(combined_data)} data points ready for fusion phase"
             )
+        else:
+            logger.warning("[WARN] No data collected from any source!")
+
+        self.last_update = datetime.now()
+        return combined_data
+
+    async def collect_flood_data_async(self) -> Dict[str, Any]:
+        """
+        Async version of collect_flood_data — runs blocking fetches in parallel threads.
+
+        Uses asyncio.to_thread to avoid blocking the event loop while external
+        services (river scraper, weather API, dam scraper, advisory scraper) respond.
+
+        Returns:
+            Combined data from all sources
+        """
+        logger.info(f"{self.agent_id} collecting flood data ASYNC from all sources...")
+
+        combined_data = {}
+
+        if self.use_real_apis:
+            tasks = []
+
+            if self.river_scraper:
+                tasks.append(("river", asyncio.to_thread(self.fetch_real_river_levels)))
+            if self.weather_service:
+                tasks.append(("weather", asyncio.to_thread(self.fetch_real_weather_data)))
+            if self.dam_scraper:
+                tasks.append(("dam", asyncio.to_thread(self.fetch_real_dam_levels)))
+            if self.advisory_scraper:
+                tasks.append(("advisory", asyncio.to_thread(self.collect_and_parse_advisories)))
+
+            # Run all fetches concurrently
+            results = await asyncio.gather(
+                *(t[1] for t in tasks), return_exceptions=True
+            )
+
+            for (label, _), result in zip(tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Async {label} fetch failed: {result}")
+                    continue
+
+                if label == "river" and result:
+                    combined_data.update(result)
+                    logger.info(f"[OK] Collected REAL river data: {len(result)} stations")
+                elif label == "weather" and result:
+                    location = result.get("location", "Marikina")
+                    combined_data[f"{location}_weather"] = result
+                    logger.info(f"[OK] Collected REAL weather data for {location}")
+                elif label == "dam" and result:
+                    for dam_name, dam_info in result.items():
+                        combined_data[dam_name] = dam_info
+                    logger.info(f"[OK] Collected REAL dam data: {len(result)} dams")
+                elif label == "advisory" and result:
+                    combined_data["advisories"] = result
+                    logger.info(f"[OK] Collected {len(result)} REAL text advisories")
+
+        # Fallback: simulated data
+        if not combined_data and self.data_collector:
+            logger.warning("[WARN] No real data available, falling back to simulated data")
+            simulated = self.data_collector.collect_flood_data(
+                location="Marikina", coordinates=(14.6507, 121.1029)
+            )
+            processed = self._process_collected_data(simulated)
+            combined_data.update(processed)
+
+        if combined_data:
+            logger.info(f"[COLLECTED ASYNC] {len(combined_data)} data points ready")
         else:
             logger.warning("[WARN] No data collected from any source!")
 

@@ -121,19 +121,10 @@ class ScoutAgent(BaseAgent):
             use_scraper: If True, use SocialScraperService instead of JSON files
             scraper_base_url: Base URL for the social scraper service
         """
-        super().__init__(agent_id, environment)
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
-        # Message queue for MAS communication
-        self.message_queue = message_queue
+        # Target agent for forwarding reports
         self.hazard_agent_id = hazard_agent_id
-
-        # Register with message queue
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError as e:
-                logger.warning(f"{self.agent_id} already registered: {e}")
 
         # Scraper mode (for mock server / real social scraping)
         self.use_scraper = use_scraper
