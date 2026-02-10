@@ -145,6 +145,10 @@ class ScoutAgent(BaseAgent):
                 logger.warning(f"{self.agent_id} failed to init SocialScraperService: {e}")
                 self.use_scraper = False
 
+        # Scraper throttle: only scrape every N seconds
+        self._scrape_interval = 15.0
+        self._last_scrape_time = 0.0
+
         # Simulation mode settings
         self.simulation_mode = not use_scraper  # Disable simulation mode when scraper active
         self.simulation_scenario = simulation_scenario
@@ -246,8 +250,13 @@ class ScoutAgent(BaseAgent):
             f"{self.agent_id} collecting data at {datetime.now().strftime('%H:%M:%S')}"
         )
 
-        # Scraper mode: fetch from live social scraper service
+        # Scraper mode: fetch from live social scraper service (throttled)
         if self.use_scraper and self.social_scraper:
+            import time
+            now = time.time()
+            if now - self._last_scrape_time < self._scrape_interval:
+                return []
+            self._last_scrape_time = now
             return self._step_scraper()
 
         # Simulation mode: load from JSON files
@@ -612,12 +621,12 @@ class ScoutAgent(BaseAgent):
         payload = {
             "location": report_data.get('location') or "Marikina",
             "coordinates": report_data.get('coordinates'),
-            "severity": report_data.get('severity', 0),
-            "risk_score": report_data.get('risk_score', 0),
+            "severity": round(report_data.get('severity', 0), 2),
+            "risk_score": round(report_data.get('risk_score', 0), 2),
             "report_type": report_data.get('report_type', 'flood') if final_risk > 0.3 else 'observation',
-            "confidence": report_data.get('confidence', 0.5),
+            "confidence": round(report_data.get('confidence', 0.5), 2),
             "visual_evidence": report_data.get('visual_evidence', False),
-            "estimated_depth_m": report_data.get('estimated_depth_m'),
+            "estimated_depth_m": round(report_data.get('estimated_depth_m') or 0, 2) or None,
             "vehicles_passable": report_data.get('vehicles_passable'),
             "timestamp": timestamp,
             "source": report_data.get('source', 'scout_agent'),

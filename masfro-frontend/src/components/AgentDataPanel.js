@@ -204,7 +204,6 @@ export default function AgentDataPanel() {
           position: relative;
           width: 100%;
           min-height: 300px;
-          max-height: 550px;
           background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
           backdrop-filter: blur(16px);
           border-radius: 16px;
@@ -252,7 +251,7 @@ export default function AgentDataPanel() {
           display: flex;
           flex-wrap: wrap;
           gap: 0.5rem;
-          font-size: 0.65rem;
+          font-size: 0.7rem;
           color: rgba(255, 255, 255, 0.6);
           margin-top: 0.25rem;
         }
@@ -504,6 +503,14 @@ export default function AgentDataPanel() {
         ::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.15);
           border-radius: 10px;
+        }
+
+        @media (max-width: 767px) {
+          .agent-data-panel {
+            min-height: 0;
+            max-height: calc(70vh - 56px);
+            border-radius: 0;
+          }
         }
       `}</style>
 

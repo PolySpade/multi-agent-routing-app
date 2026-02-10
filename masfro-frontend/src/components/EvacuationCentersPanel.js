@@ -63,7 +63,7 @@ export default function EvacuationCentersPanel({ onSelectDestination, onReportIs
         .evacuation-panel {
           position: relative;
           width: 100%;
-          max-height: 600px;
+          /* max-height controlled by parent scroll container */
           background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
           backdrop-filter: blur(16px);
           border-radius: 16px;
@@ -358,6 +358,12 @@ export default function EvacuationCentersPanel({ onSelectDestination, onReportIs
         ::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.2);
           border-radius: 10px;
+        }
+
+        @media (max-width: 767px) {
+          .evacuation-panel {
+            border-radius: 0;
+          }
         }
       `}</style>
 

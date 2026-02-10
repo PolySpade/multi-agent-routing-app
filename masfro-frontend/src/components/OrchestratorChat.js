@@ -14,7 +14,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:80
  * - "Calculate route from Tumana to Nangka"
  * - "Update risk levels across the city"
  */
-export default function OrchestratorChat({ onRouteResult }) {
+export default function OrchestratorChat({ onRouteResult, startPoint }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -80,9 +80,25 @@ export default function OrchestratorChat({ onRouteResult }) {
                 });
 
                 // If route result, pass to parent for map display
+                // Results are keyed by agent ID (e.g. routing_agent_001)
                 const routeResult = data.results;
-                if (routeResult?.path && onRouteResult) {
-                  onRouteResult(routeResult);
+                let routeData = null;
+                if (routeResult?.path) {
+                  routeData = routeResult;
+                } else if (routeResult && typeof routeResult === 'object') {
+                  // Search through agent result values for route data
+                  for (const val of Object.values(routeResult)) {
+                    if (val?.route?.path) {
+                      routeData = val.route;
+                      break;
+                    } else if (val?.path) {
+                      routeData = val;
+                      break;
+                    }
+                  }
+                }
+                if (routeData?.path && onRouteResult) {
+                  onRouteResult(routeData);
                 }
                 return;
               }
@@ -124,7 +140,10 @@ export default function OrchestratorChat({ onRouteResult }) {
       const res = await fetch(`${API_BASE}/api/orchestrator/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({
+          message: userMessage,
+          user_location: startPoint ? { lat: startPoint.lat, lng: startPoint.lng } : null,
+        }),
       });
 
       if (!res.ok) {
@@ -211,7 +230,6 @@ export default function OrchestratorChat({ onRouteResult }) {
           position: relative;
           width: 100%;
           min-height: 350px;
-          max-height: 550px;
           background: linear-gradient(160deg, rgba(15, 20, 25, 0.95) 0%, rgba(30, 35, 40, 0.95) 100%);
           backdrop-filter: blur(16px);
           border-radius: 16px;
@@ -262,7 +280,7 @@ export default function OrchestratorChat({ onRouteResult }) {
         }
 
         .chat-subtitle {
-          font-size: 0.65rem;
+          font-size: 0.7rem;
           color: rgba(139, 92, 246, 0.8);
           margin-top: 0.15rem;
         }
@@ -480,6 +498,14 @@ export default function OrchestratorChat({ onRouteResult }) {
         ::-webkit-scrollbar-thumb {
           background: rgba(139, 92, 246, 0.3);
           border-radius: 10px;
+        }
+
+        @media (max-width: 767px) {
+          .orchestrator-chat {
+            min-height: 0;
+            max-height: calc(70vh - 56px);
+            border-radius: 0;
+          }
         }
       `}</style>
 

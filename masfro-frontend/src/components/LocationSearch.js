@@ -224,8 +224,8 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
           backdropFilter: 'blur(10px)',
           borderRadius: '8px',
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-          zIndex: 1000,
-          maxHeight: '200px',
+          zIndex: 50,
+          maxHeight: '280px',
           overflowY: 'auto',
           marginTop: '4px',
           border: '1px solid rgba(255, 255, 255, 0.3)'

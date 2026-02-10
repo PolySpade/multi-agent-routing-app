@@ -365,9 +365,9 @@ class OrchestratorAgent(BaseAgent):
                 "mission_id": m["id"],
                 "type": m["type"],
                 "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
-                "elapsed_seconds": (
+                "elapsed_seconds": round((
                     datetime.now() - m["created_at"]
-                ).total_seconds(),
+                ).total_seconds(), 1),
             }
             for m in self._missions.values()
         ]
@@ -384,9 +384,9 @@ class OrchestratorAgent(BaseAgent):
             "completed_at": (
                 m["completed_at"].isoformat() if m["completed_at"] else None
             ),
-            "elapsed_seconds": (
+            "elapsed_seconds": round((
                 (m["completed_at"] or datetime.now()) - m["created_at"]
-            ).total_seconds(),
+            ).total_seconds(), 1),
         }
 
     def _complete_mission(
@@ -783,7 +783,9 @@ Respond with ONLY valid JSON (no markdown, no explanation):
   "reasoning": "<1-sentence explanation of your choice>"
 }"""
 
-    def interpret_request(self, user_message: str) -> Dict[str, Any]:
+    def interpret_request(
+        self, user_message: str, user_location: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """
         Use LLM to interpret a natural language request into a mission.
 
@@ -792,6 +794,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 
         Args:
             user_message: Natural language request from user
+            user_location: Optional dict with lat/lng from the user's map pin
 
         Returns:
             Dict with mission_type, params, and reasoning, or error info
@@ -812,7 +815,23 @@ Respond with ONLY valid JSON (no markdown, no explanation):
             # Build multi-turn messages: system + history + current user msg
             messages = [{"role": "system", "content": self._SYSTEM_PROMPT}]
             messages.extend(self._chat_history)
-            messages.append({"role": "user", "content": user_message})
+
+            # Augment user message with map location context
+            if user_location and user_location.get("lat") and user_location.get("lng"):
+                location_context = (
+                    f"[USER CONTEXT: My current location on the map is at "
+                    f"[{user_location['lat']}, {user_location['lng']}]. "
+                    f"Use this as 'start' for route_calculation if I don't specify a start point.]"
+                )
+            else:
+                location_context = (
+                    "[USER CONTEXT: I have not set a location pin on the map. "
+                    "If I ask for a route and I specify both start and end locations in my message, "
+                    "proceed normally. But if I only mention a destination without a start point, "
+                    "respond as off_topic with reasoning telling me to set my location on the map first.]"
+                )
+            augmented_message = f"{location_context}\n\n{user_message}"
+            messages.append({"role": "user", "content": augmented_message})
 
             raw_response = self.llm_service.text_chat_multi(messages)
 
@@ -892,15 +911,18 @@ Respond with ONLY valid JSON (no markdown, no explanation):
         self._chat_history.clear()
         logger.info("Orchestrator chat history cleared")
 
-    _SUMMARIZE_PROMPT = """You are the brain of a multi-agent flood routing system for Marikina City.
-Summarize the following mission results in 2-3 sentences for a user who needs clear, actionable information.
-Use simple language. If there's a route, mention the distance. If there's risk data, mention the key findings.
-If the mission failed, explain what went wrong simply.
+    _SUMMARIZE_PROMPT = """You are the AI assistant for a flood routing system in Marikina City.
+Write a SHORT, friendly 2-3 sentence summary of this mission result for the user.
 
-IMPORTANT: The results may include a "map_risk" key. This contains the CURRENT risk displayed on the map
-at the queried location, including avg_risk (0-1 scale), max_risk, risk_level (minimal/low/moderate/high/critical),
-high_risk_edges, and impassable_edges. Always include this map risk information in your summary when available,
-as it reflects the actual risk on the road network.
+Rules:
+- For routes: mention distance, estimated time, risk level, and any warnings about impassable or dangerous roads.
+- For risk assessments: state the risk level and key findings.
+- For evacuations: mention the evacuation center and route details.
+- If the mission failed or timed out, explain simply what went wrong.
+- If there are warnings about impassable roads or high flood risk, prominently warn the user.
+- If map_risk data is present, mention the current risk level on the road.
+- Do NOT describe JSON structure or explain what fields mean. Just give the user useful information.
+- Keep it conversational and concise, like a helpful navigation assistant.
 
 Mission data:
 """
@@ -929,9 +951,15 @@ Mission data:
             }
 
         try:
-            prompt = self._SUMMARIZE_PROMPT + json.dumps(
-                mission_data, indent=2, default=str
-            )
+            # Trim large path arrays to avoid flooding the LLM with coordinates
+            trimmed = json.loads(json.dumps(mission_data, default=str))
+            for agent_key, agent_val in (trimmed.get("results") or {}).items():
+                if isinstance(agent_val, dict):
+                    route = agent_val.get("route", agent_val)
+                    if isinstance(route, dict) and isinstance(route.get("path"), list):
+                        path = route["path"]
+                        route["path"] = f"[{len(path)} coordinate points]"
+            prompt = self._SUMMARIZE_PROMPT + json.dumps(trimmed, indent=2)
             raw_response = self.llm_service.text_chat(prompt)
 
             if raw_response:
@@ -958,17 +986,20 @@ Mission data:
                 "llm_used": False,
             }
 
-    def chat_and_execute(self, user_message: str) -> Dict[str, Any]:
+    def chat_and_execute(
+        self, user_message: str, user_location: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """
         End-to-end: interpret user message via LLM, create mission, return tracking info.
 
         Args:
             user_message: Natural language request
+            user_location: Optional dict with lat/lng from the user's map pin
 
         Returns:
             Dict with interpretation, mission creation result, and reasoning
         """
-        interpretation = self.interpret_request(user_message)
+        interpretation = self.interpret_request(user_message, user_location=user_location)
 
         if interpretation.get("status") == "off_topic":
             return {
@@ -986,7 +1017,9 @@ Mission data:
 
         # Fix common LLM param formatting issues
         params = self._fix_params(
-            interpretation["mission_type"], interpretation["params"]
+            interpretation["mission_type"],
+            interpretation["params"],
+            user_location=user_location,
         )
         interpretation["params"] = params
 
@@ -1006,7 +1039,9 @@ Mission data:
 
     @staticmethod
     def _fix_params(
-        mission_type: str, params: Dict[str, Any]
+        mission_type: str,
+        params: Dict[str, Any],
+        user_location: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """Fix common LLM formatting issues in mission params."""
         if mission_type == "route_calculation":
@@ -1033,10 +1068,13 @@ Mission data:
                 if dest:
                     params["end"] = dest
 
-            # Fallback: if start or end still missing, use city center
+            # Fallback: if start or end still missing, use user location or city center
             city_center = [14.6507, 121.1029]
             if not params.get("start"):
-                params["start"] = city_center
+                if user_location and user_location.get("lat") and user_location.get("lng"):
+                    params["start"] = [user_location["lat"], user_location["lng"]]
+                else:
+                    params["start"] = city_center
             if not params.get("end"):
                 params["end"] = city_center
 

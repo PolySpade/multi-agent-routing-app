@@ -486,10 +486,10 @@ class RoutingAgent(BaseAgent):
         return {
             "status": "success",
             "path": path_coords,
-            "distance": metrics["total_distance"],
-            "estimated_time": metrics["estimated_time"],
-            "risk_level": metrics["average_risk"],
-            "max_risk": metrics["max_risk"],
+            "distance": round(metrics["total_distance"], 1),
+            "estimated_time": round(metrics["estimated_time"], 1),
+            "risk_level": round(metrics["average_risk"], 2),
+            "max_risk": round(metrics["max_risk"], 2),
             "num_segments": metrics["num_segments"],
             "warnings": warnings
         }
@@ -661,10 +661,10 @@ class RoutingAgent(BaseAgent):
             result.append({
                 "rank": alt["rank"],
                 "path": path_coords,
-                "distance": alt["metrics"]["total_distance"],
-                "estimated_time": alt["metrics"]["estimated_time"],
-                "risk_level": alt["metrics"]["average_risk"],
-                "max_risk": alt["metrics"]["max_risk"],
+                "distance": round(alt["metrics"]["total_distance"], 1),
+                "estimated_time": round(alt["metrics"]["estimated_time"], 1),
+                "risk_level": round(alt["metrics"]["average_risk"], 2),
+                "max_risk": round(alt["metrics"]["max_risk"], 2),
                 "warnings": warnings
             })
 

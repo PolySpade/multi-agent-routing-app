@@ -454,9 +454,9 @@ class EvacuationManagerAgent(BaseAgent):
                     "distress_context": distress_context,
                     "target_center": result["center"]["name"],
                     "route_summary": {
-                        "distance": result["metrics"]["total_distance"],
-                        "time_min": result["metrics"]["estimated_time"],
-                        "risk": result["metrics"]["average_risk"]
+                        "distance": round(result["metrics"]["total_distance"], 1),
+                        "time_min": round(result["metrics"]["estimated_time"], 1),
+                        "risk": round(result["metrics"]["average_risk"], 2)
                     },
                     "path": result["path"],
                     "explanation": result.get("explanation", "Proceed effectively to the nearest shelter."),
