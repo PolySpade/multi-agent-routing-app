@@ -91,8 +91,9 @@ class LLMService:
             enabled: Whether LLM is enabled (default: True)
         """
         # Load configuration from environment or use defaults
-        self.text_model = text_model or self._get_env("LLM_TEXT_MODEL", "llama3.2:latest")
-        self.vision_model = vision_model or self._get_env("LLM_VISION_MODEL", "moondream:latest")
+        # Use env vars if available, otherwise fall back to reasonable defaults
+        self.text_model = text_model or self._get_env("LLM_TEXT_MODEL", "qwen3:latest")
+        self.vision_model = vision_model or self._get_env("LLM_VISION_MODEL", "qwen3-vl:latest")
         self.base_url = base_url or self._get_env("OLLAMA_BASE_URL", "http://localhost:11434")
         self.timeout = int(self._get_env("LLM_TIMEOUT_SECONDS", str(timeout)))
         self.enabled = enabled and self._get_env("LLM_ENABLED", "true").lower() == "true"
@@ -105,14 +106,23 @@ class LLMService:
         self._response_cache: Dict[str, tuple] = {}
 
         # Configure Ollama client
+        # IMPORTANT: Always create client with explicit host to avoid OLLAMA_HOST env var issues
+        self.client = None
         if OLLAMA_AVAILABLE and self.enabled:
             try:
-                # Set the host for ollama client
-                ollama.Client(host=self.base_url)
+                # Set the host for ollama client - must be explicit to override OLLAMA_HOST env var
+                # that might be set to 0.0.0.0 (bind address, not a valid connection address)
+                self.client = ollama.Client(host=self.base_url)
                 logger.info(
                     f"LLMService initialized: text={self.text_model}, "
                     f"vision={self.vision_model}, url={self.base_url}"
                 )
+                # Test the connection immediately
+                try:
+                    self.client.list()
+                    logger.info("LLM service health check during init: OK")
+                except Exception as e:
+                    logger.warning(f"LLM service health check during init failed: {e}")
             except Exception as e:
                 logger.warning(f"Failed to configure Ollama client: {e}")
         elif not OLLAMA_AVAILABLE:
@@ -174,7 +184,10 @@ class LLMService:
         # Perform health check
         try:
             # Try to list models - quick health check
-            response = ollama.list()
+            if self.client:
+                response = self.client.list()
+            else:
+                response = (self.client or ollama).list()
             self._available = True
             self._last_health_check = time.time()
             logger.debug("LLM service health check: OK")
@@ -218,7 +231,7 @@ class LLMService:
             return health
 
         try:
-            response = ollama.list()
+            response = (self.client or ollama).list()
 
             # Helper function to extract model name from various formats
             def get_model_name(m) -> str:
@@ -325,7 +338,7 @@ Important:
 - Return ONLY valid JSON, no explanation or markdown."""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
@@ -429,7 +442,7 @@ Important:
 - Return ONLY valid JSON."""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
@@ -535,7 +548,7 @@ Vehicle passability guidelines:
 Return ONLY valid JSON, no explanation."""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.vision_model,
                 messages=[{
                     'role': 'user',
@@ -658,7 +671,7 @@ Return JSON:
 Return ONLY valid JSON."""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
@@ -710,7 +723,7 @@ Return ONLY valid JSON."""
             return ""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
@@ -747,7 +760,7 @@ Return ONLY valid JSON."""
             return ""
 
         try:
-            response = ollama.chat(
+            response = (self.client or ollama).chat(
                 model=self.text_model,
                 messages=messages,
                 options={'timeout': self.timeout}
