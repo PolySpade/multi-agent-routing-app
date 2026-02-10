@@ -237,10 +237,12 @@ def risk_aware_astar(
                 print(f"  [A*] BLOCKING edge ({u}, {v}): risk={risk_score:.3f} >= {max_risk_threshold}")
             return float('inf')
 
-        # Calculate combined cost: distance + risk penalty
-        distance_cost = length * distance_weight
-        risk_cost = length * risk_score * risk_weight
-        total_cost = distance_cost + risk_cost
+        # Calculate combined cost: length + length-proportional risk penalty
+        # Formula matches graph_manager.py pre-computed weights when risk_weight=1.0:
+        #   cost = length * (1.0 + risk_score * risk_weight)
+        # This ensures A* heuristic (Haversine distance) remains admissible
+        # since cost >= length for any non-negative risk_weight.
+        total_cost = length * (distance_weight + risk_score * risk_weight)
 
         return total_cost
 

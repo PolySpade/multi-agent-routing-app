@@ -93,7 +93,7 @@ def register_lifecycle_events(app: FastAPI):
                         edge_updates[(u, v, key)] = risk_score
 
                 # Apply updates to graph
-                state.environment.update_edge_risks(edge_updates)
+                state.environment.batch_update_edge_risks(edge_updates)
                 logger.info(f"Initial flood data loaded: Updated {len(edge_updates)} edges with risk scores")
 
                 # Log sample of high-risk edges

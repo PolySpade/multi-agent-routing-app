@@ -68,7 +68,7 @@ def find_k_shortest_paths(
     try:
         # Use NetworkX's k_shortest_paths as base
         # Note: This finds paths by simple length, we'll re-rank by risk
-        path_generator = nx.shortest_simple_paths(graph, start, end, weight='length')
+        path_generator = nx.shortest_simple_paths(graph, start, end, weight='weight')
 
         count = 0
         for path in path_generator:
@@ -193,7 +193,9 @@ def _find_nearest_node(
     max_distance: float = 500.0
 ) -> Optional[Any]:
     """
-    Find nearest graph node to given coordinates.
+    Find nearest graph node to given coordinates using OSMnx spatial index.
+
+    Uses a KD-tree internally for O(log n) lookup instead of O(n) brute force.
 
     Args:
         graph: Road network graph
@@ -203,28 +205,43 @@ def _find_nearest_node(
     Returns:
         Nearest node ID or None if none found within max_distance
     """
+    import osmnx as ox
     from .risk_aware_astar import haversine_distance
 
     target_lat, target_lon = coords
-    nearest_node = None
-    min_distance = float('inf')
 
-    for node in graph.nodes():
-        node_lat = graph.nodes[node]['y']
-        node_lon = graph.nodes[node]['x']
+    try:
+        nearest_node = ox.nearest_nodes(graph, target_lon, target_lat)
+    except Exception:
+        # Fallback to manual search if OSMnx spatial index fails
+        logger.warning("ox.nearest_nodes failed, falling back to brute-force search")
+        nearest_node = None
+        min_distance = float('inf')
+        for node in graph.nodes():
+            node_lat = graph.nodes[node]['y']
+            node_lon = graph.nodes[node]['x']
+            distance = haversine_distance(
+                (target_lat, target_lon),
+                (node_lat, node_lon)
+            )
+            if distance < min_distance:
+                min_distance = distance
+                nearest_node = node
+        if min_distance > max_distance:
+            return None
+        return nearest_node
 
-        distance = haversine_distance(
-            (target_lat, target_lon),
-            (node_lat, node_lon)
-        )
+    # Verify distance is within threshold
+    node_lat = graph.nodes[nearest_node]['y']
+    node_lon = graph.nodes[nearest_node]['x']
+    distance = haversine_distance(
+        (target_lat, target_lon),
+        (node_lat, node_lon)
+    )
 
-        if distance < min_distance:
-            min_distance = distance
-            nearest_node = node
-
-    if min_distance > max_distance:
+    if distance > max_distance:
         logger.warning(
-            f"Nearest node is {min_distance:.0f}m away "
+            f"Nearest node is {distance:.0f}m away "
             f"(exceeds max_distance of {max_distance:.0f}m)"
         )
         return None

@@ -187,21 +187,12 @@ class RoutingAgent(BaseAgent):
             message_queue: Optional MessageQueue for MAS communication
             evacuation_service: Optional EvacuationCenterService for DB-backed centers
         """
-        super().__init__(agent_id, environment)
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
         # Pathfinding configuration using length-proportional risk penalty
         self.risk_penalty = risk_penalty
         self.distance_weight = distance_weight
         self.llm_service = llm_service
-
-        # MessageQueue for orchestrator communication
-        self.message_queue = message_queue
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError:
-                logger.warning(f"{self.agent_id} already registered with MQ")
 
         # Node lookup cache for O(1) repeated lookups (Issue #6 fix)
         # Cache key: (rounded_lat, rounded_lon) -> (node_id, timestamp)

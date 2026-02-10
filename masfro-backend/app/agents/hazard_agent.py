@@ -116,18 +116,7 @@ class HazardAgent(BaseAgent):
             message_queue: MessageQueue instance for MAS communication
             enable_geotiff: Enable GeoTIFF flood simulation (default: False)
         """
-        super().__init__(agent_id, environment)
-
-        # Message queue for MAS communication
-        self.message_queue = message_queue
-
-        # Register with message queue
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError as e:
-                logger.warning(f"{self.agent_id} already registered: {e}")
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
         # Load configuration from YAML
         try:
@@ -1296,11 +1285,46 @@ class HazardAgent(BaseAgent):
                 )
                 continue
 
+            # Normalize heterogeneous field names from FloodAgent sources:
+            #   River data: water_level_m, risk_score, status
+            #   Dam data:   reservoir_water_level_m, deviation_from_nhwl_m
+            #   Weather:    current_rainfall_mm, rainfall_24h_mm, forecast_6h_mm
+            #   Simulated:  flood_depth, rainfall_1h, rainfall_24h
+            source = location_data.get("source", "")
+
+            flood_depth = location_data.get("flood_depth", 0.0)
+            rainfall_1h = location_data.get("rainfall_1h", 0.0)
+            rainfall_24h = location_data.get("rainfall_24h", 0.0)
+
+            if "PAGASA_API" in source and "water_level_m" in location_data:
+                # River station: estimate flood depth from water level
+                # When water level exceeds alert threshold, flooding begins
+                wl = location_data.get("water_level_m", 0.0) or 0.0
+                alert = location_data.get("alert_level_m")
+                if alert and wl > alert:
+                    flood_depth = max(flood_depth, wl - alert)
+                # Preserve the pre-computed risk_score from FloodAgent
+                if location_data.get("risk_score", 0.0) > 0:
+                    flood_depth = max(flood_depth, location_data["risk_score"])
+
+            elif "Dam_Monitoring" in source and "deviation_from_nhwl_m" in location_data:
+                # Dam data: positive deviation from NHWL indicates flood risk
+                dev = location_data.get("deviation_from_nhwl_m")
+                if dev is not None and dev > 0:
+                    flood_depth = max(flood_depth, min(dev, 5.0))
+                if location_data.get("risk_score", 0.0) > 0:
+                    flood_depth = max(flood_depth, location_data["risk_score"])
+
+            elif "OpenWeatherMap" in source or "current_rainfall_mm" in location_data:
+                # Weather data: map field names
+                rainfall_1h = max(rainfall_1h, location_data.get("current_rainfall_mm", 0.0))
+                rainfall_24h = max(rainfall_24h, location_data.get("rainfall_24h_mm", 0.0))
+
             flood_data = {
                 "location": location,
-                "flood_depth": location_data.get("flood_depth", 0.0),
-                "rainfall_1h": location_data.get("rainfall_1h", 0.0),
-                "rainfall_24h": location_data.get("rainfall_24h", 0.0),
+                "flood_depth": flood_depth,
+                "rainfall_1h": rainfall_1h,
+                "rainfall_24h": rainfall_24h,
                 "timestamp": location_data.get("timestamp")
             }
 

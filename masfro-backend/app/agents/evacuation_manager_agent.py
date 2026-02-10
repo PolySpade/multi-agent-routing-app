@@ -87,25 +87,16 @@ class EvacuationManagerAgent(BaseAgent):
             hazard_agent_id: Target HazardAgent ID for MQ messages
             llm_service: LLMService instance for NL classification/generation
         """
-        super().__init__(agent_id, environment)
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
         # Agent references (set after initialization)
         self.routing_agent: Optional["RoutingAgent"] = None
 
-        # MessageQueue for agent communication (MAS architecture)
-        self.message_queue = message_queue
+        # Target agent IDs
         self.hazard_agent_id = hazard_agent_id
 
         # LLM service for distress classification and instruction generation
         self.llm_service = llm_service
-
-        # Register with MessageQueue for receiving orchestrator requests
-        if self.message_queue:
-            try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError:
-                logger.debug(f"{self.agent_id} already registered with MQ")
 
         # Load configuration from YAML (pattern: hazard_agent.py)
         try:
