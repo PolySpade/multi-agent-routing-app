@@ -18,7 +18,7 @@ Date: February 2026
 """
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Tuple, Optional, Dict, Any, Set
 from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
@@ -1051,9 +1051,14 @@ async def list_orchestrator_missions():
     return {"active": active, "completed": completed}
 
 
+class UserLocation(BaseModel):
+    """Validated user location with bounded coordinates."""
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
 class ChatRequest(BaseModel):
     message: str
-    user_location: Optional[Dict[str, float]] = None
+    user_location: Optional[UserLocation] = None
 
     @field_validator("message")
     @classmethod
@@ -1080,10 +1085,12 @@ async def orchestrator_chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
 
     try:
+        # Convert Pydantic model to dict for orchestrator compatibility
+        user_loc = request.user_location.model_dump() if request.user_location else None
         result = await asyncio.to_thread(
             orchestrator_agent.chat_and_execute,
             request.message,
-            user_location=request.user_location,
+            user_location=user_loc,
         )
         return result
     except Exception as e:
