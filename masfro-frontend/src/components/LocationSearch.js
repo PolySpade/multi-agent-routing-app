@@ -7,6 +7,8 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [error, setError] = useState(null);
+  const errorTimeout = useRef(null);
   const searchTimeout = useRef(null);
   const dropdownRef = useRef(null);
   const sessionTokenRef = useRef(null);
@@ -28,11 +30,20 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
 
   useEffect(() => {
     ensureSessionToken();
+    return () => {
+      if (errorTimeout.current) clearTimeout(errorTimeout.current);
+    };
   }, []);
 
   const clearSessionToken = () => {
     sessionTokenRef.current = null;
     ensureSessionToken();
+  };
+
+  const showError = (message) => {
+    if (errorTimeout.current) clearTimeout(errorTimeout.current);
+    setError(message);
+    errorTimeout.current = setTimeout(() => setError(null), 5000);
   };
 
   const headers = useMemo(() => ({
@@ -72,10 +83,12 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
       } else {
         const errorData = await response.json().catch(() => null);
         console.warn('Autocomplete error response:', errorData);
+        showError('Location search failed. Please try again.');
         setSuggestions([]);
       }
     } catch (error) {
       console.error('Error searching locations:', error);
+      showError('Unable to search locations. Check your connection.');
       setSuggestions([]);
     } finally {
       setIsLoading(false);
@@ -86,6 +99,7 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
   const handleInputChange = (e) => {
     const value = e.target.value;
     setQuery(value);
+    if (error) setError(null);
 
     // Clear previous timeout
     if (searchTimeout.current) {
@@ -134,9 +148,11 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
       } else {
         const errorData = await response.json().catch(() => null);
         console.warn('Place details error response:', errorData);
+        showError('Could not load location details.');
       }
     } catch (error) {
       console.error('Error fetching place details:', error);
+      showError('Failed to get location details. Please try again.');
     } finally {
       setSuggestions([]);
       setShowDropdown(false);
@@ -213,6 +229,24 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
           }} />
         )}
       </div>
+
+      {error && (
+        <div style={{
+          marginTop: '4px',
+          padding: '8px 12px',
+          borderRadius: '6px',
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          color: '#ef4444',
+          fontSize: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          <span style={{ fontSize: '14px' }}>!</span>
+          {error}
+        </div>
+      )}
 
       {showDropdown && suggestions.length > 0 && (
         <div style={{

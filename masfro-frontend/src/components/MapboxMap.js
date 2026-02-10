@@ -83,7 +83,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       console.log('🔄 Loading graph risk visualization...');
 
       // Fetch road risk data from backend (no sample_size = ALL edges)
-      fetch('http://localhost:8000/api/graph/edges/geojson')
+      fetch(`${BACKEND_API_URL}/api/graph/edges/geojson`)
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
