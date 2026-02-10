@@ -20,6 +20,8 @@ Date: February 2026
 import os
 import re
 import json
+import time
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
@@ -145,9 +147,10 @@ class ScoutAgent(BaseAgent):
                 logger.warning(f"{self.agent_id} failed to init SocialScraperService: {e}")
                 self.use_scraper = False
 
-        # Scraper throttle: only scrape every N seconds
+        # Scraper throttle: only scrape every N seconds (thread-safe)
         self._scrape_interval = 15.0
         self._last_scrape_time = 0.0
+        self._scrape_lock = threading.Lock()
 
         # Simulation mode settings
         self.simulation_mode = not use_scraper  # Disable simulation mode when scraper active
@@ -250,13 +253,13 @@ class ScoutAgent(BaseAgent):
             f"{self.agent_id} collecting data at {datetime.now().strftime('%H:%M:%S')}"
         )
 
-        # Scraper mode: fetch from live social scraper service (throttled)
+        # Scraper mode: fetch from live social scraper service (throttled, thread-safe)
         if self.use_scraper and self.social_scraper:
-            import time
-            now = time.time()
-            if now - self._last_scrape_time < self._scrape_interval:
-                return []
-            self._last_scrape_time = now
+            with self._scrape_lock:
+                now = time.time()
+                if now - self._last_scrape_time < self._scrape_interval:
+                    return []
+                self._last_scrape_time = now
             return self._step_scraper()
 
         # Simulation mode: load from JSON files

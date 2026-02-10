@@ -62,8 +62,9 @@ class SocialScraperService:
             if self._mock_down:
                 if time.time() - self._last_check_time < self._backoff_seconds:
                     return []
-                # Retry after backoff
+                # Retry after backoff - reset timer before attempt
                 logger.debug(f"Retrying social feed after backoff...")
+                self._last_check_time = time.time()
 
             response = requests.get(self.feed_url, headers=self.headers, timeout=5)
             response.raise_for_status()
@@ -166,6 +167,8 @@ class SocialScraperService:
             if self._mock_down:
                 if time.time() - self._last_check_time < self._backoff_seconds:
                     return []
+                # Reset timer before retry attempt
+                self._last_check_time = time.time()
 
             params = {"limit": limit}
             if since:

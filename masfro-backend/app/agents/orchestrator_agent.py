@@ -784,7 +784,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 }"""
 
     def interpret_request(
-        self, user_message: str, user_location: Optional[Dict] = None
+        self, user_message: str, user_location: Optional[Dict[str, float]] = None
     ) -> Dict[str, Any]:
         """
         Use LLM to interpret a natural language request into a mission.
@@ -987,7 +987,7 @@ Mission data:
             }
 
     def chat_and_execute(
-        self, user_message: str, user_location: Optional[Dict] = None
+        self, user_message: str, user_location: Optional[Dict[str, float]] = None
     ) -> Dict[str, Any]:
         """
         End-to-end: interpret user message via LLM, create mission, return tracking info.
@@ -1041,7 +1041,7 @@ Mission data:
     def _fix_params(
         mission_type: str,
         params: Dict[str, Any],
-        user_location: Optional[Dict] = None,
+        user_location: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         """Fix common LLM formatting issues in mission params."""
         if mission_type == "route_calculation":
@@ -1073,10 +1073,18 @@ Mission data:
             if not params.get("start"):
                 if user_location and user_location.get("lat") and user_location.get("lng"):
                     params["start"] = [user_location["lat"], user_location["lng"]]
+                    logger.info("Using user map location as route start point")
                 else:
                     params["start"] = city_center
+                    logger.warning(
+                        "No start location provided and no user location set — "
+                        "defaulting to Marikina city center"
+                    )
             if not params.get("end"):
                 params["end"] = city_center
+                logger.warning(
+                    "No end location provided — defaulting to Marikina city center"
+                )
 
         elif mission_type == "coordinated_evacuation":
             loc = params.get("user_location")
