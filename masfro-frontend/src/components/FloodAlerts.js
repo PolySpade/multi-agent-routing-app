@@ -39,8 +39,20 @@ export default function FloodAlerts({ alerts, onClear, isConnected }) {
     }
   };
 
+  // Empty state or disconnected — show status indicator
   if (!visible || !alerts || alerts.length === 0) {
-    return null;
+    return (
+      <div className="fixed top-20 right-4 z-50 max-w-md">
+        <div className="flex items-center justify-end space-x-2 bg-gray-900 bg-opacity-70 backdrop-blur-sm rounded-lg px-3 py-2">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
+          <span className="text-xs text-white">
+            {!isConnected
+              ? 'Flood alerts disconnected'
+              : 'No active flood alerts'}
+          </span>
+        </div>
+      </div>
+    );
   }
 
   const getSeverityColor = (severity) => {
