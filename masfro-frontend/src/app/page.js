@@ -90,6 +90,9 @@ export default function Home() {
   const [showEvacFeedback, setShowEvacFeedback] = useState(false);
   const [evacFeedbackCenter, setEvacFeedbackCenter] = useState(null);
   const [evacuationToast, setEvacuationToast] = useState(null);
+  const [activeMobileSheet, setActiveMobileSheet] = useState(null); // null | 'route' | 'agents' | 'sos' | 'evac'
+  const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
+  const [panelsDrawerOpen, setPanelsDrawerOpen] = useState(false);
 
   const { isConnected, systemStatus, evacuationUpdates, distressAlerts } = useWebSocketContext();
 
@@ -232,6 +235,14 @@ export default function Home() {
           --glass-border: rgba(255, 255, 255, 0.15);
           --text-main: #e2e8f0;
           --text-muted: #94a3b8;
+          --z-map-overlay: 1;
+          --z-sidebar: 5;
+          --z-panels: 5;
+          --z-expand-btn: 10;
+          --z-dropdown: 50;
+          --z-modal: 100;
+          --z-toast: 150;
+          --mobile-nav-height: 0px;
         }
 
         * { box-sizing: border-box; }
@@ -248,6 +259,12 @@ export default function Home() {
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse { 50% { opacity: 0.5; } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (max-width: 767px) {
+          body {
+            overflow: auto;
+          }
+        }
 
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 6px; }
@@ -275,14 +292,14 @@ export default function Home() {
           overflow-y: auto; /* Allow scrolling inside sidebar */
           overflow-x: hidden;
           position: relative;
-          z-index: 10;
+          z-index: var(--z-sidebar);
         }
 
         .sidebar-content {
-          padding: 2rem;
+          padding: 1.5rem;
           display: flex;
           flex-direction: column;
-          gap: 1.5rem;
+          gap: 1.25rem;
           min-height: 100%;
           width: 400px; /* Fixed width to prevent layout shift during collapse transition */
           opacity: ${isPanelCollapsed ? 0 : 1};
@@ -328,7 +345,7 @@ export default function Home() {
           background: var(--glass-bg);
           border: 1px solid var(--glass-border);
           border-radius: 16px;
-          padding: 1.5rem;
+          padding: 1.25rem;
           box-shadow: 0 4px 20px rgba(0,0,0,0.2);
           display: flex;
           flex-direction: column;
@@ -336,12 +353,14 @@ export default function Home() {
         }
 
         .section-title {
-          font-size: 0.75rem;
+          font-size: 0.8rem;
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: var(--text-muted);
           font-weight: 700;
           margin-bottom: 0.5rem;
+          padding-left: 0.5rem;
+          border-left: 2px solid var(--primary);
         }
 
         /* Buttons */
@@ -368,10 +387,11 @@ export default function Home() {
         .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(36, 142, 168, 0.5); }
 
         .btn-secondary {
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.1);
           border: 1px solid var(--glass-border);
+          color: var(--text-main);
         }
-        .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); }
+        .btn-secondary:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.35); }
 
         .btn-accent {
           background: rgba(225, 92, 69, 0.15);
@@ -463,13 +483,12 @@ export default function Home() {
         }
 
         .mode-desc {
-          font-size: 0.65rem;
+          font-size: 0.7rem;
           opacity: 0.7;
         }
 
         /* Status Box */
         .status-box {
-          margin-top: auto; /* Pushes to bottom */
           background: rgba(15, 20, 25, 0.6);
           border-radius: 12px;
           padding: 1rem;
@@ -527,7 +546,7 @@ export default function Home() {
           color: white;
           box-shadow: 0 8px 32px rgba(0,0,0,0.4);
           animation: slideIn 0.4s ease-out;
-          z-index: 5;
+          z-index: var(--z-map-overlay);
         }
 
         .map-loader {
@@ -565,7 +584,7 @@ export default function Home() {
           position: absolute;
           top: 20px;
           left: 20px;
-          z-index: 20;
+          z-index: var(--z-expand-btn);
           background: var(--bg-dark);
           color: white;
           border: 1px solid var(--glass-border);
@@ -581,7 +600,7 @@ export default function Home() {
           position: fixed; inset: 0;
           background: rgba(0,0,0,0.8);
           backdrop-filter: blur(5px);
-          z-index: 1000;
+          z-index: var(--z-modal);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -596,11 +615,11 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           gap: 1rem;
-          padding: 1rem;
+          padding: 1.5rem;
           overflow-y: auto;
           overflow-x: hidden;
           position: relative;
-          z-index: 30;
+          z-index: var(--z-panels);
         }
 
         .panels-container::-webkit-scrollbar {
@@ -615,10 +634,206 @@ export default function Home() {
           background: rgba(255,255,255,0.2);
           border-radius: 10px;
         }
+
+        /* --- Backdrop Overlay --- */
+        .drawer-backdrop {
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: calc(var(--z-sidebar) - 1);
+        }
+        .drawer-backdrop.visible {
+          display: block;
+        }
+
+        /* --- Mobile Bottom Nav --- */
+        .mobile-nav {
+          display: none;
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 56px;
+          background: rgba(15, 20, 25, 0.95);
+          backdrop-filter: blur(16px);
+          border-top: 1px solid var(--glass-border);
+          z-index: var(--z-expand-btn);
+          padding: 0 0.5rem;
+          align-items: center;
+          justify-content: space-around;
+        }
+
+        .mobile-nav-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 0.15rem;
+          min-height: 44px;
+          min-width: 44px;
+          padding: 0.25rem 0.75rem;
+          border: none;
+          background: transparent;
+          color: var(--text-muted);
+          font-size: 0.65rem;
+          font-weight: 600;
+          cursor: pointer;
+          border-radius: 8px;
+          transition: all 0.2s;
+        }
+
+        .mobile-nav-btn.active {
+          color: var(--primary);
+          background: rgba(36, 142, 168, 0.15);
+        }
+
+        .mobile-nav-btn .nav-icon {
+          font-size: 1.25rem;
+        }
+
+        /* --- Tablet: 768px - 1279px --- */
+        @media (max-width: 1279px) {
+          .app-container {
+            grid-template-columns: 1fr !important;
+          }
+
+          aside {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 380px;
+            height: 100vh;
+            transform: translateX(-100%);
+            transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+            z-index: var(--z-sidebar);
+          }
+
+          aside.drawer-open {
+            transform: translateX(0);
+          }
+
+          .panels-container {
+            position: fixed;
+            right: 0;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            transform: translateX(100%);
+            transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+            z-index: var(--z-panels);
+            border-left: 1px solid var(--glass-border);
+          }
+
+          .panels-container.drawer-open {
+            transform: translateX(0);
+          }
+
+          .drawer-backdrop.visible {
+            display: block;
+          }
+
+          .expand-ctrl {
+            display: block !important;
+          }
+        }
+
+        /* --- Mobile: < 768px --- */
+        @media (max-width: 767px) {
+          :root {
+            --mobile-nav-height: 56px;
+          }
+
+          .app-container {
+            grid-template-columns: 1fr !important;
+          }
+
+          aside {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 56px;
+            top: auto;
+            width: 100%;
+            max-height: 70vh;
+            height: auto;
+            border-radius: 20px 20px 0 0;
+            border-right: none;
+            border-top: 1px solid var(--glass-border);
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+            z-index: var(--z-sidebar);
+          }
+
+          aside.drawer-open {
+            transform: translateY(0);
+          }
+
+          .sidebar-content {
+            width: 100% !important;
+            padding: 1.25rem !important;
+          }
+
+          .panels-container {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 56px;
+            top: auto;
+            width: 100%;
+            max-height: 70vh;
+            height: auto;
+            border-radius: 20px 20px 0 0;
+            border-left: none;
+            border-top: 1px solid var(--glass-border);
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+            z-index: var(--z-panels);
+          }
+
+          .panels-container.drawer-open {
+            transform: translateY(0);
+          }
+
+          .mobile-nav {
+            display: flex;
+          }
+
+          .map-area {
+            height: calc(100vh - 56px);
+          }
+
+          /* Hide desktop header nav links on mobile */
+          .header-nav-links {
+            display: none !important;
+          }
+
+          .selection-group {
+            flex-direction: column;
+          }
+
+          header h1 {
+            font-size: 1.5rem;
+          }
+
+          /* Touch targets */
+          .btn, .select-btn, .routing-mode-btn, .nav-link, .collapse-ctrl {
+            min-height: 44px;
+            min-width: 44px;
+          }
+
+          .expand-ctrl {
+            display: none !important;
+          }
+
+          .collapse-ctrl {
+            display: none !important;
+          }
+        }
       `}</style>
 
       {/* --- Sidebar --- */}
-      <aside>
+      <aside className={sidebarDrawerOpen ? 'drawer-open' : ''}>
         {!isPanelCollapsed && (
           <div className="sidebar-content">
             <header>
@@ -631,7 +846,7 @@ export default function Home() {
                   Hide ⇱
                 </button>
               </div>
-              <div style={{marginTop: '1rem', display:'flex', gap:'0.5rem', flexWrap: 'wrap'}}>
+              <div className="header-nav-links" style={{marginTop: '1rem', display:'flex', gap:'0.5rem', flexWrap: 'wrap'}}>
                 <Link href="/dashboard" className="nav-link">
                   📊 Dashboard
                 </Link>
@@ -901,7 +1116,7 @@ export default function Home() {
                               </div>
                             )}
                             {actions && actions.length > 0 && (
-                              <ul style={{ margin: '0.25rem 0 0 1rem', padding: 0, fontSize: '0.65rem', opacity: 0.75 }}>
+                              <ul style={{ margin: '0.25rem 0 0 1rem', padding: 0, fontSize: '0.7rem', opacity: 0.75 }}>
                                 {actions.map((a, i) => <li key={i}>{a}</li>)}
                               </ul>
                             )}
@@ -924,7 +1139,7 @@ export default function Home() {
                       color: 'rgba(255, 255, 255, 0.85)',
                       lineHeight: '1.5'
                     }}>
-                      <div style={{ fontWeight: 700, color: 'rgba(139, 92, 246, 0.9)', marginBottom: '0.2rem', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <div style={{ fontWeight: 700, color: 'rgba(139, 92, 246, 0.9)', marginBottom: '0.2rem', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         AI Route Analysis
                       </div>
                       {routeMeta.explanation}
@@ -971,7 +1186,7 @@ export default function Home() {
       {/* --- Map Area --- */}
       <section className="map-area">
         {isPanelCollapsed && (
-          <button onClick={() => setIsPanelCollapsed(false)} className="expand-ctrl">
+          <button onClick={() => { setIsPanelCollapsed(false); setSidebarDrawerOpen(true); }} className="expand-ctrl">
             Show Controls ⇲
           </button>
         )}
@@ -1028,17 +1243,27 @@ export default function Home() {
 
       {/* --- Right Panels Container --- */}
       {(showAgentPanel || showEvacuationPanel) && (
-        <section className="panels-container">
+        <section className={`panels-container ${panelsDrawerOpen ? 'drawer-open' : ''}`}>
           {/* AI Orchestrator Chat */}
           <OrchestratorChat
+            startPoint={startPoint}
             onRouteResult={(result) => {
-              if (result?.path) {
+              if (result?.path?.length > 0) {
                 setRoutePath(result.path);
                 setRouteMeta({
                   distance: result.distance,
                   estimated_time: result.estimated_time,
-                  risk_level: result.risk_level,
+                  riskLevel: result.risk_level,
+                  maxRisk: result.max_risk,
+                  warnings: result.warnings || [],
+                  numSegments: result.num_segments,
+                  provider: 'orchestrator',
                 });
+                // Set pins from route start/end coords
+                const first = result.path[0];
+                const last = result.path[result.path.length - 1];
+                if (Array.isArray(first)) setStartPoint({ lat: first[0], lng: first[1] });
+                if (Array.isArray(last)) setEndPoint({ lat: last[0], lng: last[1] });
                 setMessage('Route calculated by AI Orchestrator');
               }
             }}
@@ -1117,7 +1342,7 @@ export default function Home() {
           top: '1.5rem',
           left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 2000,
+          zIndex: 150,
           background: 'rgba(139, 92, 246, 0.9)',
           backdropFilter: 'blur(8px)',
           color: 'white',
@@ -1132,6 +1357,74 @@ export default function Home() {
           {evacuationToast}
         </div>
       )}
+
+      {/* --- Drawer Backdrop (tablet/mobile) --- */}
+      <div
+        className={`drawer-backdrop ${sidebarDrawerOpen || panelsDrawerOpen || activeMobileSheet ? 'visible' : ''}`}
+        onClick={() => {
+          setSidebarDrawerOpen(false);
+          setPanelsDrawerOpen(false);
+          setActiveMobileSheet(null);
+        }}
+      />
+
+      {/* --- Mobile Bottom Nav --- */}
+      <nav className="mobile-nav">
+        <button
+          className={`mobile-nav-btn ${activeMobileSheet === 'route' || sidebarDrawerOpen ? 'active' : ''}`}
+          onClick={() => {
+            const opening = !sidebarDrawerOpen;
+            setSidebarDrawerOpen(opening);
+            setPanelsDrawerOpen(false);
+            setActiveMobileSheet(opening ? 'route' : null);
+          }}
+        >
+          <span className="nav-icon">🗺️</span>
+          Route
+        </button>
+        <button
+          className={`mobile-nav-btn ${activeMobileSheet === 'agents' ? 'active' : ''}`}
+          onClick={() => {
+            const opening = activeMobileSheet !== 'agents';
+            setSidebarDrawerOpen(false);
+            setPanelsDrawerOpen(opening);
+            setActiveMobileSheet(opening ? 'agents' : null);
+            if (opening) {
+              setShowAgentPanel(true);
+            }
+          }}
+        >
+          <span className="nav-icon">🤖</span>
+          Agents
+        </button>
+        <button
+          className={`mobile-nav-btn ${showDistressModal ? 'active' : ''}`}
+          onClick={() => {
+            setSidebarDrawerOpen(false);
+            setPanelsDrawerOpen(false);
+            setActiveMobileSheet(null);
+            setShowDistressModal(true);
+          }}
+        >
+          <span className="nav-icon">🆘</span>
+          SOS
+        </button>
+        <button
+          className={`mobile-nav-btn ${activeMobileSheet === 'evac' ? 'active' : ''}`}
+          onClick={() => {
+            const opening = activeMobileSheet !== 'evac';
+            setSidebarDrawerOpen(false);
+            setPanelsDrawerOpen(opening);
+            setActiveMobileSheet(opening ? 'evac' : null);
+            if (opening) {
+              setShowEvacuationPanel(true);
+            }
+          }}
+        >
+          <span className="nav-icon">🏥</span>
+          Evac
+        </button>
+      </nav>
     </div>
   );
 }

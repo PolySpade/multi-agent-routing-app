@@ -10,6 +10,7 @@ with ScoutAgent's existing _process_and_forward_tweets() pipeline.
 """
 
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -42,6 +43,10 @@ class SocialScraperService:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
+        self._mock_down = False
+        self._mock_down_logged = False
+        self._last_check_time = 0.0
+        self._backoff_seconds = 60.0  # retry mock server every 60s when down
         logger.info(f"SocialScraperService initialized with base_url={self.base_url}")
 
     def scrape_feed(self) -> List[Dict[str, Any]]:
@@ -53,9 +58,21 @@ class SocialScraperService:
             List of tweet dictionaries compatible with ScoutAgent processing.
         """
         try:
-            logger.info(f"Scraping social feed from {self.feed_url}")
-            response = requests.get(self.feed_url, headers=self.headers, timeout=10)
+            # Skip if mock server is known to be down (backoff)
+            if self._mock_down:
+                if time.time() - self._last_check_time < self._backoff_seconds:
+                    return []
+                # Retry after backoff
+                logger.debug(f"Retrying social feed after backoff...")
+
+            response = requests.get(self.feed_url, headers=self.headers, timeout=5)
             response.raise_for_status()
+
+            # Server is back up
+            if self._mock_down:
+                logger.info(f"Mock social server is back online at {self.feed_url}")
+                self._mock_down = False
+                self._mock_down_logged = False
 
             soup = BeautifulSoup(response.content, "html.parser")
             articles = soup.find_all("article", class_="tweet")
@@ -115,6 +132,16 @@ class SocialScraperService:
             logger.info(f"Scraped {len(tweets)} tweets from social feed")
             return tweets
 
+        except requests.exceptions.ConnectionError:
+            self._last_check_time = time.time()
+            if not self._mock_down_logged:
+                logger.warning(
+                    f"Mock social server unavailable at {self.feed_url} "
+                    f"- will retry every {int(self._backoff_seconds)}s silently"
+                )
+                self._mock_down_logged = True
+            self._mock_down = True
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to scrape social feed: {e}")
             return []
@@ -135,13 +162,17 @@ class SocialScraperService:
             List of tweet dictionaries compatible with ScoutAgent processing.
         """
         try:
+            # Skip if mock server is known to be down (backoff)
+            if self._mock_down:
+                if time.time() - self._last_check_time < self._backoff_seconds:
+                    return []
+
             params = {"limit": limit}
             if since:
                 params["since"] = since
 
-            logger.info(f"Fetching tweets from API: {self.api_url}")
             response = requests.get(
-                self.api_url, params=params, headers=self.headers, timeout=10
+                self.api_url, params=params, headers=self.headers, timeout=5
             )
             response.raise_for_status()
 
@@ -156,6 +187,10 @@ class SocialScraperService:
             logger.info(f"Fetched {len(tweets)} tweets from API")
             return tweets
 
+        except requests.exceptions.ConnectionError:
+            self._last_check_time = time.time()
+            self._mock_down = True
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch tweets API: {e}")
             return []

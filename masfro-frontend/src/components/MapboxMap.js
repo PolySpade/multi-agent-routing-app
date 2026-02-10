@@ -844,7 +844,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   return (
     <div
       ref={mapContainerRef}
-      style={{ width: '100%', height: '100%', minHeight: '100vh' }}
+      style={{ width: '100%', height: '100%', minHeight: 'calc(100vh - var(--mobile-nav-height, 0px))' }}
     >
       {/* <div style={{
         position: 'absolute',

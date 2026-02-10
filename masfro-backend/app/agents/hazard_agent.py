@@ -1201,9 +1201,9 @@ class HazardAgent(BaseAgent):
             "edges_updated": len(risk_scores),
             "time_step": time_step,
             "timestamp": current_time.isoformat(),
-            "average_risk": round(average_risk, 4),
+            "average_risk": round(average_risk, 2),
             "risk_trend": risk_trend,
-            "risk_change_rate": round(risk_change_rate, 6),
+            "risk_change_rate": round(risk_change_rate, 4),
             "active_reports": active_scouts,
             "oldest_report_age_min": round(oldest_scout_age, 1)
         }
@@ -2385,14 +2385,14 @@ class HazardAgent(BaseAgent):
             "radius_m": radius_m,
             "nearby_nodes": len(nearby_nodes),
             "edges_checked": len(edge_risks),
-            "avg_risk": round(avg_risk, 4),
-            "max_risk": round(max_risk, 4),
+            "avg_risk": round(avg_risk, 2),
+            "max_risk": round(max_risk, 2),
             "risk_level": risk_level,
             "high_risk_edges": high_risk,
             "impassable_edges": impassable,
             "nearby_flood_data": nearby_flood_data,
             "risk_history": [
-                {"timestamp": str(ts), "avg_risk": round(r, 4)}
+                {"timestamp": str(ts), "avg_risk": round(r, 2)}
                 for ts, r in self.risk_history[-5:]
             ],
         }

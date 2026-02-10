@@ -1053,6 +1053,7 @@ async def list_orchestrator_missions():
 
 class ChatRequest(BaseModel):
     message: str
+    user_location: Optional[Dict[str, float]] = None
 
     @field_validator("message")
     @classmethod
@@ -1080,7 +1081,9 @@ async def orchestrator_chat(request: ChatRequest):
 
     try:
         result = await asyncio.to_thread(
-            orchestrator_agent.chat_and_execute, request.message
+            orchestrator_agent.chat_and_execute,
+            request.message,
+            user_location=request.user_location,
         )
         return result
     except Exception as e:
