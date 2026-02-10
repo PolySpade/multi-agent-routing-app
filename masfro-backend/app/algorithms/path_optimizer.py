@@ -93,54 +93,6 @@ def find_k_shortest_paths(
     return paths
 
 
-def compare_paths(
-    graph: nx.MultiDiGraph,
-    path1: List[Any],
-    path2: List[Any]
-) -> Dict[str, Any]:
-    """
-    Compare two paths and return detailed comparison metrics.
-
-    Args:
-        graph: Road network graph
-        path1: First path (list of node IDs)
-        path2: Second path (list of node IDs)
-
-    Returns:
-        Dict containing comparison metrics:
-            {
-                "path1_metrics": Dict,
-                "path2_metrics": Dict,
-                "distance_diff": float,  # meters
-                "risk_diff": float,  # 0-1 scale
-                "time_diff": float,  # minutes
-                "recommendation": str  # Which path is better
-            }
-    """
-    metrics1 = calculate_path_metrics(graph, path1)
-    metrics2 = calculate_path_metrics(graph, path2)
-
-    distance_diff = metrics1["total_distance"] - metrics2["total_distance"]
-    risk_diff = metrics1["average_risk"] - metrics2["average_risk"]
-    time_diff = metrics1["estimated_time"] - metrics2["estimated_time"]
-
-    # Determine recommendation based on overall score
-    # Prioritize safety (risk) over distance
-    score1 = metrics1["average_risk"] * 0.6 + (metrics1["total_distance"] / 10000) * 0.4
-    score2 = metrics2["average_risk"] * 0.6 + (metrics2["total_distance"] / 10000) * 0.4
-
-    recommendation = "path1" if score1 < score2 else "path2"
-
-    return {
-        "path1_metrics": metrics1,
-        "path2_metrics": metrics2,
-        "distance_diff": distance_diff,
-        "risk_diff": risk_diff,
-        "time_diff": time_diff,
-        "recommendation": recommendation
-    }
-
-
 def optimize_evacuation_route(
     graph: nx.MultiDiGraph,
     start: Tuple[float, float],

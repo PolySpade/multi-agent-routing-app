@@ -8,8 +8,6 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.services.simulation_manager import get_simulation_manager
 from app.core.dependencies import get_websocket_manager, get_environment
-from app.core.auth import verify_api_key
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Simulation"])

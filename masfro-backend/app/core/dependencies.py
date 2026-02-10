@@ -52,17 +52,6 @@ def get_flood_agent():
     return state.flood_agent
 
 
-def get_scout_agent():
-    """Get ScoutAgent instance."""
-    state = get_app_state()
-    if not state.scout_agent:
-        raise HTTPException(
-            status_code=503,
-            detail="ScoutAgent not initialized"
-        )
-    return state.scout_agent
-
-
 def get_evacuation_manager():
     """Get EvacuationManagerAgent instance."""
     state = get_app_state()

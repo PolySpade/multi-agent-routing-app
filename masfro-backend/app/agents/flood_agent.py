@@ -30,7 +30,6 @@ import logging
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
-from pathlib import Path
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
