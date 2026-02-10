@@ -207,34 +207,3 @@ def create_inform_message(
     )
 
 
-def create_query_message(
-    sender: str,
-    receiver: str,
-    query_type: str,
-    parameters: Optional[Dict[str, Any]] = None,
-    conversation_id: Optional[str] = None
-) -> ACLMessage:
-    """
-    Helper function to create a QUERY message.
-
-    Args:
-        sender: Sender agent ID
-        receiver: Receiver agent ID
-        query_type: Type of query being made
-        parameters: Optional query parameters
-        conversation_id: Optional conversation tracking ID
-
-    Returns:
-        ACLMessage with QUERY performative
-    """
-    content = {"query_type": query_type}
-    if parameters:
-        content["parameters"] = parameters
-
-    return ACLMessage(
-        performative=Performative.QUERY,
-        sender=sender,
-        receiver=receiver,
-        content=content,
-        conversation_id=conversation_id
-    )

@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
-from uuid import UUID
 from pathlib import Path
 
 import pandas as pd
@@ -170,22 +169,6 @@ class FloodDataRepository:
             .first()
         )
 
-    def get_collection_by_id(self, collection_id: UUID) -> Optional[FloodDataCollection]:
-        """
-        Get a specific flood data collection by ID.
-
-        Args:
-            collection_id: Collection UUID
-
-        Returns:
-            FloodDataCollection or None
-        """
-        return (
-            self.db.query(FloodDataCollection)
-            .filter(FloodDataCollection.id == collection_id)
-            .first()
-        )
-
     def get_collections_in_range(
         self,
         start_time: datetime,
@@ -241,25 +224,6 @@ class FloodDataRepository:
                 )
             )
             .order_by(desc(RiverLevel.recorded_at))
-            .all()
-        )
-
-    def get_weather_history(self, hours: int = 24) -> List[WeatherData]:
-        """
-        Get historical weather data.
-
-        Args:
-            hours: Number of hours of history (default 24)
-
-        Returns:
-            List of WeatherData instances
-        """
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-
-        return (
-            self.db.query(WeatherData)
-            .filter(WeatherData.recorded_at >= cutoff_time)
-            .order_by(desc(WeatherData.recorded_at))
             .all()
         )
 
@@ -356,38 +320,6 @@ class FloodDataRepository:
             "critical_alerts": critical_alerts or 0,
         }
 
-    def cleanup_old_data(self, retention_days: int = 90) -> int:
-        """
-        Delete data older than retention period.
-
-        Args:
-            retention_days: Number of days to retain (default 90)
-
-        Returns:
-            Number of collections deleted
-        """
-        try:
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
-
-            deleted_count = (
-                self.db.query(FloodDataCollection)
-                .filter(FloodDataCollection.collected_at < cutoff_date)
-                .delete()
-            )
-
-            self.db.commit()
-
-            logger.info(
-                f"Cleaned up {deleted_count} collections older than {retention_days} days"
-            )
-
-            return deleted_count
-
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Error cleaning up old data: {e}")
-            raise
-
 
 class EvacuationRepository:
     """Repository for managing evacuation centers in the database."""
@@ -477,18 +409,6 @@ class EvacuationRepository:
             self.db.query(EvacuationCenter)
             .filter(EvacuationCenter.name == name)
             .first()
-        )
-
-    def get_centers_by_barangay(self, barangay: str) -> List[EvacuationCenter]:
-        """Get all active centers in a barangay."""
-        return (
-            self.db.query(EvacuationCenter)
-            .filter(
-                EvacuationCenter.is_active == True,
-                EvacuationCenter.barangay == barangay,
-            )
-            .order_by(EvacuationCenter.name)
-            .all()
         )
 
     def get_centers_as_dataframe(self) -> pd.DataFrame:
@@ -623,21 +543,3 @@ class EvacuationRepository:
             "last_update": datetime.utcnow().isoformat(),
         }
 
-    def get_occupancy_history(
-        self, center_name: str, hours: int = 24
-    ) -> List[EvacuationOccupancyLog]:
-        """Get occupancy log entries for a center within the last *hours*."""
-        center = self.get_center_by_name(center_name)
-        if not center:
-            return []
-
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
-        return (
-            self.db.query(EvacuationOccupancyLog)
-            .filter(
-                EvacuationOccupancyLog.center_id == center.id,
-                EvacuationOccupancyLog.recorded_at >= cutoff,
-            )
-            .order_by(desc(EvacuationOccupancyLog.recorded_at))
-            .all()
-        )

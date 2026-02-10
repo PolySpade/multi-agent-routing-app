@@ -496,17 +496,6 @@ class SimulationManager:
             self._simulation_clock += delta
         self._last_tick_time = now
 
-        # Update time step
-        # if time_step is not None:
-        #     if not 1 <= time_step <= 18:
-        #         raise ValueError(
-        #             f"Invalid time_step {time_step}. Must be between 1 and 18"
-        #         )
-        #     self.current_time_step = time_step
-        # else:
-        #     # Auto-increment, wrap around at 18
-        #     self.current_time_step = (self.current_time_step % 18) + 1
-
         self.tick_count += 1
 
         logger.info(
@@ -947,33 +936,6 @@ class SimulationManager:
             status["current_session_seconds"] = round(current_runtime, 2)
 
         return status
-
-    def set_data(self, key: str, value: Any) -> None:
-        """
-        Store simulation data.
-
-        Args:
-            key: Data key
-            value: Data value
-        """
-        self._simulation_data[key] = value
-
-    def get_data(self, key: str, default: Any = None) -> Any:
-        """
-        Retrieve simulation data.
-
-        Args:
-            key: Data key
-            default: Default value if key not found
-
-        Returns:
-            Data value or default
-        """
-        return self._simulation_data.get(key, default)
-
-    def clear_data(self) -> None:
-        """Clear all simulation data."""
-        self._simulation_data.clear()
 
 
 # Global simulation manager instance

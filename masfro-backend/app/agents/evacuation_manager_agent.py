@@ -25,7 +25,6 @@ Date: November 2025
 from .base_agent import BaseAgent
 from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
 from collections import deque
-import json
 import logging
 from datetime import datetime
 import uuid

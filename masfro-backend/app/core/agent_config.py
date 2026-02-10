@@ -400,11 +400,6 @@ class AgentConfigLoader:
             logger.error(f"Failed to load config from {self.config_path}: {e}")
             self._config = {}
 
-    def reload(self) -> None:
-        """Reload configuration from file (for hot-reloading)."""
-        self._load_config()
-        logger.info("Configuration reloaded")
-
     def get_routing_config(self) -> RoutingConfig:
         """Get RoutingAgent configuration."""
         cfg = self._config.get('routing_agent', {})
