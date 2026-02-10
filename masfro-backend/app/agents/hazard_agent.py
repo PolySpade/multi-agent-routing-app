@@ -1297,23 +1297,45 @@ class HazardAgent(BaseAgent):
             rainfall_24h = location_data.get("rainfall_24h", 0.0)
 
             if "PAGASA_API" in source and "water_level_m" in location_data:
-                # River station: estimate flood depth from water level
-                # When water level exceeds alert threshold, flooding begins
+                # River station: graduated flood depth using all three
+                # PAGASA thresholds (per-station values scraped from the table).
+                # Tier floors are calibrated to the FEMA sigmoid (k=8, x0=0.3):
+                #   alert  → floor 0.15m → ~27% risk
+                #   alarm  → floor 0.30m → 50% risk
+                #   critical → floor 0.60m → ~92% risk
                 wl = location_data.get("water_level_m", 0.0) or 0.0
                 alert = location_data.get("alert_level_m")
+                alarm = location_data.get("alarm_level_m")
+                critical = location_data.get("critical_level_m")
+
                 if alert and wl > alert:
-                    flood_depth = max(flood_depth, wl - alert)
-                # Preserve the pre-computed risk_score from FloodAgent
-                if location_data.get("risk_score", 0.0) > 0:
-                    flood_depth = max(flood_depth, location_data["risk_score"])
+                    overflow = wl - alert
+                    if critical and wl >= critical:
+                        tier_floor = 0.6
+                    elif alarm and wl >= alarm:
+                        tier_floor = 0.3
+                    else:
+                        tier_floor = 0.15
+                    flood_depth = max(flood_depth, overflow, tier_floor)
 
             elif "Dam_Monitoring" in source and "deviation_from_nhwl_m" in location_data:
-                # Dam data: positive deviation from NHWL indicates flood risk
+                # Dam: graduated flood depth using FloodAgent's pre-computed
+                # status (derived from dam_alert/alarm/critical config thresholds)
+                # and the physical NHWL deviation.
                 dev = location_data.get("deviation_from_nhwl_m")
+                status = location_data.get("status", "normal")
+
                 if dev is not None and dev > 0:
-                    flood_depth = max(flood_depth, min(dev, 5.0))
-                if location_data.get("risk_score", 0.0) > 0:
-                    flood_depth = max(flood_depth, location_data["risk_score"])
+                    capped_dev = min(dev, 5.0)
+                    if status == "critical":
+                        tier_floor = 0.6
+                    elif status == "alarm":
+                        tier_floor = 0.3
+                    elif status in ("alert", "watch"):
+                        tier_floor = 0.15
+                    else:
+                        tier_floor = 0.0
+                    flood_depth = max(flood_depth, capped_dev, tier_floor)
 
             elif "OpenWeatherMap" in source or "current_rainfall_mm" in location_data:
                 # Weather data: map field names
