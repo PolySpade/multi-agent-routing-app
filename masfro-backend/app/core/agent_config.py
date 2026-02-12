@@ -117,6 +117,13 @@ class HazardConfig:
     visual_override_risk_threshold: float = 0.7
     visual_override_confidence_threshold: float = 0.75
 
+    # Dam threat modifier (city-wide flood risk from upstream dams)
+    enable_dam_threat_modifier: bool = True
+    dam_relevant_names: List[str] = field(default_factory=lambda: ["ANGAT", "IPO", "LA MESA"])
+    dam_additive_weight: float = 0.05
+    dam_multiplicative_weight: float = 0.3
+    dam_threat_decay_minutes: float = 120.0
+
     def validate(self) -> None:
         """Validate configuration values."""
         total_weight = self.weight_flood_depth + self.weight_crowdsourced + self.weight_historical
@@ -131,6 +138,10 @@ class HazardConfig:
             "visual_override_risk_threshold must be in (0, 1]"
         assert 0 < self.visual_override_confidence_threshold <= 1.0, \
             "visual_override_confidence_threshold must be in (0, 1]"
+        assert 0 <= self.dam_additive_weight <= 0.2, \
+            f"dam_additive_weight must be in [0, 0.2], got {self.dam_additive_weight}"
+        assert 0 <= self.dam_multiplicative_weight <= 1.0, \
+            f"dam_multiplicative_weight must be in [0, 1.0], got {self.dam_multiplicative_weight}"
 
 
 @dataclass
@@ -439,6 +450,7 @@ class AgentConfigLoader:
         depth_cfg = formulas.get('depth_to_risk', {})
         rainfall_cfg = formulas.get('rainfall_thresholds_mm', {})
         visual_override = cfg.get('visual_override', {})
+        dam_threat = cfg.get('dam_threat_modifier', {})
 
         config = HazardConfig(
             max_flood_cache=caches.get('max_flood_entries', 100),
@@ -474,6 +486,11 @@ class AgentConfigLoader:
             rainfall_extreme_mm=rainfall_cfg.get('extreme', 30.0),
             visual_override_risk_threshold=visual_override.get('risk_threshold', 0.7),
             visual_override_confidence_threshold=visual_override.get('confidence_threshold', 0.75),
+            enable_dam_threat_modifier=dam_threat.get('enable', True),
+            dam_relevant_names=dam_threat.get('relevant_dams', ["ANGAT", "IPO", "LA MESA"]),
+            dam_additive_weight=dam_threat.get('additive_weight', 0.05),
+            dam_multiplicative_weight=dam_threat.get('multiplicative_weight', 0.3),
+            dam_threat_decay_minutes=dam_threat.get('threat_decay_minutes', 120.0),
         )
         config.validate()
         return config
