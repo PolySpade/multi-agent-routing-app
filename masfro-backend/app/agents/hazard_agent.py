@@ -411,6 +411,58 @@ class HazardAgent(BaseAgent):
 
         return False
 
+    def _calculate_dam_threat_level(self) -> float:
+        """
+        Calculate city-wide dam threat level from upstream dam data.
+
+        Scans flood_data_cache for entries matching the configured relevant dam
+        names (ANGAT, IPO, LA MESA) and returns the maximum threat score (0.0-1.0).
+        Data older than dam_threat_decay_minutes is ignored.
+
+        Returns:
+            Maximum dam threat level (0.0-1.0)
+        """
+        if not self._config.enable_dam_threat_modifier:
+            return 0.0
+
+        relevant_names = {name.upper() for name in self._config.dam_relevant_names}
+        max_threat = 0.0
+
+        for location, data in self.flood_data_cache.items():
+            # Check if this cache entry is a relevant dam
+            loc_upper = location.upper().strip() if isinstance(location, str) else ""
+            if loc_upper not in relevant_names:
+                continue
+
+            # Check data freshness
+            age_minutes = self.calculate_data_age_minutes(data.get('timestamp'))
+            if age_minutes > self._config.dam_threat_decay_minutes:
+                logger.debug(
+                    f"Dam data for '{location}' is stale ({age_minutes:.0f}min old), skipping"
+                )
+                continue
+
+            # Extract threat score from risk_score or derive from status
+            threat = data.get('risk_score', 0.0)
+            if threat <= 0:
+                status = data.get('status', 'normal').lower()
+                status_map = {
+                    'normal': 0.0,
+                    'alert': 0.3,
+                    'alarm': 0.6,
+                    'critical': 1.0,
+                }
+                threat = status_map.get(status, 0.0)
+
+            if threat > max_threat:
+                max_threat = threat
+                logger.debug(
+                    f"Dam '{location}': threat={threat:.3f} (status={data.get('status', 'unknown')}, "
+                    f"age={age_minutes:.0f}min)"
+                )
+
+        return min(max_threat, 1.0)
+
     def _should_cleanup(self) -> bool:
         """
         Check if periodic cleanup is due.
@@ -1350,6 +1402,11 @@ class HazardAgent(BaseAgent):
                 "timestamp": location_data.get("timestamp")
             }
 
+            # Preserve status and risk_score for dam entries (used by dam threat modifier)
+            if "Dam_Monitoring" in source:
+                flood_data["status"] = location_data.get("status", "normal")
+                flood_data["risk_score"] = location_data.get("risk_score", 0.0)
+
             # Validate data before caching
             if self._validate_flood_data(flood_data):
                 self.flood_data_cache[location] = flood_data
@@ -1619,7 +1676,13 @@ class HazardAgent(BaseAgent):
 
             # Pre-geocode: attach coordinates so calculate_risk_scores can
             # apply spatial filtering without a second geocoding call
+            # Skip relevant dams — they can't be geocoded to local edges and are
+            # handled city-wide by the dam threat modifier
             if self.geocoder and isinstance(location, str):
+                dam_names = {n.upper() for n in self._config.dam_relevant_names}
+                if location.upper().strip() in dam_names:
+                    fused_data[location]["_is_dam"] = True
+                    continue
                 coords = self.geocoder.get_coordinates(location, fuzzy=True, threshold=0.6)
                 if coords:
                     fused_data[location]["_coords"] = coords
@@ -2141,7 +2204,14 @@ class HazardAgent(BaseAgent):
 
         # Add risk from fused data (river levels, weather, crowdsourced)
         # Apply environmental risk spatially (only to edges near reported location)
+        dam_names = {n.upper() for n in self._config.dam_relevant_names}
         for location_name, data in fused_data.items():
+            # Skip dam entries — handled city-wide by dam threat modifier
+            if data.get("_is_dam") or (
+                isinstance(location_name, str) and location_name.upper().strip() in dam_names
+            ):
+                continue
+
             risk_level = data["risk_level"]
 
             if risk_level <= 0:
@@ -2204,6 +2274,30 @@ class HazardAgent(BaseAgent):
                     current_risk = risk_scores.get(edge_tuple, 0.0)
                     combined_risk = current_risk + environmental_factor
                     risk_scores[edge_tuple] = min(combined_risk, 1.0)
+
+        # Apply city-wide dam threat modifier
+        if self._config.enable_dam_threat_modifier:
+            dam_threat = self._calculate_dam_threat_level()
+            if dam_threat > 0.0:
+                dam_additive = dam_threat * self._config.dam_additive_weight
+                dam_mult = dam_threat * self._config.dam_multiplicative_weight
+                dam_modified = 0
+
+                for edge_tuple in list(self.environment.graph.edges(keys=True)):
+                    existing = risk_scores.get(edge_tuple, 0.0)
+                    modified = min(1.0, existing + dam_additive + existing * dam_mult)
+                    if modified > 0.0:
+                        risk_scores[edge_tuple] = modified
+                        if modified != existing:
+                            dam_modified += 1
+
+                logger.info(
+                    f"Dam threat level: {dam_threat:.3f} "
+                    f"(additive={dam_additive:.4f}, multiplicative={dam_mult:.4f}). "
+                    f"Applied dam threat modifier to {dam_modified} edges"
+                )
+            else:
+                logger.debug("Dam threat level: 0.000 (no relevant dam data or all normal)")
 
         # Count risk distribution
         if risk_scores:
