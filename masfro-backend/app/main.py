@@ -30,7 +30,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
-import pandas as pd
+# pandas imported lazily where needed to reduce startup memory
 
 # Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
@@ -2263,6 +2263,7 @@ async def get_evacuation_centers():
             )
 
         # Get evacuation centers from RoutingAgent
+        import pandas as pd
         centers = []
         if hasattr(routing_agent, 'evacuation_centers') and not routing_agent.evacuation_centers.empty:
             # Convert DataFrame to list of dicts
