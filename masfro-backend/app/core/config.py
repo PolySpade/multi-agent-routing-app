@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     USE_MOCK_SOURCES: bool = False
     MOCK_SERVER_URL: str = "http://localhost:8081"
 
+    # ========== LOW-RAM MODE ==========
+    MASFRO_LOW_RAM: bool = False
+    MASFRO_DISABLE_SELENIUM: bool = False
+    MASFRO_DISABLE_LLM: bool = False
+    MASFRO_DISABLE_SCHEDULER: bool = False
+    MASFRO_SCHEDULER_INTERVAL: int = 5  # minutes
+
     # ========== STARTUP CONFIGURATION ==========
     LOAD_INITIAL_FLOOD_DATA: bool = False  # Load rr01_step_01.tif at startup?
 
@@ -138,6 +145,18 @@ class Settings(BaseSettings):
     def is_llm_enabled(self) -> bool:
         """Check if LLM integration is enabled."""
         return self.LLM_ENABLED
+
+    def is_low_ram(self) -> bool:
+        """Check if running in low-RAM mode."""
+        return self.MASFRO_LOW_RAM
+
+    def is_selenium_enabled(self) -> bool:
+        """Check if Selenium scraping is enabled."""
+        return not self.MASFRO_DISABLE_SELENIUM
+
+    def is_scheduler_enabled(self) -> bool:
+        """Check if the flood data scheduler is enabled."""
+        return not self.MASFRO_DISABLE_SCHEDULER
 
 
 # Create a single, reusable instance of the settings
