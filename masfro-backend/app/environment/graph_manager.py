@@ -1,7 +1,6 @@
 # filename: app/environment/graph_manager.py
-import osmnx as ox
-import networkx as nx
-import os # Import the os module to check for file existence
+# osmnx imported lazily inside _load_graph_from_file to reduce startup memory
+import os
 import pickle
 import time
 from pathlib import Path
@@ -53,6 +52,7 @@ class DynamicGraphEnvironment:
         """
         Loads the graph from a local file and pre-processes it.
         """
+        import osmnx as ox
         print(f"--- Attempting to load graph from local file: {self.filepath} ---")
         if not os.path.exists(self.filepath):
             print(f"\n❌ FAILURE: Map file not found at '{self.filepath}'.")
@@ -242,7 +242,7 @@ class DynamicGraphEnvironment:
         """
         return self._is_updating
 
-    def get_graph(self) -> nx.MultiDiGraph:
+    def get_graph(self):
         """
         Get the graph instance.
 
