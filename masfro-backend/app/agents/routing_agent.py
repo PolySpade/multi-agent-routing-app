@@ -84,7 +84,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 import logging
 import time
-import pandas as pd
+# pandas imported lazily to reduce startup memory
 import os
 from pathlib import Path
 
@@ -891,7 +891,7 @@ class RoutingAgent(BaseAgent):
             # Legacy string format for backward compatibility
             return [w.to_legacy_string() for w in warnings]
 
-    def _load_evacuation_centers(self) -> pd.DataFrame:
+    def _load_evacuation_centers(self):
         """
         Load evacuation center data from the DB-backed EvacuationCenterService.
 
@@ -900,6 +900,7 @@ class RoutingAgent(BaseAgent):
         Returns:
             DataFrame with evacuation center information
         """
+        import pandas as pd
         # Prefer DB-backed service
         if self._evacuation_service is not None:
             try:
