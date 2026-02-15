@@ -6,7 +6,7 @@ echo ""
 # Service status
 echo "--- Services ---"
 for svc in postgresql masfro-backend nginx; do
-    status=$(systemctl is-active "$svc" 2>/dev/null || echo "inactive")
+    status=$(systemctl is-active "$svc" 2>/dev/null) || status="inactive"
     case "$status" in
         active)   echo "  [OK]   $svc" ;;
         inactive) echo "  [OFF]  $svc" ;;
