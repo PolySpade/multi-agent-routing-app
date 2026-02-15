@@ -405,6 +405,9 @@ app.include_router(graph_router)
 app.include_router(evacuation_router)
 app.include_router(agent_viewer_router, prefix="/api/v1")
 
+from app.api.places_endpoints import router as places_router
+app.include_router(places_router)
+
 # --- 3. Initialize Multi-Agent System ---
 
 logger.info("Initializing MAS-FRO Multi-Agent System...")

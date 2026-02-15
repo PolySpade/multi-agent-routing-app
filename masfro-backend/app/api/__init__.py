@@ -14,6 +14,7 @@ from .evacuation_routes import router as evacuation_router
 from .routing_endpoints import router as routing_router
 from .simulation_endpoints import router as simulation_router
 from .general_endpoints import router as general_router
+from .places_endpoints import router as places_router
 
 
 def create_v1_router() -> APIRouter:
@@ -44,5 +45,6 @@ __all__ = [
     "create_v1_router",
     "routing_router",
     "simulation_router",
-    "general_router"
+    "general_router",
+    "places_router"
 ]
