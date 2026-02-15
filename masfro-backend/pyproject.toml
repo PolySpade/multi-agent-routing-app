@@ -41,3 +41,11 @@ dependencies = [
 dev = [
     "pytest-cov>=7.0.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests requiring live server or LLM",
+    "requires_server: tests needing running FastAPI",
+    "requires_llm: tests needing Ollama",
+]
