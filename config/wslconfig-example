@@ -1,0 +1,11 @@
+# WSL2 memory configuration for low-RAM environments
+# Copy this file to %USERPROFILE%\.wslconfig on Windows
+# Then restart WSL: wsl --shutdown && wsl
+#
+# This limits WSL2's Hyper-V VM to 896 MB RAM with 4 GB swap,
+# leaving headroom for Windows itself.
+
+[wsl2]
+memory=896MB
+swap=4GB
+processors=2
