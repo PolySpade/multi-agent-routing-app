@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
+
 const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location...", type = "start" }) => {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
@@ -35,7 +37,7 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/places/geocode', {
+      const response = await fetch(`${API_BASE}/api/places/geocode`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: searchQuery }),
