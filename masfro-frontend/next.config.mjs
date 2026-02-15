@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export',
+  images: { unoptimized: true },
   webpack: (config, { dev, isServer }) => {
     // Add support for .tif and .tiff files
     config.module.rules.push({
