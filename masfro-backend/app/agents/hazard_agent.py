@@ -2163,6 +2163,9 @@ class HazardAgent(BaseAgent):
         for edge_tuple, depth in edge_flood_depths.items():
             u, v, key = edge_tuple
 
+            # Store raw flood depth on the edge for visualization
+            self.environment.graph[u][v][key]['flood_depth'] = depth
+
             if self.risk_calculator:
                 # Get edge attributes for sophisticated risk calculation
                 edge_data = self.environment.graph[u][v][key]

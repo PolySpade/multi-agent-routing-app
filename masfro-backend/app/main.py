@@ -533,7 +533,8 @@ orchestrator_agent = OrchestratorAgent(
 logger.info("Orchestrator Agent initialized with MQ support, LLM brain, and all sub-agents")
 
 # Register agents with the viewer service so endpoints can access them without circular imports
-get_agent_viewer_service().register_agents(sub_agents)
+viewer_agents = {**sub_agents, 'orchestrator': orchestrator_agent}
+get_agent_viewer_service().register_agents(viewer_agents)
 
 # --- Initialize Agent Lifecycle Manager ---
 # This service periodically calls step() on agents to process MessageQueue messages
@@ -1462,6 +1463,35 @@ async def reset_simulation():
             status_code=500,
             detail=f"Error resetting simulation: {str(e)}"
         )
+
+
+@app.post("/api/graph/reset", tags=["Graph"])
+async def reset_graph():
+    """
+    Reset the graph by reloading from the original GraphML file.
+
+    This endpoint:
+    - Deletes saved graph state (risk scores from previous sessions)
+    - Reloads the graph fresh from the GraphML file
+    - Sets all edge risk scores to 0.0
+
+    Returns:
+        Graph reset result with edge count
+
+    Example:
+        POST /api/graph/reset
+    """
+    logger.info("Graph reset request received")
+    result = await asyncio.to_thread(environment.reset_graph)
+
+    if result["status"] == "success":
+        await ws_manager.broadcast({
+            "type": "graph_reset",
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    return result
 
 
 @app.get("/api/simulation/status", tags=["Simulation"])

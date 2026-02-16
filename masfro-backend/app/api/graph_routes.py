@@ -171,6 +171,8 @@ async def get_graph_edges_geojson(
                     "risk_category": _get_risk_category(risk_score),
                     "length": data.get("length", 0.0),
                     "highway": data.get("highway", "unknown"),
+                    "flood_depth": round(float(data.get("flood_depth", 0.0)), 3),
+                    "name": data.get("name", ""),
                 },
             }
 

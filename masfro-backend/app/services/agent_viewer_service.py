@@ -15,6 +15,7 @@ _STATUS_METHODS = {
     'routing': 'get_statistics',
     'evacuation': 'get_route_statistics',
     'hazard': 'get_agent_stats',
+    'orchestrator': 'get_system_status',
 }
 
 

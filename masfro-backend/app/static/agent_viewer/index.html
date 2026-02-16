@@ -353,6 +353,41 @@
             <div class="agent-item">Loading...</div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-header">Actions</div>
+          <button
+            id="btn-reset-graph"
+            onclick="resetGraph()"
+            style="
+              width: 100%;
+              background: rgba(239, 68, 68, 0.2);
+              border: 1px solid rgba(239, 68, 68, 0.4);
+              color: #fca5a5;
+              font-size: 0.8rem;
+              padding: 10px;
+            "
+          >
+            Reset Graph
+          </button>
+          <div
+            style="
+              font-size: 0.65rem;
+              color: var(--text-secondary);
+              margin-top: 6px;
+            "
+          >
+            Reload graph from file, reset all risk scores to 0
+          </div>
+          <div
+            id="reset-graph-status"
+            style="
+              font-size: 0.75rem;
+              margin-top: 8px;
+              display: none;
+            "
+          ></div>
+        </div>
       </div>
 
       <div class="main-content">
@@ -391,6 +426,13 @@
             onclick="switchTab('evacuation')"
           >
             Evacuation
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="orchestrator"
+            onclick="switchTab('orchestrator')"
+          >
+            Orchestrator
           </button>
         </div>
 
@@ -587,6 +629,38 @@
             <div id="logs-evacuation" class="logs-container"></div>
           </div>
         </div>
+
+        <!-- Tab: Orchestrator Agent -->
+        <div class="tab-panel" id="panel-orchestrator">
+          <div id="orchestrator-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Orchestrator Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-orchestrator"
+                  onchange="fetchAgentLogs('orchestrator')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-orchestrator" class="logs-container"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -601,6 +675,7 @@
         hazard: "hazard_agent",
         routing: "routing_agent",
         evacuation: "evacuation_manager_agent",
+        orchestrator: "orchestrator_agent",
       };
 
       const TYPE_TO_ROLE = {
@@ -609,6 +684,7 @@
         HazardAgent: "hazard",
         RoutingAgent: "routing",
         EvacuationManagerAgent: "evacuation",
+        OrchestratorAgent: "orchestrator",
       };
 
       setInterval(() => {
@@ -758,6 +834,34 @@
           <span class="log-logger">[${log.logger.split(".").pop()}]</span>
           <span class="log-msg">${escapeHtml(log.message)}</span>
         </div>`;
+      }
+
+      async function resetGraph() {
+        const btn = document.getElementById("btn-reset-graph");
+        const statusEl = document.getElementById("reset-graph-status");
+        btn.disabled = true;
+        btn.textContent = "Resetting...";
+        statusEl.style.display = "block";
+        statusEl.style.color = "var(--warning)";
+        statusEl.textContent = "Resetting graph...";
+        try {
+          const res = await fetch("/api/graph/reset", { method: "POST" });
+          const data = await res.json();
+          if (data.status === "success") {
+            statusEl.style.color = "var(--success)";
+            statusEl.textContent = data.message;
+          } else {
+            statusEl.style.color = "var(--error)";
+            statusEl.textContent = "Failed: " + data.message;
+          }
+        } catch (e) {
+          statusEl.style.color = "var(--error)";
+          statusEl.textContent = "Error: " + e.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Reset Graph";
+          setTimeout(() => { statusEl.style.display = "none"; }, 5000);
+        }
       }
 
       function escapeHtml(unsafe) {

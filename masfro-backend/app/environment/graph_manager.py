@@ -242,6 +242,43 @@ class DynamicGraphEnvironment:
         """
         return self._is_updating
 
+    def reset_graph(self) -> dict:
+        """
+        Reset graph by reloading from the GraphML file.
+
+        Deletes saved state file and reloads the fresh graph with all
+        risk scores set to 0.0. Thread-safe.
+
+        Returns:
+            Dict with reset status info
+        """
+        with self._lock:
+            self._is_updating = True
+            try:
+                old_edges = self.graph.number_of_edges() if self.graph else 0
+
+                # Delete saved state so next startup is also fresh
+                if self.state_file.exists():
+                    self.state_file.unlink()
+                    logger.info(f"Deleted state file: {self.state_file}")
+
+                # Reload fresh graph from file
+                self._load_graph_from_file()
+
+                new_edges = self.graph.number_of_edges() if self.graph else 0
+                logger.info(f"Graph reset complete: {new_edges} edges (was {old_edges})")
+
+                return {
+                    "status": "success",
+                    "message": f"Graph reloaded from file with {new_edges} edges, all risk scores reset to 0.0",
+                    "edges": new_edges,
+                }
+            except Exception as e:
+                logger.error(f"Graph reset failed: {e}")
+                return {"status": "error", "message": str(e)}
+            finally:
+                self._is_updating = False
+
     def get_graph(self) -> nx.MultiDiGraph:
         """
         Get the graph instance.
