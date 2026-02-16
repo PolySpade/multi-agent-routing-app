@@ -17,11 +17,12 @@ Author: MAS-FRO Development Team
 Date: January 2026
 """
 
+import os
 import yaml
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +54,18 @@ class RoutingConfig:
 
     def validate(self) -> None:
         """Validate configuration values."""
-        assert self.safest_risk_penalty >= self.balanced_risk_penalty, \
-            "safest_risk_penalty must be >= balanced_risk_penalty"
-        assert self.balanced_risk_penalty >= self.fastest_risk_penalty, \
-            "balanced_risk_penalty must be >= fastest_risk_penalty"
-        assert self.max_node_distance_m > 0, "max_node_distance_m must be positive"
-        assert 0 < self.high_risk_threshold <= 1, "high_risk_threshold must be in (0, 1]"
-        assert 0 < self.critical_risk_threshold <= 1, "critical_risk_threshold must be in (0, 1]"
-        assert self.high_risk_threshold < self.critical_risk_threshold, \
-            "high_risk_threshold must be < critical_risk_threshold"
+        if not self.safest_risk_penalty >= self.balanced_risk_penalty:
+            raise ValueError("safest_risk_penalty must be >= balanced_risk_penalty")
+        if not self.balanced_risk_penalty >= self.fastest_risk_penalty:
+            raise ValueError("balanced_risk_penalty must be >= fastest_risk_penalty")
+        if not self.max_node_distance_m > 0:
+            raise ValueError("max_node_distance_m must be positive")
+        if not 0 < self.high_risk_threshold <= 1:
+            raise ValueError("high_risk_threshold must be in (0, 1]")
+        if not 0 < self.critical_risk_threshold <= 1:
+            raise ValueError("critical_risk_threshold must be in (0, 1]")
+        if not self.high_risk_threshold < self.critical_risk_threshold:
+            raise ValueError("high_risk_threshold must be < critical_risk_threshold")
 
 
 @dataclass
@@ -73,6 +77,7 @@ class HazardConfig:
     max_scout_cache: int = 1000
     cleanup_interval_sec: int = 300
     use_deque: bool = True
+    max_risk_history: int = 20
 
     # Risk weights (must sum to 1.0)
     weight_flood_depth: float = 0.5
@@ -119,7 +124,7 @@ class HazardConfig:
 
     # Dam threat modifier (city-wide flood risk from upstream dams)
     enable_dam_threat_modifier: bool = True
-    dam_relevant_names: List[str] = field(default_factory=lambda: ["ANGAT", "IPO", "LA MESA"])
+    dam_relevant_names: list[str] = field(default_factory=lambda: ["ANGAT", "IPO", "LA MESA"])
     dam_additive_weight: float = 0.05
     dam_multiplicative_weight: float = 0.3
     dam_threat_decay_minutes: float = 120.0
@@ -127,21 +132,24 @@ class HazardConfig:
     def validate(self) -> None:
         """Validate configuration values."""
         total_weight = self.weight_flood_depth + self.weight_crowdsourced + self.weight_historical
-        assert abs(total_weight - 1.0) < 0.01, \
-            f"Risk weights must sum to 1.0, got {total_weight}"
-        assert self.max_flood_cache > 0, "max_flood_cache must be positive"
-        assert self.max_scout_cache > 0, "max_scout_cache must be positive"
-        assert self.risk_radius_m > 0, "risk_radius_m must be positive"
-        assert self.decay_function in ("linear", "exponential", "gaussian"), \
-            f"Invalid decay_function: {self.decay_function}"
-        assert 0 < self.visual_override_risk_threshold <= 1.0, \
-            "visual_override_risk_threshold must be in (0, 1]"
-        assert 0 < self.visual_override_confidence_threshold <= 1.0, \
-            "visual_override_confidence_threshold must be in (0, 1]"
-        assert 0 <= self.dam_additive_weight <= 0.2, \
-            f"dam_additive_weight must be in [0, 0.2], got {self.dam_additive_weight}"
-        assert 0 <= self.dam_multiplicative_weight <= 1.0, \
-            f"dam_multiplicative_weight must be in [0, 1.0], got {self.dam_multiplicative_weight}"
+        if not abs(total_weight - 1.0) < 0.01:
+            raise ValueError(f"Risk weights must sum to 1.0, got {total_weight}")
+        if not self.max_flood_cache > 0:
+            raise ValueError("max_flood_cache must be positive")
+        if not self.max_scout_cache > 0:
+            raise ValueError("max_scout_cache must be positive")
+        if not self.risk_radius_m > 0:
+            raise ValueError("risk_radius_m must be positive")
+        if self.decay_function not in ("linear", "exponential", "gaussian"):
+            raise ValueError(f"Invalid decay_function: {self.decay_function}")
+        if not 0 < self.visual_override_risk_threshold <= 1.0:
+            raise ValueError("visual_override_risk_threshold must be in (0, 1]")
+        if not 0 < self.visual_override_confidence_threshold <= 1.0:
+            raise ValueError("visual_override_confidence_threshold must be in (0, 1]")
+        if not 0 <= self.dam_additive_weight <= 0.2:
+            raise ValueError(f"dam_additive_weight must be in [0, 0.2], got {self.dam_additive_weight}")
+        if not 0 <= self.dam_multiplicative_weight <= 1.0:
+            raise ValueError(f"dam_multiplicative_weight must be in [0, 1.0], got {self.dam_multiplicative_weight}")
 
 
 @dataclass
@@ -181,13 +189,14 @@ class FloodConfig:
 
     def validate(self) -> None:
         """Validate configuration values."""
-        assert self.max_safe_depth_m > 0, "max_safe_depth_m must be positive"
-        assert self.max_safe_depth_m <= 0.5, \
-            "max_safe_depth_m should not exceed 0.5m (FEMA safety limit)"
-        assert self.water_level_alert_m < self.water_level_alarm_m < self.water_level_critical_m, \
-            "water_level thresholds must be ordered: alert < alarm < critical"
-        assert self.dam_alert_m < self.dam_alarm_m < self.dam_critical_m, \
-            "dam thresholds must be ordered: alert < alarm < critical"
+        if not self.max_safe_depth_m > 0:
+            raise ValueError("max_safe_depth_m must be positive")
+        if not self.max_safe_depth_m <= 0.5:
+            raise ValueError("max_safe_depth_m should not exceed 0.5m (FEMA safety limit)")
+        if not self.water_level_alert_m < self.water_level_alarm_m < self.water_level_critical_m:
+            raise ValueError("water_level thresholds must be ordered: alert < alarm < critical")
+        if not self.dam_alert_m < self.dam_alarm_m < self.dam_critical_m:
+            raise ValueError("dam thresholds must be ordered: alert < alarm < critical")
 
 
 @dataclass
@@ -214,12 +223,19 @@ class ScoutConfig:
     use_scraper: bool = False
     scraper_base_url: str = "http://localhost:8081"
 
+    # Scraper throttle
+    scraper_throttle_interval_seconds: float = 15.0
+    # Default confidence
+    default_confidence: float = 0.5
+
     def validate(self) -> None:
         """Validate configuration values."""
-        assert self.batch_size > 0, "batch_size must be positive"
-        assert 0 <= self.min_confidence <= 1, "min_confidence must be in [0, 1]"
-        assert self.temporal_dedup_window_minutes >= 0, \
-            "temporal_dedup_window_minutes must be non-negative"
+        if not self.batch_size > 0:
+            raise ValueError("batch_size must be positive")
+        if not 0 <= self.min_confidence <= 1:
+            raise ValueError("min_confidence must be in [0, 1]")
+        if not self.temporal_dedup_window_minutes >= 0:
+            raise ValueError("temporal_dedup_window_minutes must be non-negative")
 
 
 @dataclass
@@ -281,8 +297,10 @@ class EvacuationConfig:
 
     def validate(self) -> None:
         """Validate configuration values."""
-        assert self.max_route_history > 0, "max_route_history must be positive"
-        assert 0 <= self.default_confidence <= 1, "default_confidence must be in [0, 1]"
+        if not self.max_route_history > 0:
+            raise ValueError("max_route_history must be positive")
+        if not 0 <= self.default_confidence <= 1:
+            raise ValueError("default_confidence must be in [0, 1]")
 
 
 @dataclass
@@ -299,6 +317,7 @@ class OrchestratorConfig:
     # Concurrency limits
     max_concurrent_missions: int = 10
     max_completed_history: int = 100
+    max_chat_turns: int = 20
 
     # Retry policy
     max_retries: int = 2
@@ -306,10 +325,31 @@ class OrchestratorConfig:
 
     def validate(self) -> None:
         """Validate configuration values."""
-        assert self.default_timeout > 0, "default_timeout must be positive"
-        assert self.max_concurrent_missions > 0, "max_concurrent_missions must be positive"
-        assert self.max_completed_history > 0, "max_completed_history must be positive"
-        assert self.max_retries >= 0, "max_retries must be non-negative"
+        if not self.default_timeout > 0:
+            raise ValueError("default_timeout must be positive")
+        if not self.max_concurrent_missions > 0:
+            raise ValueError("max_concurrent_missions must be positive")
+        if not self.max_completed_history > 0:
+            raise ValueError("max_completed_history must be positive")
+        if not self.max_retries >= 0:
+            raise ValueError("max_retries must be non-negative")
+
+
+@dataclass
+class RoutingAlgorithmsConfig:
+    """Configuration for routing algorithm parameters."""
+    base_speed_kmh: float = 30.0
+    speed_reduction_factor: float = 0.3
+    evac_weight_distance: float = 0.4
+    evac_weight_risk: float = 0.5
+    evac_weight_capacity: float = 0.1
+
+    def validate(self) -> None:
+        if not self.base_speed_kmh > 0:
+            raise ValueError("base_speed_kmh must be positive")
+        total = self.evac_weight_distance + self.evac_weight_risk + self.evac_weight_capacity
+        if not abs(total - 1.0) < 0.01:
+            raise ValueError(f"Evacuation score weights must sum to 1.0, got {total}")
 
 
 @dataclass
@@ -341,7 +381,8 @@ class GlobalConfig:
     def validate(self) -> None:
         """Validate configuration values."""
         valid_levels = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
-        assert self.log_level in valid_levels, f"Invalid log_level: {self.log_level}"
+        if self.log_level not in valid_levels:
+            raise ValueError(f"Invalid log_level: {self.log_level}")
 
 
 class AgentConfigLoader:
@@ -437,6 +478,22 @@ class AgentConfigLoader:
         config.validate()
         return config
 
+    def get_algorithms_config(self) -> RoutingAlgorithmsConfig:
+        """Get routing algorithm configuration."""
+        cfg = self._config.get('routing_agent', {})
+        algos = cfg.get('algorithms', {})
+        evac_weights = algos.get('evacuation_score_weights', {})
+
+        config = RoutingAlgorithmsConfig(
+            base_speed_kmh=algos.get('base_speed_kmh', 30.0),
+            speed_reduction_factor=algos.get('speed_reduction_factor', 0.3),
+            evac_weight_distance=evac_weights.get('distance', 0.4),
+            evac_weight_risk=evac_weights.get('risk', 0.5),
+            evac_weight_capacity=evac_weights.get('capacity', 0.1),
+        )
+        config.validate()
+        return config
+
     def get_hazard_config(self) -> HazardConfig:
         """Get HazardAgent configuration."""
         cfg = self._config.get('hazard_agent', {})
@@ -457,6 +514,7 @@ class AgentConfigLoader:
             max_scout_cache=caches.get('max_scout_entries', 1000),
             cleanup_interval_sec=caches.get('cleanup_interval_sec', 300),
             use_deque=caches.get('use_deque', True),
+            max_risk_history=caches.get('max_risk_history', 20),
             weight_flood_depth=weights.get('flood_depth', 0.5),
             weight_crowdsourced=weights.get('crowdsourced', 0.3),
             weight_historical=weights.get('historical', 0.2),
@@ -550,13 +608,14 @@ class AgentConfigLoader:
             temporal_dedup_window_minutes=dedup.get('temporal_window_minutes', 10.0),
             use_scraper=scraper.get('enable', False),
             scraper_base_url=scraper.get('base_url', 'http://localhost:8081'),
+            scraper_throttle_interval_seconds=cfg.get('scraper_throttle_interval_seconds', 15.0),
+            default_confidence=cfg.get('default_confidence', 0.5),
         )
         config.validate()
         return config
 
     def get_mock_sources_config(self) -> MockSourcesConfig:
         """Get mock data sources configuration."""
-        import os
         cfg = self._config.get('mock_sources', {})
         urls = cfg.get('urls', {})
 
@@ -614,6 +673,7 @@ class AgentConfigLoader:
             cascade_timeout=timeouts.get('cascade_risk_update', 120.0),
             max_concurrent_missions=cfg.get('max_concurrent_missions', 10),
             max_completed_history=cfg.get('max_completed_history', 100),
+            max_chat_turns=cfg.get('max_chat_turns', 20),
             max_retries=retry.get('max_retries', 2),
             retry_delay_seconds=retry.get('retry_delay_seconds', 5.0),
         )

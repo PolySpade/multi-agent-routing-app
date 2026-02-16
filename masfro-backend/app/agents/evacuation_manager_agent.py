@@ -23,20 +23,19 @@ Date: November 2025
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
+from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 from collections import deque
 import logging
 from datetime import datetime
 import uuid
 
-from ..communication.acl_protocol import Performative
-from ..core.agent_config import get_config, EvacuationConfig, GlobalConfig
+from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
+from ..core.agent_config import get_config, AgentConfigLoader, EvacuationConfig, GlobalConfig
 from ..core.llm_utils import parse_llm_json as _parse_llm_json
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
     from .routing_agent import RoutingAgent
-    from .hazard_agent import HazardAgent
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +162,6 @@ class EvacuationManagerAgent(BaseAgent):
 
     def _handle_distress_call_request(self, msg, data: dict) -> None:
         """Handle handle_distress_call REQUEST from orchestrator."""
-        from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
-
         user_location = data.get("user_location")
         message_text = data.get("message", "")
         result = {"status": "unknown"}
@@ -204,8 +201,6 @@ class EvacuationManagerAgent(BaseAgent):
 
     def _handle_collect_feedback_mq(self, msg, data: dict) -> None:
         """Handle collect_feedback REQUEST from orchestrator via MQ."""
-        from ..communication.acl_protocol import create_inform_message
-
         route_id = data.get("route_id", "")
         feedback_type = data.get("feedback_type", "")
         location = data.get("location")
@@ -369,6 +364,16 @@ class EvacuationManagerAgent(BaseAgent):
     #  Core business methods                                              #
     # ------------------------------------------------------------------ #
 
+    def _record_distress(self, location, message, urgency, result):
+        """Record a distress call outcome in history."""
+        self.distress_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "location": location,
+            "message": message,
+            "urgency": urgency,
+            "result": result
+        })
+
     def handle_distress_call(
         self,
         location: Tuple[float, float],
@@ -395,12 +400,7 @@ class EvacuationManagerAgent(BaseAgent):
                 "status": "error",
                 "message": f"Invalid coordinates: {location}. Must be within Philippines bounds."
             }
-            self.distress_history.append({
-                "location": location,
-                "message": message,
-                "result": error_result,
-                "timestamp": datetime.now(),
-            })
+            self._record_distress(location, message, "unknown", error_result)
             return error_result
 
         logger.info(f"{self.agent_id} received distress call: '{message}' at {location}")
@@ -410,12 +410,7 @@ class EvacuationManagerAgent(BaseAgent):
                 "status": "error",
                 "message": "Routing service unavailable"
             }
-            self.distress_history.append({
-                "location": location,
-                "message": message,
-                "result": error_result,
-                "timestamp": datetime.now(),
-            })
+            self._record_distress(location, message, "unknown", error_result)
             return error_result
 
         # Step 1: Classify distress severity via LLM
@@ -431,7 +426,7 @@ class EvacuationManagerAgent(BaseAgent):
         try:
             result = self.routing_agent.find_nearest_evacuation_center(
                 location=location,
-                max_centers=5,
+                max_centers=AgentConfigLoader().get_routing_config().max_centers_to_evaluate,
                 query=message,
                 preferences=preferences,
             )
@@ -459,14 +454,7 @@ class EvacuationManagerAgent(BaseAgent):
 
                 # Step 5: Record in distress_history and route_history
                 now = datetime.now()
-                self.distress_history.append({
-                    "location": location,
-                    "message": message,
-                    "urgency": urgency,
-                    "distress_context": distress_context,
-                    "result": response,
-                    "timestamp": now,
-                })
+                self._record_distress(location, message, urgency, response)
                 self.route_history.append({
                     "route_id": result.get("route_id", str(uuid.uuid4())),
                     "origin": location,
@@ -489,13 +477,7 @@ class EvacuationManagerAgent(BaseAgent):
                     "message": "No accessible evacuation centers found. Seek high ground immediately.",
                     "instructions": "Pumunta sa mataas na lugar. Huwag tumawid sa malalim na baha.",
                 }
-                self.distress_history.append({
-                    "location": location,
-                    "message": message,
-                    "urgency": urgency,
-                    "result": warning_result,
-                    "timestamp": datetime.now(),
-                })
+                self._record_distress(location, message, urgency, warning_result)
                 return warning_result
 
         except Exception as e:
@@ -506,13 +488,7 @@ class EvacuationManagerAgent(BaseAgent):
                 "distress_context": distress_context,
                 "message": f"System error: {str(e)}"
             }
-            self.distress_history.append({
-                "location": location,
-                "message": message,
-                "urgency": urgency,
-                "result": error_result,
-                "timestamp": datetime.now(),
-            })
+            self._record_distress(location, message, urgency, error_result)
             return error_result
 
     def collect_user_feedback(
@@ -629,8 +605,6 @@ class EvacuationManagerAgent(BaseAgent):
 
         # Use ACL message passing (MAS architecture)
         try:
-            from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
-
             # Create INFORM message with scout report batch
             message = create_inform_message(
                 sender=self.agent_id,

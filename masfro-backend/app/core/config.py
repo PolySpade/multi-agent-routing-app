@@ -1,4 +1,4 @@
-# filename: masfro-backend-v2/app/core/config.py
+# filename: masfro-backend/app/core/config.py
 
 """
 Configuration module for MAS-FRO Backend v2.
@@ -10,11 +10,13 @@ Author: MAS-FRO Development Team
 Date: February 2026
 """
 
+import logging
 import yaml
-import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -79,10 +81,10 @@ class Settings(BaseSettings):
                     config = yaml.safe_load(f)
                     return config or {}
             except Exception as e:
-                print(f"Warning: Failed to load YAML config: {e}")
+                logger.warning(f"Failed to load YAML config: {e}")
                 return {}
         else:
-            print(f"Warning: Config file not found at {config_path}")
+            logger.warning(f"Config file not found at {config_path}")
             return {}
 
     def get(self, path: str, default: Any = None) -> Any:

@@ -89,6 +89,7 @@ import os
 from pathlib import Path
 
 from ..communication.acl_protocol import Performative
+from ..core.agent_config import get_config, RoutingConfig
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -161,7 +162,7 @@ class RoutingAgent(BaseAgent):
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
-        risk_penalty: float = 3.0,  # BALANCED MODE: cost multiplier (1 + risk * 3.0)
+        risk_penalty: Optional[float] = None,  # BALANCED MODE: defaults to config balanced_risk_penalty
         distance_weight: float = 1.0,   # Always 1.0 to preserve A* heuristic consistency
         llm_service: Optional[Any] = None,
         message_queue: Optional[Any] = None,
@@ -189,8 +190,16 @@ class RoutingAgent(BaseAgent):
         """
         super().__init__(agent_id, environment, message_queue=message_queue)
 
+        # Load config from YAML (with fallback to defaults)
+        try:
+            self._config = get_config().get_routing_config()
+        except Exception:
+            logger.warning(f"{agent_id}: failed to load RoutingConfig, using defaults")
+            self._config = RoutingConfig()
+
         # Pathfinding configuration using length-proportional risk penalty
-        self.risk_penalty = risk_penalty
+        # Use config default if caller didn't override the default parameter value
+        self.risk_penalty = risk_penalty if risk_penalty is not None else self._config.balanced_risk_penalty
         self.distance_weight = distance_weight
         self.llm_service = llm_service
 
@@ -198,10 +207,10 @@ class RoutingAgent(BaseAgent):
         # Cache key: (rounded_lat, rounded_lon) -> (node_id, timestamp)
         self._node_cache: Dict[Tuple[float, float], Tuple[Any, float]] = {}
         self._cache_precision = 4  # Decimal places (~11m precision)
-        self._cache_ttl_seconds = 3600  # Cache TTL: 1 hour
+        self._cache_ttl_seconds = self._config.cache_ttl_seconds
         self._cache_hits = 0
         self._cache_misses = 0
-        self._max_cache_size = 10000
+        self._max_cache_size = self._config.cache_max_entries
 
         # Load evacuation centers from DB service or fall back to CSV
         self._evacuation_service = evacuation_service
@@ -396,7 +405,7 @@ class RoutingAgent(BaseAgent):
             if preferences.get("avoid_floods") or mode == "safest":
                 # SAFEST MODE: High multiplier makes risk dominate routing decisions
                 # risk=0.8 edge costs 81x its length (1 + 0.8*100)
-                risk_penalty = 100.0
+                risk_penalty = self._config.safest_risk_penalty
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
                 logger.info(
                     f"SAFEST MODE: risk_penalty={risk_penalty}, "
@@ -406,7 +415,7 @@ class RoutingAgent(BaseAgent):
                 # FASTEST MODE: Ignore all risk, pure shortest path
                 # risk_weight = 0 means cost = length only
                 # Note: Roads with risk >= 0.9 (impassable) are still blocked by A*
-                risk_penalty = 0.0
+                risk_penalty = self._config.fastest_risk_penalty
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
                 logger.info(
                     f"FASTEST MODE: risk_penalty={risk_penalty}, "
@@ -561,9 +570,9 @@ class RoutingAgent(BaseAgent):
         # Apply risk penalty from preferences
         risk_penalty = self.risk_penalty
         if final_preferences.get("mode") == "safest":
-            risk_penalty = 100.0
+            risk_penalty = self._config.safest_risk_penalty
         elif final_preferences.get("mode") == "fastest":
-            risk_penalty = 0.0
+            risk_penalty = self._config.fastest_risk_penalty
 
         candidates = []
         for center in centers:
@@ -639,8 +648,6 @@ class RoutingAgent(BaseAgent):
             start_node,
             end_node,
             k=k,
-            risk_weight=self.risk_penalty,  # Length-proportional risk multiplier
-            distance_weight=self.distance_weight  # Always 1.0
         )
 
         # Convert paths to coordinates and add warnings
@@ -664,7 +671,7 @@ class RoutingAgent(BaseAgent):
     def _find_nearest_node(
         self,
         coords: Tuple[float, float],
-        max_distance: float = 500.0
+        max_distance: Optional[float] = None
     ) -> Optional[Any]:
         """
         Find nearest graph node to given coordinates using osmnx.
@@ -673,11 +680,14 @@ class RoutingAgent(BaseAgent):
 
         Args:
             coords: Target coordinates (latitude, longitude)
-            max_distance: Maximum search distance in meters
+            max_distance: Maximum search distance in meters (defaults to config)
 
         Returns:
             Nearest node ID or None if not found
         """
+        if max_distance is None:
+            max_distance = self._config.max_node_distance_m
+
         if not self.environment or not self.environment.graph:
             return None
 
@@ -811,7 +821,7 @@ class RoutingAgent(BaseAgent):
         is_fastest_mode = preferences and preferences.get("fastest")
 
         # Special warning for fastest mode with high risk
-        if is_fastest_mode and (max_risk >= 0.5 or avg_risk >= 0.3):
+        if is_fastest_mode and (max_risk >= self._config.moderate_risk_threshold or avg_risk >= 0.3):
             warnings.append(RouteWarning(
                 severity=WarningSeverity.WARNING,
                 message="Fastest mode ignores flood risk",
@@ -826,7 +836,7 @@ class RoutingAgent(BaseAgent):
             ))
 
         # CRITICAL: Impassable roads
-        if max_risk >= 0.9:
+        if max_risk >= self._config.critical_risk_threshold:
             warnings.append(RouteWarning(
                 severity=WarningSeverity.CRITICAL,
                 message="Route contains impassable roads",
@@ -841,7 +851,7 @@ class RoutingAgent(BaseAgent):
                 ]
             ))
         # WARNING: High risk
-        elif max_risk >= 0.7:
+        elif max_risk >= self._config.high_risk_threshold:
             warnings.append(RouteWarning(
                 severity=WarningSeverity.WARNING,
                 message="Route contains high-risk flood areas",
@@ -856,7 +866,7 @@ class RoutingAgent(BaseAgent):
                 ]
             ))
         # CAUTION: Moderate risk
-        elif avg_risk >= 0.5 and not is_fastest_mode:
+        elif avg_risk >= self._config.moderate_risk_threshold and not is_fastest_mode:
             warnings.append(RouteWarning(
                 severity=WarningSeverity.CAUTION,
                 message="Moderate flood risk on this route",
@@ -871,7 +881,7 @@ class RoutingAgent(BaseAgent):
             ))
 
         # INFO: Long route
-        if metrics.get("total_distance", 0) > 10000:
+        if metrics.get("total_distance", 0) > self._config.long_route_threshold_m:
             distance_km = metrics.get("total_distance", 0) / 1000
             warnings.append(RouteWarning(
                 severity=WarningSeverity.INFO,

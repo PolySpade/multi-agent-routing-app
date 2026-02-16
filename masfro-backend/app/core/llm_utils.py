@@ -8,7 +8,10 @@ to avoid duplication.
 """
 
 import json
+import logging
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
@@ -31,7 +34,7 @@ def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
     # Strip markdown code fences
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines).strip()
 
     try:
@@ -80,4 +83,5 @@ def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
             except json.JSONDecodeError:
                 pass
 
+    logger.debug(f"parse_llm_json failed to parse: {text[:200]}")
     return None

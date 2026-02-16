@@ -77,15 +77,12 @@ class MessageQueue:
             del self.queues[agent_id]
             logger.info(f"Agent {agent_id} unregistered from message queue")
 
-    def send_message(self, message: ACLMessage) -> bool:
+    def send_message(self, message: ACLMessage) -> None:
         """
         Send a message to the receiver agent's queue.
 
         Args:
             message: ACLMessage to be sent
-
-        Returns:
-            True if message was successfully queued, False otherwise
 
         Raises:
             ValueError: If receiver agent is not registered
@@ -103,7 +100,6 @@ class MessageQueue:
                 f"Message sent from {message.sender} to {receiver} "
                 f"(performative: {message.performative})"
             )
-            return True
 
     def receive_message(
         self,
@@ -125,11 +121,13 @@ class MessageQueue:
         Raises:
             ValueError: If agent is not registered
         """
-        if agent_id not in self.queues:
-            raise ValueError(f"Agent {agent_id} is not registered")
+        with self.lock:
+            if agent_id not in self.queues:
+                raise ValueError(f"Agent {agent_id} is not registered")
+            agent_queue = self.queues[agent_id]
 
         try:
-            message = self.queues[agent_id].get(block=block, timeout=timeout)
+            message = agent_queue.get(block=block, timeout=timeout)
             logger.debug(
                 f"Message received by {agent_id} from {message.sender} "
                 f"(performative: {message.performative})"
@@ -151,7 +149,8 @@ class MessageQueue:
         Raises:
             ValueError: If agent is not registered
         """
-        if agent_id not in self.queues:
-            raise ValueError(f"Agent {agent_id} is not registered")
-        return self.queues[agent_id].qsize()
+        with self.lock:
+            if agent_id not in self.queues:
+                raise ValueError(f"Agent {agent_id} is not registered")
+            return self.queues[agent_id].qsize()
 

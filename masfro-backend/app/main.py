@@ -20,16 +20,18 @@ Date: February 2026
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Tuple, Optional, Dict, Any, Set
-from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import logging
 import asyncio
 import json
+import math
+import os
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from pathlib import Path
 import pandas as pd
 
 # Agent imports
@@ -88,6 +90,17 @@ logger = get_logger(__name__)
 
 
 # --- Utility Functions ---
+
+def _sanitize(obj):
+    """Recursively replace NaN/Inf floats with None for JSON compliance."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
 
 class DateTimeEncoder(json.JSONEncoder):
     """
@@ -368,8 +381,6 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 # --- 1. Data Models (using Pydantic) ---
-
-# --- 1. Data Models (using Pydantic) ---
 # Models are imported from app.models.requests and app.models.responses
 # See imports at top of file
 
@@ -393,12 +404,15 @@ app.add_middleware(
     max_age=3600
 )
 
-# Serve static files (flood maps, data)
-app.mount("/data", StaticFiles(directory="app/data"), name="data")
+# Serve static files (flood maps, data) — use absolute paths for CWD independence
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_data_dir = os.path.join(_base_dir, "data")
+_static_dir = os.path.join(_base_dir, "static")
+os.makedirs(_data_dir, exist_ok=True)
+app.mount("/data", StaticFiles(directory=_data_dir), name="data")
 # Mount Agent Viewer Dashboard
-import os
-os.makedirs("app/static/agent_viewer", exist_ok=True)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+os.makedirs(os.path.join(_static_dir, "agent_viewer"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 # Include API routers
 app.include_router(graph_router)
@@ -545,9 +559,6 @@ logger.info("MAS-FRO system initialized successfully")
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on application startup."""
-    # Initialize logging system (ensure logs directory exists)
-    setup_logging()
-
     # Re-attach Agent Viewer Logging Handler (must be AFTER setup_logging
     # because dictConfig replaces handlers)
     get_agent_viewer_service().setup_logging()
@@ -567,7 +578,6 @@ async def startup_event():
 
             # Seed evacuation centers from CSV if table is empty
             try:
-                from pathlib import Path
                 csv_path = Path(__file__).parent / "data" / "evacuation_centers.csv"
                 if csv_path.exists():
                     evac_svc = get_evacuation_service()
@@ -589,7 +599,6 @@ async def startup_event():
     logger.info("Loading initial flood risk data...")
     try:
         # Load default GeoTIFF data (light scenario, time step 1)
-        from pathlib import Path
         geotiff_path = Path(__file__).parent / "data" / "timed_floodmaps" / "rr01" / "rr01-1.tif"
 
         if geotiff_path.exists() and hazard_agent:
@@ -708,7 +717,6 @@ async def health_check():
     # v2: Include LLM status
     llm_status = "unknown"
     try:
-        from app.services.llm_service import get_llm_service
         llm_service = get_llm_service()
         llm_status = "available" if llm_service.is_available() else "unavailable"
     except Exception:
@@ -740,7 +748,6 @@ async def llm_health_check():
         Dict with LLM health information
     """
     try:
-        from app.services.llm_service import get_llm_service
         llm_service = get_llm_service()
         return llm_service.get_health()
     except ImportError:
@@ -809,7 +816,6 @@ async def get_route(request: RouteRequest):
                 logger.warning(f"Failed to generate route explanation: {e}")
 
         # Generate route ID
-        import uuid
         route_id = str(uuid.uuid4())
 
         # Serialize warnings: convert RouteWarning objects to dicts
@@ -922,17 +928,6 @@ async def get_nearest_evacuation_center(request: EvacuationCenterRequest):
                 detail="No evacuation centers found or accessible."
             )
 
-        import json, math
-
-        def _sanitize(obj):
-            if isinstance(obj, float):
-                return None if (math.isnan(obj) or math.isinf(obj)) else obj
-            if isinstance(obj, dict):
-                return {k: _sanitize(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_sanitize(v) for v in obj]
-            return obj
-
         return _sanitize({
             "status": "success",
             "evacuation_center": result["center"],
@@ -986,7 +981,8 @@ async def create_orchestrator_mission(request: MissionRequest):
         # Broadcast WebSocket events for evacuation missions
         if request.mission_type == "coordinated_evacuation":
             try:
-                await ws_manager.broadcast_distress_alert({
+                await ws_manager.broadcast({
+                    "type": "distress_alert",
                     "mission_id": result.get("mission_id"),
                     "mission_type": request.mission_type,
                     "params": request.params,
@@ -1026,7 +1022,8 @@ async def get_orchestrator_mission_status(mission_id: str):
     if (status.get("mission_type") == "coordinated_evacuation"
             and status.get("state") in ("COMPLETED", "completed")):
         try:
-            await ws_manager.broadcast_evacuation_update({
+            await ws_manager.broadcast({
+                "type": "evacuation_update",
                 "mission_id": mission_id,
                 "mission_type": "coordinated_evacuation",
                 "state": status.get("state"),
@@ -2071,7 +2068,6 @@ async def get_scout_reports(
         all_reports = hazard_agent.scout_data_cache or []
 
         # Filter by time if timestamps available
-        from datetime import datetime, timedelta
         cutoff_time = datetime.now() - timedelta(hours=hours)
 
         filtered_reports = []
@@ -2295,18 +2291,6 @@ async def get_evacuation_centers():
                     "contact": _safe_str(row.get("contact")),
                     "is_active": True
                 })
-
-        import json, math
-
-        def _sanitize(obj):
-            """Recursively replace NaN/Inf floats with None for JSON compliance."""
-            if isinstance(obj, float):
-                return None if (math.isnan(obj) or math.isinf(obj)) else obj
-            if isinstance(obj, dict):
-                return {k: _sanitize(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_sanitize(v) for v in obj]
-            return obj
 
         result = {
             "status": "success",
@@ -2542,7 +2526,6 @@ async def serve_geotiff_file(return_period: str, filename: str):
     Example: /data/timed_floodmaps/rr01/rr01-1.tif
     """
     from fastapi.responses import FileResponse
-    from pathlib import Path
 
     # Validate return period
     valid_periods = ["rr01", "rr02", "rr03", "rr04"]

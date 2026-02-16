@@ -60,9 +60,9 @@ except ImportError:
 
 # ACL Protocol imports for MAS communication
 try:
-    from communication.acl_protocol import ACLMessage, Performative
+    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
 except ImportError:
-    from app.communication.acl_protocol import ACLMessage, Performative
+    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +94,6 @@ class HazardAgent(BaseAgent):
         >>> agent.process_scout_data(scout_reports)
         >>> agent.update_risk_scores()
     """
-
-    # Cache size limits to prevent memory leaks
-    MAX_FLOOD_CACHE_SIZE = 100
-    MAX_SCOUT_CACHE_SIZE = 1000
-    CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
 
     def __init__(
         self,
@@ -209,7 +204,7 @@ class HazardAgent(BaseAgent):
         # Risk trend tracking
         self.previous_average_risk = 0.0
         self.last_update_time = None
-        self.risk_history = []  # List of (timestamp, avg_risk) tuples
+        self.risk_history: deque = deque(maxlen=self._config.max_risk_history)  # Deque of (timestamp, avg_risk) tuples
 
         # Spatial index for optimized edge queries (Issue #16: configurable grid size)
         self.spatial_index: Optional[Dict[Tuple[int, int], List[Tuple]]] = None
@@ -223,8 +218,8 @@ class HazardAgent(BaseAgent):
         self._last_cleanup = time.time()
 
         # Dead letter queue for failed message processing
-        self.failed_messages = []  # List of failed message entries
         self.max_failed_messages = 100  # Limit size to prevent memory issues
+        self.failed_messages: deque = deque(maxlen=self.max_failed_messages)
         self._last_retry = time.time()  # Track when we last retried failed messages
         self.retry_interval_seconds = 120  # Retry failed messages every 2 minutes
 
@@ -252,6 +247,29 @@ class HazardAgent(BaseAgent):
             "risk_decay_enabled": self.enable_risk_decay,
             "last_update": self.last_update_time.isoformat() if self.last_update_time else None,
         }
+
+    @staticmethod
+    def _haversine_fallback(coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:
+        """
+        Calculate haversine distance between two (lat, lon) points in meters.
+
+        Used as a fallback when the imported haversine_distance is unavailable.
+
+        Args:
+            coord1: (lat, lon) of the first point
+            coord2: (lat, lon) of the second point
+
+        Returns:
+            Distance in meters
+        """
+        lat1, lon1 = coord1
+        lat2, lon2 = coord2
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(dlon / 2) ** 2)
+        return 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     def get_vehicle_passability(
         self, lat: float, lon: float, radius_m: float = 500.0
@@ -322,15 +340,15 @@ class HazardAgent(BaseAgent):
         Returns:
             Age in minutes
         """
+        if timestamp is None:
+            return 999.0
+
         if isinstance(timestamp, str):
             try:
                 timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             except (ValueError, TypeError):
                 logger.warning(f"Invalid timestamp format: {timestamp}")
                 return 999.0
-
-        if timestamp is None:
-            return 999.0
 
         # Make both datetimes timezone-aware for comparison
         current_time = datetime.now(timezone.utc)
@@ -471,7 +489,7 @@ class HazardAgent(BaseAgent):
             True if cleanup should run, False otherwise
         """
         now = time.time()
-        if now - self._last_cleanup >= self.CLEANUP_INTERVAL_SECONDS:
+        if now - self._last_cleanup >= self._config.cleanup_interval_sec:
             self._last_cleanup = now
             return True
         return False
@@ -542,15 +560,15 @@ class HazardAgent(BaseAgent):
         expired_counts["flood_locations"] = len(expired_locations)
 
         # Size-based eviction: LRU for flood cache
-        if len(self.flood_data_cache) > self.MAX_FLOOD_CACHE_SIZE:
+        if len(self.flood_data_cache) > self._config.max_flood_cache:
             # Sort by timestamp and keep newest entries
             sorted_items = sorted(
                 self.flood_data_cache.items(),
                 key=lambda x: x[1].get('timestamp', datetime.min) if isinstance(x[1].get('timestamp'), datetime) else datetime.min,
                 reverse=True
             )
-            evicted_count = len(self.flood_data_cache) - self.MAX_FLOOD_CACHE_SIZE
-            self.flood_data_cache = dict(sorted_items[:self.MAX_FLOOD_CACHE_SIZE])
+            evicted_count = len(self.flood_data_cache) - self._config.max_flood_cache
+            self.flood_data_cache = dict(sorted_items[:self._config.max_flood_cache])
             expired_counts["flood_size_evicted"] = evicted_count
             logger.warning(f"{self.agent_id} flood cache trimmed: {evicted_count} entries evicted (LRU)")
 
@@ -688,8 +706,6 @@ class HazardAgent(BaseAgent):
                     self._handle_inform_message(message)
                 elif message.performative == Performative.REQUEST:
                     self._handle_request_message(message)
-                elif message.performative == Performative.QUERY:
-                    self._handle_query_message(message)
                 else:
                     logger.warning(
                         f"{self.agent_id} received unsupported performative: "
@@ -703,21 +719,13 @@ class HazardAgent(BaseAgent):
                 )
 
                 # Save to dead letter queue for later retry
+                # deque(maxlen=...) handles eviction automatically
                 self.failed_messages.append({
                     'message': message,
                     'error': str(e),
                     'timestamp': datetime.now(),
                     'retry_count': 0
                 })
-
-                # Limit dead letter queue size to prevent memory issues
-                if len(self.failed_messages) > self.max_failed_messages:
-                    # Remove oldest entry
-                    removed = self.failed_messages.pop(0)
-                    logger.warning(
-                        f"{self.agent_id} dead letter queue full, "
-                        f"dropped message from {removed['message'].sender}"
-                    )
 
         if messages_processed > 0:
             logger.info(
@@ -775,8 +783,11 @@ class HazardAgent(BaseAgent):
                     self._handle_inform_message(message)
                 elif message.performative == Performative.REQUEST:
                     self._handle_request_message(message)
-                elif message.performative == Performative.QUERY:
-                    self._handle_query_message(message)
+                else:
+                    logger.warning(
+                        f"{self.agent_id} received unsupported performative "
+                        f"during retry: {message.performative}"
+                    )
 
                 stats["succeeded"] += 1
                 logger.info(
@@ -864,7 +875,6 @@ class HazardAgent(BaseAgent):
             # Send INFORM reply to requester (for orchestrator correlation)
             if message.sender and self.message_queue:
                 try:
-                    from app.communication.acl_protocol import create_inform_message
                     reply = create_inform_message(
                         sender=self.agent_id,
                         receiver=message.sender,
@@ -902,7 +912,6 @@ class HazardAgent(BaseAgent):
 
             if message.sender and self.message_queue:
                 try:
-                    from app.communication.acl_protocol import create_inform_message
                     reply = create_inform_message(
                         sender=self.agent_id,
                         receiver=message.sender,
@@ -921,22 +930,6 @@ class HazardAgent(BaseAgent):
             logger.warning(
                 f"{self.agent_id} received unknown action: {action}"
             )
-
-    def _handle_query_message(self, message: ACLMessage) -> None:
-        """
-        Handle QUERY messages requesting information.
-
-        Args:
-            message: ACLMessage with Performative.QUERY
-        """
-        query_type = message.content.get("query_type")
-
-        logger.debug(
-            f"{self.agent_id} handling QUERY message: query_type={query_type}"
-        )
-
-        # Query handling would go here (e.g., return current risk scores)
-        logger.warning(f"{self.agent_id} QUERY handling not yet implemented")
 
     def _handle_flood_data_batch(self, data: Dict[str, Any], sender: str) -> None:
         """
@@ -1070,8 +1063,6 @@ class HazardAgent(BaseAgent):
         if risk_scores:
             average_risk = sum(risk_scores.values()) / len(risk_scores)
             self.risk_history.append((get_philippine_time(), average_risk))
-            if len(self.risk_history) > 20:
-                self.risk_history = self.risk_history[-20:]
 
         return {
             "locations_processed": len(fused_data),
@@ -1214,10 +1205,8 @@ class HazardAgent(BaseAgent):
                 elif risk_change_rate < -0.001:
                     risk_trend = "decreasing"
 
-        # Track risk history (keep last 20 data points)
+        # Track risk history (deque with maxlen handles eviction automatically)
         self.risk_history.append((current_time, average_risk))
-        if len(self.risk_history) > 20:
-            self.risk_history = self.risk_history[-20:]
 
         # Update tracking variables
         self.previous_average_risk = average_risk
@@ -1272,7 +1261,7 @@ class HazardAgent(BaseAgent):
             return
 
         # Proactive cache eviction when approaching size limit
-        if len(self.flood_data_cache) >= self.MAX_FLOOD_CACHE_SIZE:
+        if len(self.flood_data_cache) >= self._config.max_flood_cache:
             self.clean_expired_data()
 
         # Update cache
@@ -1324,7 +1313,7 @@ class HazardAgent(BaseAgent):
         invalid_count = 0
 
         # Proactive cache eviction when approaching size limit
-        if len(self.flood_data_cache) + len(data) >= self.MAX_FLOOD_CACHE_SIZE:
+        if len(self.flood_data_cache) + len(data) >= self._config.max_flood_cache:
             self.clean_expired_data()
 
         # Update cache for all locations
@@ -2409,12 +2398,7 @@ class HazardAgent(BaseAgent):
                 if haversine_distance is not None:
                     distance = haversine_distance((lat, lon), (node_lat, node_lon))
                 else:
-                    dlat = math.radians(node_lat - lat)
-                    dlon = math.radians(node_lon - lon)
-                    a = (math.sin(dlat / 2) ** 2 +
-                         math.cos(math.radians(lat)) * math.cos(math.radians(node_lat)) *
-                         math.sin(dlon / 2) ** 2)
-                    distance = 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                    distance = self._haversine_fallback((lat, lon), (node_lat, node_lon))
 
                 if distance <= radius_m:
                     nearby_nodes.append(node)
@@ -2736,12 +2720,7 @@ class HazardAgent(BaseAgent):
                     if haversine_distance is not None:
                         distance = haversine_distance((lat, lon), (node_lat, node_lon))
                     else:
-                        dlat = math.radians(node_lat - lat)
-                        dlon = math.radians(node_lon - lon)
-                        a = (math.sin(dlat / 2) ** 2 +
-                             math.cos(math.radians(lat)) * math.cos(math.radians(node_lat)) *
-                             math.sin(dlon / 2) ** 2)
-                        distance = 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                        distance = self._haversine_fallback((lat, lon), (node_lat, node_lon))
 
                     # Apply Gaussian distance decay (physically correct for flood diffusion)
                     # Formula: exp(-(d/σ)²) where σ = radius/3 (99.7% coverage at boundary)
@@ -2818,35 +2797,3 @@ class HazardAgent(BaseAgent):
 
         return True
 
-    def clear_old_data(self, max_age_seconds: int = 3600) -> None:
-        """
-        Clear cached data older than the specified age.
-
-        Args:
-            max_age_seconds: Maximum age of data to keep (default: 1 hour)
-        """
-        current_time = get_philippine_time()
-
-        # Clear old flood data
-        locations_to_remove = []
-        for location, data in self.flood_data_cache.items():
-            timestamp = data.get("timestamp")
-            if timestamp and (current_time - timestamp).total_seconds() > max_age_seconds:
-                locations_to_remove.append(location)
-
-        for location in locations_to_remove:
-            del self.flood_data_cache[location]
-
-        # Clear old scout data (work with deque)
-        valid_reports = [
-            report for report in self.scout_data_cache
-            if (current_time - report.get("timestamp", current_time)).total_seconds() <= max_age_seconds
-        ]
-        self.scout_data_cache.clear()
-        for report in valid_reports:
-            self.scout_data_cache.append(report)
-
-        logger.info(
-            f"Cleared {len(locations_to_remove)} old flood records and "
-            f"purged old scout data (remaining: {len(self.scout_data_cache)})"
-        )

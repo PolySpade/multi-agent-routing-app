@@ -18,7 +18,7 @@ import asyncio
 import logging
 import threading
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 from app.agents.base_agent import BaseAgent
 

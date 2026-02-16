@@ -45,6 +45,7 @@ hazard_agent:
     max_scout_entries: 1000 # Maximum scout report cache size
     cleanup_interval_sec: 300 # Run cache cleanup every 5 minutes
     use_deque: true # Use deque for automatic eviction (recommended)
+    max_risk_history: 20 # Maximum risk history entries per location
 
   # Risk calculation weights
   # Must sum to 1.0 for proper normalization
@@ -206,6 +207,12 @@ scout_agent:
   deduplication:
     temporal_window_minutes: 10.0 # Skip duplicate location reports within this window
 
+  # Scraper throttle
+  scraper_throttle_interval_seconds: 15.0 # Minimum seconds between scrape calls
+
+  # Default confidence for reports without explicit confidence
+  default_confidence: 0.5
+
   # Twitter API (future integration)
   twitter:
     enable: false # Not yet implemented
@@ -250,6 +257,7 @@ orchestrator_agent:
   # Concurrency limits
   max_concurrent_missions: 10 # Maximum simultaneous missions
   max_completed_history: 100 # Completed missions to keep for polling
+  max_chat_turns: 20 # Maximum conversation history turns for chat
 
   # Retry policy (for future use)
   retry:
@@ -344,7 +352,7 @@ llm_service:
 # Start mock server: python -m mock_server.run
 # Override with env vars: USE_MOCK_SOURCES=true MOCK_SERVER_URL=http://localhost:8081
 mock_sources:
-  enabled: true
+  enabled: false
   base_url: "http://localhost:8081"
   urls:
     river_scraper: "http://localhost:8081/pagasa/water/map.do"

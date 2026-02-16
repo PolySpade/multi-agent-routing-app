@@ -117,8 +117,8 @@ def risk_aware_astar(
     start: Any,
     end: Any,
     risk_weight: float = 0.5,
-    distance_weight: float = 0.5,
-    max_risk_threshold: float = 0.9  # Only block critical/extreme risk roads (90%+)
+    distance_weight: float = 1.0,
+    max_risk_threshold: Optional[float] = None
 ) -> Tuple[Optional[List[Any]], Optional[List[int]]]:
     """
     Find the safest path using risk-aware A* algorithm.
@@ -147,9 +147,9 @@ def risk_aware_astar(
             - Safest: 100.0 (risk=0.8 -> 81x edge length)
             - Balanced: 3.0 (risk=0.8 -> 3.4x edge length)
             - Fastest: 0.0 (pure shortest path)
-        distance_weight: Weight for distance component (default: 0.5, use 1.0)
-        max_risk_threshold: Maximum acceptable risk (default: 0.9)
-            Edges with risk >= 90% are considered impassable (critical flood danger)
+        distance_weight: Weight for distance component (default: 1.0)
+        max_risk_threshold: Maximum acceptable risk (default: from config critical_risk_threshold)
+            Edges with risk >= threshold are considered impassable (critical flood danger)
 
     Returns:
         Tuple of (path, edge_keys):
@@ -171,6 +171,10 @@ def risk_aware_astar(
         >>> if path:
         ...     print(f"Found safe path with {len(path)} nodes")
     """
+    if max_risk_threshold is None:
+        from app.core.agent_config import AgentConfigLoader
+        max_risk_threshold = AgentConfigLoader().get_routing_config().critical_risk_threshold
+
     logger.info(
         f"Computing risk-aware A* path from {start} to {end} "
         f"(risk_weight={risk_weight}, distance_weight={distance_weight})"
@@ -186,7 +190,7 @@ def risk_aware_astar(
     heuristic = create_heuristic(graph, end)
 
     # Track weight function calls for debugging
-    blocked_edges_count = [0]  # Use list to allow modification in nested function
+    blocked_edges_count = 0
 
     # Track which edge key was selected for each (u,v) pair
     selected_edges = {}
@@ -232,9 +236,10 @@ def risk_aware_astar(
 
         # Check if road is impassable
         if risk_score >= max_risk_threshold:
-            blocked_edges_count[0] += 1
-            if blocked_edges_count[0] <= 10:  # Log first 10 blocked edges
-                print(f"  [A*] BLOCKING edge ({u}, {v}): risk={risk_score:.3f} >= {max_risk_threshold}")
+            nonlocal blocked_edges_count
+            blocked_edges_count += 1
+            if blocked_edges_count <= 10:  # Log first 10 blocked edges
+                logger.debug(f"[A*] BLOCKING edge ({u}, {v}): risk={risk_score:.3f} >= {max_risk_threshold}")
             return float('inf')
 
         # Calculate combined cost: length + length-proportional risk penalty
@@ -264,14 +269,14 @@ def risk_aware_astar(
 
         logger.info(
             f"Path found with {len(path)} nodes. "
-            f"Blocked {blocked_edges_count[0]} edges during search."
+            f"Blocked {blocked_edges_count} edges during search."
         )
         return path, edge_keys
 
     except nx.NetworkXNoPath:
         logger.warning(
             f"No path exists from {start} to {end}. "
-            f"Blocked {blocked_edges_count[0]} edges."
+            f"Blocked {blocked_edges_count} edges."
         )
         return None, None
     except Exception as e:
@@ -282,7 +287,7 @@ def risk_aware_astar(
 def calculate_path_metrics(
     graph: nx.MultiDiGraph,
     path: List[Any],
-    edge_keys: List[int] = None
+    edge_keys: Optional[List[int]] = None
 ) -> Dict[str, float]:
     """
     Calculate metrics for a computed path using the ACTUAL edges selected by A*.
@@ -346,10 +351,11 @@ def calculate_path_metrics(
     # Calculate distance-weighted average risk
     average_risk = total_weighted_risk / total_distance if total_distance > 0 else 0.0
 
-    # Estimate time assuming 30 km/h average speed
-    # Adjust for high-risk areas (slower travel)
-    base_speed_kmh = 30.0
-    risk_factor = 1.0 - (average_risk * 0.3)  # Up to 30% slower in high risk
+    # Estimate time using config-driven speed and risk reduction
+    from app.core.agent_config import AgentConfigLoader
+    _algo_config = AgentConfigLoader().get_algorithms_config()
+    base_speed_kmh = _algo_config.base_speed_kmh
+    risk_factor = 1.0 - (average_risk * _algo_config.speed_reduction_factor)
     adjusted_speed_kmh = base_speed_kmh * risk_factor
 
     estimated_time_hours = (total_distance / 1000) / adjusted_speed_kmh

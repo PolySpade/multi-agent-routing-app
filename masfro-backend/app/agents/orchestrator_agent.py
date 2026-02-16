@@ -33,6 +33,7 @@ from app.communication.acl_protocol import (
     create_request_message,
 )
 from app.communication.message_queue import MessageQueue
+from app.core.agent_config import OrchestratorConfig
 from app.core.llm_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,6 @@ class OrchestratorAgent(BaseAgent):
         "flood": "get_agent_stats",
         "routing": "get_statistics",
         "evacuation": "get_route_statistics",
-        "hazard": None,
     }
 
     def __init__(
@@ -105,11 +105,8 @@ class OrchestratorAgent(BaseAgent):
         # Mission tracking (thread-safe: accessed from MQ processing and API threads)
         self._missions_lock = threading.Lock()
         self._missions: Dict[str, Dict[str, Any]] = {}
-        max_history = (
-            self._config.max_completed_history if self._config else 100
-        )
-        self._max_completed_history = max_history
-        self._completed_missions: deque = deque(maxlen=max_history)
+        self._max_completed_history = self._config.max_completed_history if self._config else OrchestratorConfig().max_completed_history
+        self._completed_missions: deque = deque(maxlen=self._max_completed_history)
         self._completed_missions_index: Dict[str, Dict[str, Any]] = {}
 
         # Verify required agents
@@ -118,9 +115,9 @@ class OrchestratorAgent(BaseAgent):
             if role not in sub_agents:
                 logger.warning(f"Orchestrator missing '{role}' agent")
 
-        # Conversation history for multi-turn chat (capped at 20 turns)
+        # Conversation history for multi-turn chat
         self._chat_history: list = []
-        self._max_chat_turns = 20
+        self._max_chat_turns = self._config.max_chat_turns if self._config else OrchestratorConfig().max_chat_turns
 
         llm_status = "enabled" if self.llm_service else "disabled"
         logger.info(
@@ -267,13 +264,12 @@ class OrchestratorAgent(BaseAgent):
                     continue
                 elapsed = (now - mission["created_at"]).total_seconds()
                 if elapsed > mission["timeout_seconds"]:
-                    timed_out.append(mid)
+                    timed_out.append((mid, mission["state"], mission["type"]))
 
-        for mid in timed_out:
+        for mid, mstate, mtype in timed_out:
             logger.warning(
                 f"Mission {mid} timed out "
-                f"(state={self._missions[mid]['state']}, "
-                f"type={self._missions[mid]['type']})"
+                f"(state={mstate}, type={mtype})"
             )
             self._complete_mission(
                 mid, MissionState.TIMED_OUT, error="Mission timed out"
@@ -361,7 +357,7 @@ class OrchestratorAgent(BaseAgent):
                 {
                     "mission_id": m["id"],
                     "type": m["type"],
-                    "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
+                    "state": self._state_str(m["state"]),
                     "elapsed_seconds": round((
                         datetime.now() - m["created_at"]
                     ).total_seconds(), 1),
@@ -369,12 +365,17 @@ class OrchestratorAgent(BaseAgent):
                 for m in self._missions.values()
             ]
 
+    @staticmethod
+    def _state_str(state) -> str:
+        """Convert a MissionState (or string) to its string value."""
+        return state.value if isinstance(state, MissionState) else str(state)
+
     def _mission_to_dict(self, m: Dict[str, Any]) -> Dict[str, Any]:
         """Convert mission dict to API-friendly format."""
         return {
             "mission_id": m["id"],
             "type": m["type"],
-            "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
+            "state": self._state_str(m["state"]),
             "results": m["results"],
             "error": m["error"],
             "created_at": m["created_at"].isoformat(),
@@ -436,24 +437,30 @@ class OrchestratorAgent(BaseAgent):
 
     def _advance_mission(self, mission_id: str) -> None:
         """Route to the appropriate FSM handler based on mission type."""
-        mission = self._missions.get(mission_id)
-        if not mission:
-            return
-
         handlers = {
             "assess_risk": self._advance_assess_risk,
             "coordinated_evacuation": self._advance_evacuation,
             "route_calculation": self._advance_route_calculation,
             "cascade_risk_update": self._advance_cascade_update,
         }
-        handler = handlers.get(mission["type"])
+
+        # Copy mission data under lock for reading state
+        with self._missions_lock:
+            mission = self._missions.get(mission_id)
+            if not mission:
+                return
+            mission_type = mission["type"]
+            mission_state = mission["state"]
+
+        handler = handlers.get(mission_type)
         if handler:
+            # Handler will read/write mission state — acquire lock inside each handler
             handler(mission)
         else:
             self._complete_mission(
                 mission_id,
                 MissionState.FAILED,
-                error=f"Unknown mission type: {mission['type']}",
+                error=f"Unknown mission type: {mission_type}",
             )
 
     def _advance_assess_risk(self, mission: Dict[str, Any]) -> None:
@@ -466,33 +473,36 @@ class OrchestratorAgent(BaseAgent):
         After hazard processes data, queries current map risk at the location
         so the results include what's actually displayed on the map.
         """
-        mid = mission["id"]
-        state = mission["state"]
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
+            location = mission["params"].get("location")
+            scout_data = mission["results"].get("scout", {})
 
         if state == MissionState.PENDING:
-            location = mission["params"].get("location")
             if location:
                 self._send_request(
                     "scout", "scan_location", {"location": location}, mid
                 )
-                mission["state"] = MissionState.AWAITING_SCOUT
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_SCOUT
             else:
                 self._send_request("flood", "collect_data", {}, mid)
-                mission["state"] = MissionState.AWAITING_FLOOD
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_SCOUT:
             self._send_request("flood", "collect_data", {}, mid)
-            mission["state"] = MissionState.AWAITING_FLOOD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_FLOOD:
             self._send_request("hazard", "process_and_update", {}, mid)
-            mission["state"] = MissionState.AWAITING_HAZARD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_HAZARD
 
         elif state == MissionState.AWAITING_HAZARD:
             # After hazard updates the map, query the current risk at the location
-            location = mission["params"].get("location")
-            # Try to get coordinates from scout results
-            scout_data = mission["results"].get("scout", {})
             coords = scout_data.get("coordinates")
             if coords and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lat, lon = float(coords[0]), float(coords[1])
@@ -509,7 +519,8 @@ class OrchestratorAgent(BaseAgent):
                     {"lat": lat, "lon": lon, "radius_m": 500},
                     mid,
                 )
-                mission["state"] = MissionState.AWAITING_RISK_QUERY
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_RISK_QUERY
             else:
                 self._complete_mission(mid, MissionState.COMPLETED)
 
@@ -521,12 +532,13 @@ class OrchestratorAgent(BaseAgent):
         coordinated_evacuation FSM:
         PENDING -> AWAITING_EVACUATION -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
-
-        if state == MissionState.PENDING:
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
             user_loc = mission["params"].get("user_location")
             message = mission["params"].get("message")
+
+        if state == MissionState.PENDING:
             if not user_loc or not message:
                 self._complete_mission(
                     mid,
@@ -540,7 +552,8 @@ class OrchestratorAgent(BaseAgent):
                 {"user_location": user_loc, "message": message},
                 mid,
             )
-            mission["state"] = MissionState.AWAITING_EVACUATION
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_EVACUATION
 
         elif state == MissionState.AWAITING_EVACUATION:
             self._complete_mission(mid, MissionState.COMPLETED)
@@ -550,12 +563,14 @@ class OrchestratorAgent(BaseAgent):
         route_calculation FSM:
         PENDING -> AWAITING_ROUTING -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
-
-        if state == MissionState.PENDING:
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
             start = mission["params"].get("start")
             end = mission["params"].get("end")
+            prefs = mission["params"].get("preferences", {})
+
+        if state == MissionState.PENDING:
             if not start or not end:
                 self._complete_mission(
                     mid,
@@ -563,14 +578,14 @@ class OrchestratorAgent(BaseAgent):
                     error="Missing 'start' or 'end' coordinates",
                 )
                 return
-            prefs = mission["params"].get("preferences", {})
             self._send_request(
                 "routing",
                 "calculate_route",
                 {"start": start, "end": end, "preferences": prefs},
                 mid,
             )
-            mission["state"] = MissionState.AWAITING_ROUTING
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_ROUTING
 
         elif state == MissionState.AWAITING_ROUTING:
             self._complete_mission(mid, MissionState.COMPLETED)
@@ -580,16 +595,19 @@ class OrchestratorAgent(BaseAgent):
         cascade_risk_update FSM:
         PENDING -> AWAITING_FLOOD -> AWAITING_HAZARD -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
 
         if state == MissionState.PENDING:
             self._send_request("flood", "collect_data", {}, mid)
-            mission["state"] = MissionState.AWAITING_FLOOD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_FLOOD:
             self._send_request("hazard", "process_and_update", {}, mid)
-            mission["state"] = MissionState.AWAITING_HAZARD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_HAZARD
 
         elif state == MissionState.AWAITING_HAZARD:
             self._complete_mission(mid, MissionState.COMPLETED)

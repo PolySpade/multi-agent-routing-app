@@ -17,16 +17,17 @@ Author: MAS-FRO Development Team
 Date: February 2026
 """
 
-import os
 import re
 import json
 import time
 import threading
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from .base_agent import BaseAgent
+from app.core.agent_config import get_config, ScoutConfig
 import logging
 
 # ACL Protocol imports for MAS communication
@@ -126,6 +127,13 @@ class ScoutAgent(BaseAgent):
         # Target agent for forwarding reports
         self.hazard_agent_id = hazard_agent_id
 
+        # Load configuration from YAML
+        try:
+            self._config = get_config().get_scout_config()
+        except Exception as e:
+            logger.warning(f"Failed to load scout config, using defaults: {e}")
+            self._config = ScoutConfig()
+
         # Scraper mode (for mock server / real social scraping)
         self.use_scraper = use_scraper
         self.social_scraper = None
@@ -139,7 +147,7 @@ class ScoutAgent(BaseAgent):
                 self.use_scraper = False
 
         # Scraper throttle: only scrape every N seconds (thread-safe)
-        self._scrape_interval = 15.0
+        self._scrape_interval = self._config.scraper_throttle_interval_seconds
         self._last_scrape_time = 0.0
         self._scrape_lock = threading.Lock()
 
@@ -148,7 +156,7 @@ class ScoutAgent(BaseAgent):
         self.simulation_scenario = simulation_scenario
         self.simulation_tweets = []
         self.simulation_index = 0
-        self.simulation_batch_size = 10
+        self.simulation_batch_size = self._config.batch_size
         self.use_ml_in_simulation = use_ml_in_simulation
 
         # ========== LLM SERVICE INITIALIZATION (v2) ==========
@@ -198,20 +206,16 @@ class ScoutAgent(BaseAgent):
             self.geocoder = None
 
         # ========== TWEET ID DEDUPLICATION ==========
-        self._processed_tweet_ids: set = set()
+        self._processed_tweet_ids: OrderedDict = OrderedDict()
 
         # ========== TEMPORAL DEDUPLICATION ==========
         self._recent_locations: Dict[str, datetime] = {}
-        try:
-            from ..core.agent_config import get_config
-            scout_cfg = get_config().get_scout_config()
-            self._temporal_dedup_window_minutes = scout_cfg.temporal_dedup_window_minutes
-        except Exception:
-            self._temporal_dedup_window_minutes = 10.0
+        self._temporal_dedup_window_minutes = self._config.temporal_dedup_window_minutes
 
         # Log initialization summary
         processing_mode = "LLM" if self.use_llm else "Traditional NLP"
-        logger.info(f"ScoutAgent '{self.agent_id}' initialized in SIMULATION MODE")
+        data_mode = "SIMULATION MODE" if self.simulation_mode else "SCRAPER MODE"
+        logger.info(f"ScoutAgent '{self.agent_id}' initialized in {data_mode}")
         logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
         logger.info(f"  Text processing mode: {processing_mode}")
         logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
@@ -433,10 +437,11 @@ class ScoutAgent(BaseAgent):
                 if tweet_id and tweet_id in self._processed_tweet_ids:
                     continue
                 if tweet_id:
-                    self._processed_tweet_ids.add(tweet_id)
-                    # Bound the set to prevent unbounded growth
+                    self._processed_tweet_ids[tweet_id] = None
+                    # Bound the dict to prevent unbounded growth
                     if len(self._processed_tweet_ids) > 10000:
-                        self._processed_tweet_ids.clear()
+                        for _ in range(2000):
+                            self._processed_tweet_ids.popitem(last=False)
 
                 # Temporal deduplication: skip if same location reported recently
                 quick_loc = self._extract_quick_location(tweet.get('text', ''))
@@ -515,7 +520,7 @@ class ScoutAgent(BaseAgent):
         """
         report_data = {
             'visual_evidence': False,
-            'confidence': 0.5,
+            'confidence': self._config.default_confidence,
             'is_flood_related': False,
             'source': 'scout_agent'
         }
@@ -545,7 +550,7 @@ class ScoutAgent(BaseAgent):
             report_data['is_flood_related'] = text_result.get('is_flood_related', False)
             report_data['description'] = text_result.get('description')
             report_data['report_type'] = text_result.get('report_type', 'flood')
-            text_confidence = text_result.get('confidence', 0.5)
+            text_confidence = text_result.get('confidence', self._config.default_confidence)
 
             # Update source if LLM was used
             if text_result.get('source') and 'nlp' not in text_result.get('source', '').lower():
@@ -568,8 +573,8 @@ class ScoutAgent(BaseAgent):
 
         if visual_risk > 0 and text_severity > 0:
             # Both signals present: weighted average by confidence
-            vc = visual_confidence or 0.5
-            tc = text_confidence or 0.5
+            vc = visual_confidence or self._config.default_confidence
+            tc = text_confidence or self._config.default_confidence
             final_risk = (visual_risk * vc + text_severity * tc) / (vc + tc)
         elif visual_risk > 0:
             final_risk = visual_risk
@@ -612,15 +617,17 @@ class ScoutAgent(BaseAgent):
             except (ValueError, TypeError):
                 timestamp = datetime.now()
 
+        depth = report_data.get('estimated_depth_m')
+
         payload = {
             "location": report_data.get('location') or "Marikina",
             "coordinates": report_data.get('coordinates'),
             "severity": round(report_data.get('severity', 0), 2),
             "risk_score": round(report_data.get('risk_score', 0), 2),
             "report_type": report_data.get('report_type', 'flood') if final_risk > 0.3 else 'observation',
-            "confidence": round(report_data.get('confidence', 0.5), 2),
+            "confidence": round(report_data.get('confidence', self._config.default_confidence), 2),
             "visual_evidence": report_data.get('visual_evidence', False),
-            "estimated_depth_m": round(report_data.get('estimated_depth_m') or 0, 2) or None,
+            "estimated_depth_m": round(depth, 2) if depth else None,
             "vehicles_passable": report_data.get('vehicles_passable'),
             "timestamp": timestamp,
             "source": report_data.get('source', 'scout_agent'),
@@ -663,7 +670,7 @@ class ScoutAgent(BaseAgent):
                 }
 
                 # Visual evidence with high risk = high confidence
-                if visual_analysis.get('risk_score', 0) > 0.5:
+                if visual_analysis.get('risk_score', 0) > self._config.min_confidence:
                     logger.info(
                         f"[Vision] High-risk visual detected: "
                         f"depth={visual_analysis.get('estimated_depth_m')}m, "
@@ -1118,20 +1125,10 @@ class ScoutAgent(BaseAgent):
         if not self.use_ml_in_simulation:
             return tweets
 
+        KEEP_KEYS = {"tweet_id", "username", "text", "timestamp", "url", "image_path", "replies", "retweets", "likes", "scraped_at"}
         prepared_tweets = []
         for tweet in tweets:
-            clean_tweet = {
-                "tweet_id": tweet.get("tweet_id"),
-                "username": tweet.get("username"),
-                "text": tweet.get("text"),
-                "timestamp": tweet.get("timestamp"),
-                "url": tweet.get("url"),
-                "image_path": tweet.get("image_path"),  # Include image path for VL
-                "replies": tweet.get("replies"),
-                "retweets": tweet.get("retweets"),
-                "likes": tweet.get("likes"),
-                "scraped_at": tweet.get("scraped_at")
-            }
+            clean_tweet = {k: tweet.get(k) for k in KEEP_KEYS}
             prepared_tweets.append(clean_tweet)
 
         logger.debug(
