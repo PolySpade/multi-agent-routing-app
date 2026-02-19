@@ -28,48 +28,10 @@ import math
 from typing import Tuple, List, Optional, Callable, Any, Dict
 import logging
 
+# Import from shared geo_utils (canonical implementation)
+from app.core.geo_utils import haversine_distance  # noqa: F401 — re-exported
+
 logger = logging.getLogger(__name__)
-
-
-def haversine_distance(
-    coord1: Tuple[float, float],
-    coord2: Tuple[float, float]
-) -> float:
-    """
-    Calculate the great circle distance between two points on Earth.
-
-    Uses the Haversine formula to compute the distance between two
-    geographic coordinates. This serves as the heuristic function for
-    A* search in geographic routing.
-
-    Args:
-        coord1: First coordinate (latitude, longitude) in degrees
-        coord2: Second coordinate (latitude, longitude) in degrees
-
-    Returns:
-        Distance in meters
-
-    Example:
-        >>> dist = haversine_distance((14.6507, 121.1029), (14.6545, 121.1089))
-        >>> print(f"{dist:.2f} meters")
-    """
-    lat1, lon1 = math.radians(coord1[0]), math.radians(coord1[1])
-    lat2, lon2 = math.radians(coord2[0]), math.radians(coord2[1])
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    # Haversine formula
-    a = (
-        math.sin(dlat / 2) ** 2 +
-        math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    c = 2 * math.asin(math.sqrt(a))
-
-    # Earth's radius in meters
-    radius = 6371000
-
-    return radius * c
 
 
 def create_heuristic(graph: nx.MultiDiGraph, target_node: Any) -> Callable:

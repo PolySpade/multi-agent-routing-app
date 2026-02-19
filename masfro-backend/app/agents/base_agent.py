@@ -7,7 +7,7 @@ Provides common functionality and interface for all agents including
 MessageQueue registration and message processing utilities.
 """
 
-from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -54,25 +54,27 @@ class BaseAgent:
 
         self.logger.info(f"Agent {self.agent_id} created")
 
-    def _drain_messages(self, handlers: Dict[str, Callable]) -> int:
+    def _drain_mq_requests(
+        self,
+        handlers: Dict[str, Callable],
+    ) -> None:
         """
-        Drain all pending messages from the queue and dispatch them.
+        Drain all pending REQUEST messages from the MQ and dispatch to handlers.
 
-        This is the shared message-processing loop that replaces the
-        duplicated while-True pattern in every agent.
+        Polls the message queue in a non-blocking loop, dispatching each
+        REQUEST message to the matching handler based on its ``action`` field.
+        Non-REQUEST performatives are logged and skipped.
 
         Args:
-            handlers: Dict mapping Performative values to handler callables.
-                      Each handler receives the ACLMessage as its sole argument.
-                      Example: {Performative.REQUEST: self._handle_request}
-
-        Returns:
-            Number of messages processed.
+            handlers: Mapping of action name -> callable(msg, data).
+                      Each handler receives the full ACLMessage and the
+                      ``content["data"]`` dict.
         """
         if not self.message_queue:
-            return 0
+            return
 
-        processed = 0
+        from ..communication.acl_protocol import Performative
+
         while True:
             msg = self.message_queue.receive_message(
                 agent_id=self.agent_id, timeout=0.0, block=False
@@ -80,23 +82,21 @@ class BaseAgent:
             if msg is None:
                 break
 
-            handler = handlers.get(msg.performative)
-            if handler:
-                try:
-                    handler(msg)
-                except Exception as e:
-                    self.logger.error(
-                        f"{self.agent_id} error handling {msg.performative} "
-                        f"from {msg.sender}: {e}",
-                        exc_info=True,
+            if msg.performative == Performative.REQUEST:
+                action = msg.content.get("action")
+                data = msg.content.get("data", {})
+                handler = handlers.get(action)
+                if handler:
+                    handler(msg, data)
+                else:
+                    self.logger.warning(
+                        f"{self.agent_id}: unknown REQUEST action '{action}' "
+                        f"from {msg.sender}"
                     )
             else:
                 self.logger.debug(
                     f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
                 )
-            processed += 1
-
-        return processed
 
     def shutdown(self) -> None:
         """

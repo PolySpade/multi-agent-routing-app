@@ -161,6 +161,13 @@ export default function OrchestratorChat({ onRouteResult, startPoint }) {
         return;
       }
 
+      // Handle clarification questions
+      if (data.status === 'needs_clarification') {
+        const question = data.message || data.interpretation?.message || 'Could you provide more details?';
+        addMessage('assistant', question);
+        return;
+      }
+
       const missionId = data.mission?.mission_id;
       const missionType = data.mission?.type || data.interpretation?.mission_type;
 

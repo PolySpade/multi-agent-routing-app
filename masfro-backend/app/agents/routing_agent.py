@@ -85,7 +85,6 @@ from dataclasses import dataclass, field
 import logging
 import time
 import pandas as pd
-import os
 from pathlib import Path
 
 from ..communication.acl_protocol import Performative
@@ -122,15 +121,6 @@ class RouteWarning:
             'recommended_actions': self.recommended_actions
         }
 
-    def to_legacy_string(self) -> str:
-        """Convert to legacy string format for backward compatibility."""
-        prefix = {
-            WarningSeverity.INFO: "INFO",
-            WarningSeverity.CAUTION: "CAUTION",
-            WarningSeverity.WARNING: "WARNING",
-            WarningSeverity.CRITICAL: "CRITICAL"
-        }.get(self.severity, "INFO")
-        return f"{prefix}: {self.message}"
 
 
 class RoutingAgent(BaseAgent):
@@ -216,13 +206,21 @@ class RoutingAgent(BaseAgent):
         self._evacuation_service = evacuation_service
         self.evacuation_centers = self._load_evacuation_centers()
 
-        logger.info(
-            f"{self.agent_id} initialized with "
-            f"risk_penalty={risk_penalty}, distance_weight={distance_weight}, "
-            f"evacuation_centers={len(self.evacuation_centers)}, "
-            f"llm_enabled={bool(self.llm_service)}, "
-            f"mq_enabled={bool(self.message_queue)}"
-        )
+    def _apply_config(self) -> None:
+        """Apply mutable config-derived attributes from self._config."""
+        self.risk_penalty = self._config.balanced_risk_penalty
+        self._cache_ttl_seconds = self._config.cache_ttl_seconds
+        self._max_cache_size = self._config.cache_max_entries
+
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            self._config = get_config().get_routing_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload routing config: {e}")
+            return
+        self._apply_config()
+        logger.info(f"{self.agent_id} configuration reloaded")
 
     def step(self):
         """
@@ -236,33 +234,10 @@ class RoutingAgent(BaseAgent):
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
-        if not self.message_queue:
-            return
-
-        while True:
-            msg = self.message_queue.receive_message(
-                agent_id=self.agent_id, timeout=0.0, block=False
-            )
-            if msg is None:
-                break
-
-            if msg.performative == Performative.REQUEST:
-                action = msg.content.get("action")
-                data = msg.content.get("data", {})
-
-                if action == "calculate_route":
-                    self._handle_route_request(msg, data)
-                elif action == "find_evacuation_center":
-                    self._handle_evac_center_request(msg, data)
-                else:
-                    logger.warning(
-                        f"{self.agent_id}: unknown REQUEST action '{action}' "
-                        f"from {msg.sender}"
-                    )
-            else:
-                logger.debug(
-                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
-                )
+        self._drain_mq_requests({
+            "calculate_route": self._handle_route_request,
+            "find_evacuation_center": self._handle_evac_center_request,
+        })
 
     def _handle_route_request(self, msg, data: dict) -> None:
         """Handle calculate_route REQUEST from orchestrator."""
@@ -801,18 +776,16 @@ class RoutingAgent(BaseAgent):
         self,
         metrics: Dict[str, float],
         preferences: Optional[Dict[str, Any]] = None,
-        structured: bool = True
-    ) -> List[Any]:
+    ) -> List[RouteWarning]:
         """
         Generate warning messages based on route metrics.
 
         Args:
             metrics: Path metrics dictionary
             preferences: Optional routing preferences (to customize warnings by mode)
-            structured: If True, return List[RouteWarning]; if False, return List[str]
 
         Returns:
-            List of RouteWarning objects (structured=True) or strings (structured=False)
+            List of RouteWarning objects
         """
         warnings: List[RouteWarning] = []
 
@@ -821,7 +794,7 @@ class RoutingAgent(BaseAgent):
         is_fastest_mode = preferences and preferences.get("fastest")
 
         # Special warning for fastest mode with high risk
-        if is_fastest_mode and (max_risk >= self._config.moderate_risk_threshold or avg_risk >= 0.3):
+        if is_fastest_mode and (max_risk >= self._config.moderate_risk_threshold or avg_risk >= self._config.fastest_mode_avg_risk_threshold):
             warnings.append(RouteWarning(
                 severity=WarningSeverity.WARNING,
                 message="Fastest mode ignores flood risk",
@@ -894,12 +867,7 @@ class RoutingAgent(BaseAgent):
                 ]
             ))
 
-        # Return in requested format
-        if structured:
-            return warnings
-        else:
-            # Legacy string format for backward compatibility
-            return [w.to_legacy_string() for w in warnings]
+        return warnings
 
     def _load_evacuation_centers(self) -> pd.DataFrame:
         """

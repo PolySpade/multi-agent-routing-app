@@ -7,6 +7,7 @@ news, and social media endpoints.
 
 import threading
 import time
+import uuid
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -41,7 +42,6 @@ class MockDataStore:
         self.advisories: List[Dict[str, Any]] = []
         self.social_posts: List[Dict[str, Any]] = []
         self._next_advisory_id = 1
-        self._next_post_id = 1
 
     def reset(self):
         """Thread-safe full reset."""
@@ -127,8 +127,7 @@ class MockDataStore:
 
     def add_social_post(self, data: Dict[str, Any]) -> Dict[str, Any]:
         with self._data_lock:
-            post_id = data.get("tweet_id", str(self._next_post_id))
-            self._next_post_id += 1
+            post_id = data.get("tweet_id") or str(uuid.uuid4())
             post = {
                 "tweet_id": post_id,
                 "username": data.get("username", "mock_user"),
@@ -136,9 +135,6 @@ class MockDataStore:
                 "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat()),
                 "url": data.get("url", f"https://x.com/mock_user/status/{post_id}"),
                 "image_path": data.get("image_path"),
-                "replies": data.get("replies", "0"),
-                "retweets": data.get("retweets", "0"),
-                "likes": data.get("likes", "0"),
             }
             self.social_posts.append(post)
             return post

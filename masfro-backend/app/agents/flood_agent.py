@@ -38,23 +38,13 @@ if TYPE_CHECKING:
     from ..communication.message_queue import MessageQueue
 
 # ACL Protocol imports
-try:
-    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
-except ImportError:
-    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
-try:
-    from services.data_sources import DataCollector
-    from services.river_scraper_service import RiverScraperService
-    from services.weather_service import OpenWeatherMapService
-    from services.dam_water_scraper_service import DamWaterScraperService
-    from services.advisory_scraper_service import AdvisoryScraperService
-except ImportError:
-    from app.services.data_sources import DataCollector
-    from app.services.river_scraper_service import RiverScraperService
-    from app.services.weather_service import OpenWeatherMapService
-    from app.services.dam_water_scraper_service import DamWaterScraperService
-    from app.services.advisory_scraper_service import AdvisoryScraperService
+from ..services.data_sources import DataCollector
+from ..services.river_scraper_service import RiverScraperService
+from ..services.weather_service import OpenWeatherMapService
+from ..services.dam_water_scraper_service import DamWaterScraperService
+from ..services.advisory_scraper_service import AdvisoryScraperService
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +230,17 @@ class FloodAgent(BaseAgent):
             f"simulated={use_simulated}"
         )
 
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            from ..core.agent_config import AgentConfigLoader
+            self._config = AgentConfigLoader().get_flood_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload flood config: {e}")
+            return
+        self.data_update_interval = self._config.update_interval_sec
+        logger.info(f"{self.agent_id} configuration reloaded")
+
     def step(self):
         """
         Perform one step of the agent's operation.
@@ -262,32 +263,11 @@ class FloodAgent(BaseAgent):
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
-        if not self.message_queue:
-            return
+        self._drain_mq_requests({
+            "collect_data": self._handle_collect_data_request,
+        })
 
-        while True:
-            msg = self.message_queue.receive_message(
-                agent_id=self.agent_id, timeout=0.0, block=False
-            )
-            if msg is None:
-                break
-
-            if msg.performative == Performative.REQUEST:
-                action = msg.content.get("action")
-
-                if action == "collect_data":
-                    self._handle_collect_data_request(msg)
-                else:
-                    logger.warning(
-                        f"{self.agent_id}: unknown REQUEST action '{action}' "
-                        f"from {msg.sender}"
-                    )
-            else:
-                logger.debug(
-                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
-                )
-
-    def _handle_collect_data_request(self, msg: ACLMessage) -> None:
+    def _handle_collect_data_request(self, msg: ACLMessage, data: dict) -> None:
         """Handle collect_data REQUEST: force data collection and reply."""
         result = {"status": "unknown", "locations_collected": 0}
 
@@ -637,16 +617,16 @@ class FloodAgent(BaseAgent):
 
                     if water_level >= eff_critical:
                         status = "critical"
-                        risk_score = 1.0
+                        risk_score = self._config.water_level_risk_critical
                     elif water_level >= eff_alarm:
                         status = "alarm"
-                        risk_score = 0.8
+                        risk_score = self._config.water_level_risk_alarm
                     elif water_level >= eff_alert:
                         status = "alert"
-                        risk_score = 0.5
+                        risk_score = self._config.water_level_risk_alert
                     else:
                         status = "normal"
-                        risk_score = 0.2
+                        risk_score = self._config.water_level_risk_normal
 
                 river_data[station_name] = {
                     "water_level_m": water_level,
@@ -816,19 +796,19 @@ class FloodAgent(BaseAgent):
                 if latest_dev_nhwl is not None:
                     if latest_dev_nhwl >= self._config.dam_critical_m:
                         status = "critical"
-                        risk_score = 1.0
+                        risk_score = self._config.dam_risk_critical
                     elif latest_dev_nhwl >= self._config.dam_alarm_m:
                         status = "alarm"
-                        risk_score = 0.8
+                        risk_score = self._config.dam_risk_alarm
                     elif latest_dev_nhwl >= self._config.dam_alert_m:
                         status = "alert"
-                        risk_score = 0.5
+                        risk_score = self._config.dam_risk_alert
                     elif latest_dev_nhwl >= 0.0:
                         status = "watch"
-                        risk_score = 0.3
+                        risk_score = self._config.dam_risk_watch
                     else:
                         status = "normal"
-                        risk_score = 0.1
+                        risk_score = self._config.dam_risk_normal
 
                 dam_data[dam_name] = {
                     "dam_name": dam_name,

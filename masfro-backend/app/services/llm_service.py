@@ -69,12 +69,6 @@ class LLMService:
         {'location': 'J.P. Rizal', 'severity': 0.5, 'is_flood_related': True, ...}
     """
 
-    # Load cache/health configuration from agents.yaml
-    _cfg = AgentConfigLoader()._config.get('llm_service', {})
-    HEALTH_CHECK_CACHE_SECONDS = _cfg.get('health_check', {}).get('cache_seconds', 60)
-    RESPONSE_CACHE_SIZE = _cfg.get('cache', {}).get('max_entries', 100)
-    RESPONSE_CACHE_TTL_SECONDS = _cfg.get('cache', {}).get('ttl_seconds', 300)
-
     def __init__(
         self,
         text_model: Optional[str] = None,
@@ -93,9 +87,19 @@ class LLMService:
             timeout: Request timeout in seconds (default: from agents.yaml or 30)
             enabled: Whether LLM is enabled (default: True)
         """
+        # Load cache/health configuration from agents.yaml at init time
+        # (not class-level, to avoid import-time config loading)
+        try:
+            _cfg = AgentConfigLoader()._config.get('llm_service', {})
+        except Exception:
+            _cfg = {}
+        self.HEALTH_CHECK_CACHE_SECONDS = _cfg.get('health_check', {}).get('cache_seconds', 60)
+        self.RESPONSE_CACHE_SIZE = _cfg.get('cache', {}).get('max_entries', 100)
+        self.RESPONSE_CACHE_TTL_SECONDS = _cfg.get('cache', {}).get('ttl_seconds', 300)
+
         # Load configuration from environment or use defaults
         # Use env vars if available, otherwise fall back to reasonable defaults
-        _ollama_cfg = self._cfg.get('ollama', {})
+        _ollama_cfg = _cfg.get('ollama', {})
         _default_timeout = _ollama_cfg.get('timeout_seconds', 30)
         self.text_model = text_model or self._get_env("LLM_TEXT_MODEL", _ollama_cfg.get('text_model', "qwen3:latest"))
         self.vision_model = vision_model or self._get_env("LLM_VISION_MODEL", _ollama_cfg.get('vision_model', "qwen3-vl:latest"))
@@ -769,7 +773,10 @@ Return ONLY valid JSON."""
             response = self._api.chat(
                 model=self.text_model,
                 messages=messages,
-                options={'timeout': self.timeout}
+                options={
+                    'timeout': self.timeout,
+                    'num_predict': 512,  # Cap output tokens to prevent slow thinking runs
+                }
             )
 
             text = response['message']['content'].strip()
@@ -794,7 +801,7 @@ Return ONLY valid JSON."""
         return count
 
 
-# Singleton instance
+# Singleton instance (reset on module reload)
 _llm_service: Optional[LLMService] = None
 
 

@@ -118,6 +118,15 @@ class EvacuationManagerAgent(BaseAgent):
             f"llm={'yes' if self.llm_service else 'no'})"
         )
 
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            self._config = get_config().get_evacuation_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload evacuation config: {e}")
+            return
+        logger.info(f"{self.agent_id} configuration reloaded")
+
     def step(self):
         """
         Perform one step of the agent's operation.
@@ -132,33 +141,10 @@ class EvacuationManagerAgent(BaseAgent):
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
-        if not self.message_queue:
-            return
-
-        while True:
-            msg = self.message_queue.receive_message(
-                agent_id=self.agent_id, timeout=0.0, block=False
-            )
-            if msg is None:
-                break
-
-            if msg.performative == Performative.REQUEST:
-                action = msg.content.get("action")
-                data = msg.content.get("data", {})
-
-                if action == "handle_distress_call":
-                    self._handle_distress_call_request(msg, data)
-                elif action == "collect_feedback":
-                    self._handle_collect_feedback_mq(msg, data)
-                else:
-                    logger.warning(
-                        f"{self.agent_id}: unknown REQUEST action '{action}' "
-                        f"from {msg.sender}"
-                    )
-            else:
-                logger.debug(
-                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
-                )
+        self._drain_mq_requests({
+            "handle_distress_call": self._handle_distress_call_request,
+            "collect_feedback": self._handle_collect_feedback_mq,
+        })
 
     def _handle_distress_call_request(self, msg, data: dict) -> None:
         """Handle handle_distress_call REQUEST from orchestrator."""
@@ -560,14 +546,14 @@ class EvacuationManagerAgent(BaseAgent):
         has_photo = bool(feedback_data.get("photo_url"))
 
         if feedback_type == "blocked":
-            return 0.9 if has_photo else 0.8
+            return self._config.blocked_with_photo_confidence if has_photo else self._config.blocked_no_photo_confidence
         elif feedback_type == "flooded":
             has_severity = "severity" in feedback_data
-            return 0.8 if has_severity else self._config.default_confidence
+            return self._config.blocked_no_photo_confidence if has_severity else self._config.default_confidence
         elif feedback_type == "clear":
             return self._config.default_confidence
         elif feedback_type == "traffic":
-            return 0.5
+            return self._config.traffic_confidence
         else:
             return self._config.default_confidence
 

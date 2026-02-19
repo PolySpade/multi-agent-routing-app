@@ -31,10 +31,7 @@ from app.core.agent_config import get_config, ScoutConfig
 import logging
 
 # ACL Protocol imports for MAS communication
-try:
-    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
-except ImportError:
-    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
@@ -197,7 +194,7 @@ class ScoutAgent(BaseAgent):
         # ========== LOCATION GEOCODER ==========
         try:
             from ..ml_models.location_geocoder import LocationGeocoder
-            self.geocoder = LocationGeocoder(llm_service=self.llm_service)
+            self.geocoder = LocationGeocoder()
             logger.info(f"{self.agent_id} initialized with LocationGeocoder")
         except Exception as e:
             logger.warning(
@@ -216,18 +213,40 @@ class ScoutAgent(BaseAgent):
         processing_mode = "LLM" if self.use_llm else "Traditional NLP"
         data_mode = "SIMULATION MODE" if self.simulation_mode else "SCRAPER MODE"
         logger.info(f"ScoutAgent '{self.agent_id}' initialized in {data_mode}")
-        logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+        if self.simulation_mode:
+            logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
         logger.info(f"  Text processing mode: {processing_mode}")
         logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
         logger.info(f"  Temporal dedup window: {self._temporal_dedup_window_minutes} min")
 
+    def _apply_config(self) -> None:
+        """Apply mutable config-derived attributes from self._config."""
+        self._scrape_interval = self._config.scraper_throttle_interval_seconds
+        self.simulation_batch_size = self._config.batch_size
+        self._temporal_dedup_window_minutes = self._config.temporal_dedup_window_minutes
+
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            self._config = get_config().get_scout_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload scout config: {e}")
+            return
+        self._apply_config()
+        logger.info(f"{self.agent_id} configuration reloaded")
+
     def setup(self) -> bool:
         """
-        Initializes the agent for operation by loading synthetic data.
+        Initializes the agent for operation.
+        In simulation mode, pre-loads synthetic tweet data.
+        In scraper mode, no pre-loading is needed — data comes from the mock/live server.
 
         Returns:
             bool: True if setup was successful, False otherwise.
         """
+        if not self.simulation_mode:
+            logger.info(f"{self.agent_id} in scraper mode, skipping synthetic data pre-load")
+            return True
         logger.info(f"{self.agent_id} loading synthetic data")
         return self._load_simulation_data()
 
@@ -294,31 +313,9 @@ class ScoutAgent(BaseAgent):
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
-        if not self.message_queue:
-            return
-
-        while True:
-            msg = self.message_queue.receive_message(
-                agent_id=self.agent_id, timeout=0.0, block=False
-            )
-            if msg is None:
-                break
-
-            if msg.performative == Performative.REQUEST:
-                action = msg.content.get("action")
-                data = msg.content.get("data", {})
-
-                if action == "scan_location":
-                    self._handle_scan_location(msg, data)
-                else:
-                    logger.warning(
-                        f"{self.agent_id}: unknown REQUEST action '{action}' "
-                        f"from {msg.sender}"
-                    )
-            else:
-                logger.debug(
-                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
-                )
+        self._drain_mq_requests({
+            "scan_location": self._handle_scan_location,
+        })
 
     def _handle_scan_location(self, msg: ACLMessage, data: dict) -> None:
         """Handle scan_location REQUEST: geocode location and reply."""
@@ -610,12 +607,16 @@ class ScoutAgent(BaseAgent):
         )
 
         # ========== 7. BUILD FINAL PAYLOAD ==========
-        timestamp = tweet.get('timestamp')
-        if isinstance(timestamp, str):
-            try:
-                timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except (ValueError, TypeError):
-                timestamp = datetime.now()
+        # In simulation mode, use current time so reports aren't filtered as stale
+        if self.simulation_mode:
+            timestamp = datetime.now()
+        else:
+            timestamp = tweet.get('timestamp')
+            if isinstance(timestamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    timestamp = datetime.now()
 
         depth = report_data.get('estimated_depth_m')
 
@@ -901,17 +902,25 @@ class ScoutAgent(BaseAgent):
         if not self.geocoder or not location:
             return None
 
+        def _to_dict(coords):
+            """Convert (lat, lon) tuple to {lat, lon} dict for frontend."""
+            if isinstance(coords, dict):
+                return coords
+            if isinstance(coords, (list, tuple)) and len(coords) == 2:
+                return {"lat": coords[0], "lon": coords[1]}
+            return None
+
         try:
             # Try direct geocoding first
             coords = self.geocoder.get_coordinates(location)
             if coords:
-                return coords
+                return _to_dict(coords)
 
             # Try geocoding with NLP result format
             nlp_format = {'location': location}
             enhanced = self.geocoder.geocode_nlp_result(nlp_format)
             if enhanced and enhanced.get('has_coordinates'):
-                return enhanced.get('coordinates')
+                return _to_dict(enhanced.get('coordinates'))
 
             # Retry with simplified location string
             simplified = self._simplify_location(location)
@@ -922,7 +931,7 @@ class ScoutAgent(BaseAgent):
                         f"Geocoding succeeded after simplification: "
                         f"'{location}' -> '{simplified}'"
                     )
-                    return coords
+                    return _to_dict(coords)
 
         except Exception as e:
             logger.debug(f"Geocoding failed for '{location}': {e}")

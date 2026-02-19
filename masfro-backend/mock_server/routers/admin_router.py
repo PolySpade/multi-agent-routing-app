@@ -31,9 +31,6 @@ class SocialPostRequest(BaseModel):
     text: str
     timestamp: Optional[str] = None
     image_path: Optional[str] = None
-    replies: str = "0"
-    retweets: str = "0"
-    likes: str = "0"
 
 class RiverUpdateRequest(BaseModel):
     station_name: str
@@ -659,18 +656,6 @@ tr:hover td {{ background: var(--surface2); }}
                         <label>Tweet Text</label>
                         <textarea id="postText" rows="3" placeholder="e.g. Waist-deep flooding sa Tumana! #BahaMarikina"></textarea>
                     </div>
-                    <div class="form-group">
-                        <label>Replies</label>
-                        <input type="number" id="postReplies" value="0" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Retweets</label>
-                        <input type="number" id="postRetweets" value="0" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Likes</label>
-                        <input type="number" id="postLikes" value="0" min="0">
-                    </div>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-primary" onclick="submitPost()">Create Post</button>
@@ -797,9 +782,6 @@ async function submitPost() {{
     const formData = new FormData();
     formData.append('username', document.getElementById('postUser').value.trim() || 'mock_user');
     formData.append('text', text);
-    formData.append('replies', document.getElementById('postReplies').value || '0');
-    formData.append('retweets', document.getElementById('postRetweets').value || '0');
-    formData.append('likes', document.getElementById('postLikes').value || '0');
     if (fileInput.files.length > 0) {{
         formData.append('image', fileInput.files[0]);
     }}
@@ -1044,9 +1026,6 @@ async def create_social_post(req: SocialPostRequest):
 async def create_social_post_with_image(
     username: str = Form("mock_user"),
     text: str = Form(...),
-    replies: str = Form("0"),
-    retweets: str = Form("0"),
-    likes: str = Form("0"),
     image: Optional[UploadFile] = File(None),
 ):
     """Create a social post with an optional image file upload."""
@@ -1064,9 +1043,6 @@ async def create_social_post_with_image(
         "username": username,
         "text": text,
         "image_path": image_path,
-        "replies": replies,
-        "retweets": retweets,
-        "likes": likes,
     })
 
 
