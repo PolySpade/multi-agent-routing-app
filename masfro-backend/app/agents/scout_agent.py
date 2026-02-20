@@ -668,7 +668,8 @@ class ScoutAgent(BaseAgent):
                     'risk_score': visual_analysis.get('risk_score', 0),
                     'vehicles_passable': visual_analysis.get('vehicles_passable', []),
                     'visual_evidence': True,
-                    'visual_indicators': visual_analysis.get('visual_indicators')
+                    'visual_indicators': visual_analysis.get('visual_indicators'),
+                    'confidence': visual_analysis.get('confidence', 0.0),
                 }
 
                 # Visual evidence with high risk = high confidence
