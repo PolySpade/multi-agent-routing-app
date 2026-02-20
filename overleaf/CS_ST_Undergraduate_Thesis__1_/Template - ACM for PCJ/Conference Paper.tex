@@ -287,8 +287,8 @@ Algorithm~\ref{alg:riskastar} presents the Risk-Aware A* implementation.
     \ENDIF
     \FORALL{edges $(u, v, data) \in E$}
         \STATE $r \leftarrow data.\text{risk\_score}$
-        \IF{$r \geq 0.9$} \COMMENT{Block impassable roads}
-            \STATE \textbf{continue}
+        \IF{$r \geq 0.9$}
+            \STATE \textbf{continue} \COMMENT{Block impassable roads}
         \ENDIF
         \STATE $d \leftarrow data.\text{length}$
         \STATE $cost \leftarrow d \cdot (1.0 + r \cdot \lambda)$ \COMMENT{Virtual meters}
