@@ -104,3 +104,30 @@ temp/
 scratch/
 test-results/
 test-output/
+
+# ========== Claude Code ==========
+.claude/settings.local.json
+.claude/settings.json
+.claude/skills
+
+# ========== MCP ==========
+.mcp.json
+
+# ========== Shell configs ==========
+.bash_profile
+.bashrc
+.profile
+.zprofile
+.zshrc
+
+# ========== Tool configs ==========
+.gitconfig
+.ripgreprc
+
+# ========== Git internals (submodule artifacts) ==========
+.gitmodules
+HEAD
+config
+hooks
+objects
+refs
