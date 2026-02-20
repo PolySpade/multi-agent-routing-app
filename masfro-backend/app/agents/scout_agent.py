@@ -659,6 +659,7 @@ class ScoutAgent(BaseAgent):
             return None
 
         try:
+            logger.info(f"Sending image to LLM for visual analysis: {image_path}")
             visual_analysis = self.llm_service.analyze_flood_image(image_path)
 
             if visual_analysis:
@@ -701,6 +702,7 @@ class ScoutAgent(BaseAgent):
         # Try LLM first
         if self.use_llm and self.llm_service:
             try:
+                logger.info(f"Sending text to LLM for analysis: '{text[:80]}{'...' if len(text) > 80 else ''}'")
                 llm_result = self.llm_service.analyze_text_report(text)
                 if llm_result:
                     return llm_result
@@ -744,6 +746,7 @@ class ScoutAgent(BaseAgent):
                     "risk_score": visual_data.get('risk_score', 0),
                     "visual_indicators": visual_data.get('visual_indicators'),
                 }
+                logger.info(f"Sending text+visual context to LLM: '{text[:80]}{'...' if len(text) > 80 else ''}'")
                 result = self.llm_service.analyze_text_with_visual_context(
                     text, visual_context
                 )
