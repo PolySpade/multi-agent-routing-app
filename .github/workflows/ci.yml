@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [master]
+
+jobs:
+  backend-tests:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: masfro-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run unit tests with coverage
+        run: >
+          uv run pytest tests/unit/ -v --tb=short
+          --cov=app --cov-report=term-missing --cov-report=html
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: masfro-backend/htmlcov/
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: masfro-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: masfro-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static export
+        run: npm run build
+
+      - name: Verify static output exists
+        run: test -d out && test "$(ls -A out)" || (echo "out/ is empty" && exit 1)
+
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: masfro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: masfro-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Start FastAPI in background
+        env:
+          MASFRO_LOW_RAM: "true"
+          MASFRO_DISABLE_SELENIUM: "true"
+          MASFRO_DISABLE_LLM: "true"
+          MASFRO_DISABLE_SCHEDULER: "true"
+          LLM_ENABLED: "false"
+          DATABASE_URL: "postgresql://postgres:changeme@localhost:5432/masfro"
+        run: |
+          uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 &
+          echo $! > /tmp/uvicorn.pid
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
+              echo "Server is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start within 60s"
+          exit 1
+
+      - name: Health check - root
+        run: |
+          status=$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8000/)
+          test "$status" = "200" || (echo "Root returned $status" && exit 1)
+
+      - name: Health check - /api/health
+        run: |
+          status=$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8000/api/health)
+          test "$status" = "200" || (echo "/api/health returned $status" && exit 1)
+
+      - name: Places API - router is mounted
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8000/api/places/autocomplete \
+            -H 'Content-Type: application/json' \
+            -d '{"input": "ab", "sessionToken": "ci-test"}')
+          echo "Places autocomplete returned HTTP $status"
+          test "$status" = "200" -o "$status" = "500" || (echo "Unexpected status $status" && exit 1)
+
+      - name: Stop server
+        if: always()
+        run: kill $(cat /tmp/uvicorn.pid) 2>/dev/null || true
+
+  script-validation:
+    name: Script Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check all scripts
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking $script ..."
+            bash -n "$script"
+          done

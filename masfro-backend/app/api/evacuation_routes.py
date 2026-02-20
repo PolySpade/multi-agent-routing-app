@@ -10,7 +10,7 @@ Author: MAS-FRO Development Team
 Date: November 2025
 """
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 import logging

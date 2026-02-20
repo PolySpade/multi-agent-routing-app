@@ -24,3 +24,20 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Transparent Mapbox popup for road risk tooltip */
+.risk-popup .mapboxgl-popup-content {
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  border-radius: 10px;
+}
+.risk-popup .mapboxgl-popup-tip {
+  border-top-color: rgba(15, 23, 42, 0.85);
+}
+.risk-popup .mapboxgl-popup-close-button {
+  color: #94a3b8;
+  font-size: 16px;
+  right: 4px;
+  top: 4px;
+}

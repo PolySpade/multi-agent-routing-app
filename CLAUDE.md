@@ -40,6 +40,7 @@ Mapping libraries include Leaflet, React-Leaflet, and Mapbox GL for interactive 
 ## Development Commands
 
 ### Backend (masfro-backend/)
+
 ```bash
 # Setup (requires uv package manager)
 pip install uv -g
@@ -52,6 +53,7 @@ uvicorn app.main:app --reload
 ```
 
 ### Frontend (masfro-frontend/)
+
 ```bash
 # Install dependencies
 npm install
@@ -75,6 +77,4 @@ The application implements a multi-agent routing system where different agents c
 
 The frontend provides an interactive map interface for route visualization and user interaction, while the backend handles the complex multi-agent routing computations.
 
-
 ## Agent Utilization
-Use proper agents for each task. Analyze the code and use the agents in the appropriate places.

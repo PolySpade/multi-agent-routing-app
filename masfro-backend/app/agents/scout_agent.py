@@ -1,438 +1,1052 @@
 # filename: app/agents/scout_agent.py
 
-import time
-import os
+"""
+Scout Agent for Multi-Agent System for Flood Route Optimization (MAS-FRO)
+
+This module implements the ScoutAgent class for crowdsourced flood data collection.
+The agent processes synthetic/real flood reports through NLP models and LLM analysis,
+then forwards validated reports to the HazardAgent.
+
+v2 Enhancements:
+- LLM integration for semantic text understanding (configurable via env)
+- Vision model integration for flood image analysis
+- Graceful fallback to traditional NLP when LLM unavailable
+- Visual evidence flag for HazardAgent Visual Override
+
+Author: MAS-FRO Development Team
+Date: February 2026
+"""
+
+import re
 import json
-import pickle
-import hashlib
-import csv
+import time
+import threading
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from .base_agent import BaseAgent
+from app.core.agent_config import get_config, ScoutConfig
 import logging
 
 # ACL Protocol imports for MAS communication
-try:
-    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
-except ImportError:
-    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
-    from ..core.credentials import TwitterCredentials
-    from ..communication.message_queue import MessageQueue  # NEW: MAS communication
+    from ..communication.message_queue import MessageQueue
 
 logger = logging.getLogger(__name__)
 
+
 class ScoutAgent(BaseAgent):
     """
-    The ScoutAgent is responsible for scraping real-time data from social media
-    (X.com/Twitter) to identify flood-related events in Marikina City.
+    ScoutAgent - Crowdsourced Data Collection with LLM Enhancement
 
-    This agent collects crowdsourced Volunteered Geographic Information (VGI)
-    from social media, processes it using NLP, and forwards validated reports
-    to the HazardAgent via MessageQueue using FIPA-ACL protocol.
+    Collects and processes flood reports from crowdsourced data (simulated tweets).
+    Uses LLM for semantic text understanding and vision model for image analysis.
+    Falls back to traditional NLP processing when LLM is unavailable.
 
-    WARNING: This agent currently uses deprecated Selenium-based scraping.
-    Migrate to Twitter API v2 for better reliability and security.
+    v2 Features:
+    - LLM-enhanced text analysis (configurable model)
+    - Vision-based flood detection (configurable model)
+    - Visual evidence flagging for HazardAgent override logic
+    - Improved severity estimation from visual cues
+    - Depth extraction from text descriptions
+    - Confidence-weighted fusion of visual and text signals
+    - Temporal deduplication of location reports
+    - Cross-modal context for text analysis
 
     Attributes:
         agent_id: Unique identifier for this agent
         environment: Reference to DynamicGraphEnvironment
         message_queue: MessageQueue for asynchronous MAS communication
         hazard_agent_id: Target HazardAgent ID for message routing
-        nlp_processor: NLP processor for tweet analysis
-        _credentials: Optional TwitterCredentials for authentication (DEPRECATED)
+        nlp_processor: Traditional NLP processor (fallback)
+        llm_service: LLM service for enhanced analysis
+        use_llm: Whether LLM processing is enabled
     """
+
+    # Mapping of text flood depth descriptions to meters
+    DEPTH_MAP: Dict[str, float] = {
+        "ankle": 0.15,
+        "shin": 0.25,
+        "knee": 0.35,
+        "thigh": 0.50,
+        "waist": 0.70,
+        "chest": 1.0,
+        "neck": 1.3,
+        "head": 1.5,
+    }
+
+    # Known Marikina barangays for quick location extraction (temporal dedup)
+    _KNOWN_LOCATIONS: List[str] = [
+        "Barangka", "Calumpang", "Concepcion Uno", "Concepcion Dos",
+        "Fortune", "IVC", "Industrial Valley Complex",
+        "Jesus de la Pena", "Malanday", "Marikina Heights",
+        "Nangka", "Parang", "San Roque", "Santa Elena",
+        "Santo Nino", "Sto. Nino", "Tanong", "Tumana",
+        # Key landmarks
+        "SM Marikina", "Marcos Highway", "Sumulong Highway",
+        "Gil Fernando", "J.P. Rizal", "Shoe Ave", "Riverbanks",
+        "Marikina Sports Center", "Marikina River",
+    ]
+
     def __init__(
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
         message_queue: Optional["MessageQueue"] = None,
-        credentials: Optional["TwitterCredentials"] = None,
         hazard_agent_id: str = "hazard_agent_001",
-        simulation_mode: bool = False,
         simulation_scenario: int = 1,
-        use_ml_in_simulation: bool = True
+        use_ml_in_simulation: bool = True,
+        enable_llm: bool = True,
+        use_scraper: bool = False,
+        scraper_base_url: str = "http://localhost:8081"
     ) -> None:
         """
         Initialize ScoutAgent for crowdsourced flood data collection.
 
-        WARNING: This agent currently uses Selenium-based web scraping which is:
-        - Fragile and prone to breaking when Twitter/X updates their UI
-        - Slow and resource-intensive
-        - Security risk if credentials are used
-
-        RECOMMENDED: Migrate to Twitter API v2 instead.
-
         Args:
             agent_id: Unique identifier for this agent
             environment: Reference to the DynamicGraphEnvironment instance
-            message_queue: MessageQueue instance for MAS communication (NEW)
-            credentials: Optional TwitterCredentials for authentication (NOT RECOMMENDED)
-            hazard_agent_id: Target HazardAgent ID for message routing (default: "hazard_agent_001")
-            simulation_mode: If True, uses synthetic data instead of scraping (default: False)
-            simulation_scenario: Which scenario to load (1-3) when in simulation mode
-            use_ml_in_simulation: If True, process simulation tweets through ML models instead
-                                 of using pre-computed ground truth (default: True)
+            message_queue: MessageQueue instance for MAS communication
+            hazard_agent_id: Target HazardAgent ID for message routing
+            simulation_scenario: Which scenario to load (1-3) for simulation
+            use_ml_in_simulation: If True, process simulation tweets through ML models
+            enable_llm: If True, attempt to use LLM for enhanced processing
+            use_scraper: If True, use SocialScraperService instead of JSON files
+            scraper_base_url: Base URL for the social scraper service
         """
-        super().__init__(agent_id, environment)
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
-        # Message queue for MAS communication
-        self.message_queue = message_queue
+        # Target agent for forwarding reports
         self.hazard_agent_id = hazard_agent_id
 
-        # Register with message queue
-        if self.message_queue:
+        # Load configuration from YAML
+        try:
+            self._config = get_config().get_scout_config()
+        except Exception as e:
+            logger.warning(f"Failed to load scout config, using defaults: {e}")
+            self._config = ScoutConfig()
+
+        # Scraper mode (for mock server / real social scraping)
+        self.use_scraper = use_scraper
+        self.social_scraper = None
+        if use_scraper:
             try:
-                self.message_queue.register_agent(self.agent_id)
-                logger.info(f"{self.agent_id} registered with MessageQueue")
-            except ValueError as e:
-                logger.warning(f"{self.agent_id} already registered: {e}")
+                from ..services.social_scraper_service import SocialScraperService
+                self.social_scraper = SocialScraperService(base_url=scraper_base_url)
+                logger.info(f"{self.agent_id} initialized SocialScraperService (url={scraper_base_url})")
+            except Exception as e:
+                logger.warning(f"{self.agent_id} failed to init SocialScraperService: {e}")
+                self.use_scraper = False
 
-        # Store credentials object (not individual fields) - only if provided
-        self._credentials = credentials
-        if credentials and (credentials.twitter_email or credentials.twitter_password):
-            self.logger.warning(
-                "ScoutAgent initialized with plain-text credentials. "
-                "This is a SECURITY RISK. Consider using Twitter API v2 instead."
-            )
-
-        self.driver = None
+        # Scraper throttle: only scrape every N seconds (thread-safe)
+        self._scrape_interval = self._config.scraper_throttle_interval_seconds
+        self._last_scrape_time = 0.0
+        self._scrape_lock = threading.Lock()
 
         # Simulation mode settings
-        self.simulation_mode = simulation_mode
+        self.simulation_mode = not use_scraper  # Disable simulation mode when scraper active
         self.simulation_scenario = simulation_scenario
         self.simulation_tweets = []
         self.simulation_index = 0
-        self.simulation_batch_size = 10  # Default batch size
-        self.use_ml_in_simulation = use_ml_in_simulation  # NEW: ML processing flag
+        self.simulation_batch_size = self._config.batch_size
+        self.use_ml_in_simulation = use_ml_in_simulation
 
-        # Initialize NLP processor
+        # ========== LLM SERVICE INITIALIZATION (v2) ==========
+        self.llm_service = None
+        self.use_llm = False
+
+        if enable_llm:
+            try:
+                from ..services.llm_service import get_llm_service
+                self.llm_service = get_llm_service()
+                if self.llm_service.is_available():
+                    self.use_llm = True
+                    logger.info(
+                        f"{self.agent_id} LLM Service initialized (text + vision models)"
+                    )
+                else:
+                    logger.warning(
+                        f"{self.agent_id} LLM Service not available, will use fallback NLP"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"{self.agent_id} failed to initialize LLM Service: {e}. "
+                    "Falling back to traditional NLP."
+                )
+                self.llm_service = None
+
+        # ========== TRADITIONAL NLP PROCESSOR (FALLBACK) ==========
         try:
             from ..ml_models.nlp_processor import NLPProcessor
             self.nlp_processor = NLPProcessor()
-            self.logger.info(f"{self.agent_id} initialized with NLP processor")
+            logger.info(f"{self.agent_id} initialized with NLP processor (fallback)")
         except Exception as e:
-            self.logger.warning(
+            logger.warning(
                 f"{self.agent_id} failed to initialize NLP processor: {e}"
             )
             self.nlp_processor = None
 
-        # Initialize LocationGeocoder for coordinate extraction
+        # ========== LOCATION GEOCODER ==========
         try:
             from ..ml_models.location_geocoder import LocationGeocoder
             self.geocoder = LocationGeocoder()
-            self.logger.info(f"{self.agent_id} initialized with LocationGeocoder")
+            logger.info(f"{self.agent_id} initialized with LocationGeocoder")
         except Exception as e:
-            self.logger.warning(
+            logger.warning(
                 f"{self.agent_id} failed to initialize LocationGeocoder: {e}"
             )
             self.geocoder = None
-        
-        # --- CENTRALIZED FILE PATHS ---
-        # Define the path to the data directory relative to the project root.
-        data_directory = os.path.join("app", "data")
-        
-        # Set the full path for the master tweet file.
-        self.master_file = os.path.join(data_directory, "marikina_tweets_master.json")
-        
-        # NEW: Set the full path for the Twitter session file.
-        self.session_file = os.path.join(data_directory, "twitter_session.pkl")
-        
-        self.master_tweets = {}
 
-        # Log initialization
-        mode_str = "SIMULATION MODE" if self.simulation_mode else "SCRAPING MODE"
-        self.logger.info(f"ScoutAgent '{self.agent_id}' initialized in {mode_str}")
+        # ========== TWEET ID DEDUPLICATION ==========
+        self._processed_tweet_ids: OrderedDict = OrderedDict()
+
+        # ========== TEMPORAL DEDUPLICATION ==========
+        self._recent_locations: Dict[str, datetime] = {}
+        self._temporal_dedup_window_minutes = self._config.temporal_dedup_window_minutes
+
+        # Log initialization summary
+        processing_mode = "LLM" if self.use_llm else "Traditional NLP"
+        data_mode = "SIMULATION MODE" if self.simulation_mode else "SCRAPER MODE"
+        logger.info(f"ScoutAgent '{self.agent_id}' initialized in {data_mode}")
         if self.simulation_mode:
-            self.logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
-            ml_mode = "ML PREDICTION" if self.use_ml_in_simulation else "PRE-COMPUTED GROUND TRUTH"
-            self.logger.info(f"  Simulation processing mode: {ml_mode}")
-        else:
-            self.logger.debug(f"  Master tweet file path: {self.master_file}")
-            self.logger.debug(f"  Session file path: {self.session_file}")
+            logger.info(f"  Using synthetic data scenario {self.simulation_scenario}")
+        logger.info(f"  Text processing mode: {processing_mode}")
+        logger.info(f"  Vision processing: {'ENABLED' if self.use_llm else 'DISABLED'}")
+        logger.info(f"  Temporal dedup window: {self._temporal_dedup_window_minutes} min")
+
+    def _apply_config(self) -> None:
+        """Apply mutable config-derived attributes from self._config."""
+        self._scrape_interval = self._config.scraper_throttle_interval_seconds
+        self.simulation_batch_size = self._config.batch_size
+        self._temporal_dedup_window_minutes = self._config.temporal_dedup_window_minutes
+
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            self._config = get_config().get_scout_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload scout config: {e}")
+            return
+        self._apply_config()
+        logger.info(f"{self.agent_id} configuration reloaded")
 
     def setup(self) -> bool:
         """
         Initializes the agent for operation.
-        - In scraping mode: Sets up Selenium WebDriver and logs into X.com
-        - In simulation mode: Loads synthetic data from file
+        In simulation mode, pre-loads synthetic tweet data.
+        In scraper mode, no pre-loading is needed — data comes from the mock/live server.
 
         Returns:
             bool: True if setup was successful, False otherwise.
         """
-        if self.simulation_mode:
-            # Simulation mode: Load synthetic data
-            self.logger.info(f"{self.agent_id} loading synthetic data")
-            return self._load_simulation_data()
-        else:
-            # Scraping mode: Login to Twitter
-            self.logger.info(f"{self.agent_id} setting up WebDriver and logging in")
-            self.driver = self._login_to_twitter()
-            if self.driver:
-                self.master_tweets = self._load_master_tweets()
-                self.logger.info(f"{self.agent_id} setup completed successfully")
-                return True
-            self.logger.error(f"{self.agent_id} setup failed - could not login")
-            return False
-
+        if not self.simulation_mode:
+            logger.info(f"{self.agent_id} in scraper mode, skipping synthetic data pre-load")
+            return True
+        logger.info(f"{self.agent_id} loading synthetic data")
+        return self._load_simulation_data()
 
     def step(self) -> list:
         """
-        Performs one cycle of the agent's primary task.
-        - In scraping mode: Searches for, extracts, and processes new tweets
-        - In simulation mode: Returns the next batch of synthetic tweets
+        Collects and processes flood data from simulation or live scraper.
 
         This method is designed to be called repeatedly by the main simulation loop.
+        Also processes any pending MQ requests from the orchestrator.
 
         Returns:
-            list: A list of newly found tweet dictionaries.
+            list: A list of processed tweet dictionaries.
         """
-        self.logger.info(
-            f"{self.agent_id} performing step at {datetime.now().strftime('%H:%M:%S')}"
+        # Process any orchestrator REQUEST messages first
+        self._process_mq_requests()
+
+        logger.debug(
+            f"{self.agent_id} collecting data at {datetime.now().strftime('%H:%M:%S')}"
         )
 
-        if self.simulation_mode:
-            # Simulation mode: Get next batch of tweets
-            raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+        # Scraper mode: fetch from live social scraper service (throttled, thread-safe)
+        if self.use_scraper and self.social_scraper:
+            with self._scrape_lock:
+                now = time.time()
+                if now - self._last_scrape_time < self._scrape_interval:
+                    return []
+                self._last_scrape_time = now
+            return self._step_scraper()
 
-            # NEW: Prepare simulation tweets for ML processing
-            # This strips ground truth if use_ml_in_simulation is True
-            prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
+        # Simulation mode: load from JSON files
+        raw_tweets = self._get_simulation_tweets(batch_size=self.simulation_batch_size)
+        prepared_tweets = self._prepare_simulation_tweets_for_ml(raw_tweets)
+
+        if prepared_tweets:
+            logger.info(f"{self.agent_id} found {len(prepared_tweets)} simulated tweets")
+            self._process_and_forward_tweets(prepared_tweets)
         else:
-            # Scraping mode: Search Twitter
-            raw_tweets = self._search_tweets()
-            prepared_tweets = raw_tweets
+            logger.debug(f"{self.agent_id} no more simulation data available")
 
-        if not self.simulation_mode:
-            # In scraping mode, track which tweets are new
-            newly_added_tweets = self._add_new_tweets_to_master(prepared_tweets)
-        else:
-            # In simulation mode, all tweets are "new"
-            newly_added_tweets = prepared_tweets
+        return prepared_tweets
 
-        if newly_added_tweets:
-            self.logger.info(f"{self.agent_id} found {len(newly_added_tweets)} new tweets")
+    def _step_scraper(self) -> list:
+        """
+        Fetch tweets from SocialScraperService and process them.
 
-            # Process tweets with NLP and forward to HazardAgent
-            # For simulation with ML: tweets have no ground truth, models will predict
-            # For simulation without ML: tweets keep ground truth (legacy mode)
-            self._process_and_forward_tweets(newly_added_tweets)
-        else:
-            self.logger.debug(f"{self.agent_id} no new tweets found in this step")
+        Uses the same _process_and_forward_tweets() pipeline as simulation mode.
 
-        return newly_added_tweets
+        Returns:
+            list: Processed tweet dictionaries from scraper.
+        """
+        try:
+            raw_tweets = self.social_scraper.scrape_feed()
+            if not raw_tweets:
+                logger.debug(f"{self.agent_id} scraper returned no tweets")
+                return []
+
+            logger.info(f"{self.agent_id} scraped {len(raw_tweets)} tweets from live feed")
+            self._process_and_forward_tweets(raw_tweets)
+            return raw_tweets
+
+        except Exception as e:
+            logger.error(f"{self.agent_id} scraper step failed: {e}")
+            return []
+
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        self._drain_mq_requests({
+            "scan_location": self._handle_scan_location,
+        })
+
+    def _handle_scan_location(self, msg: ACLMessage, data: dict) -> None:
+        """Handle scan_location REQUEST: geocode location and reply."""
+        location = data.get("location", "")
+        result = {"location": location, "status": "unknown"}
+
+        try:
+            if self.geocoder:
+                coords = self.geocoder.get_coordinates(location)
+                if coords:
+                    result["coordinates"] = coords
+                    result["status"] = "scanned"
+                else:
+                    result["status"] = "location_not_found"
+            else:
+                result["status"] = "geocoder_unavailable"
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(
+            f"{self.agent_id}: scan_location '{location}' -> {result['status']}"
+        )
+
+        # Send INFORM reply to requester
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="scan_location_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
+
+    def inject_manual_tweet(self, tweet_content: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Manually inject a tweet into the agent for immediate processing.
+        
+        Args:
+            tweet_content: Dictionary containing tweet data (text, image_path, etc.)
+            
+        Returns:
+            Processed report data
+        """
+        logger.info(f"{self.agent_id} received manual tweet injection")
+        
+        # Normalize input
+        if "timestamp" not in tweet_content:
+            tweet_content["timestamp"] = datetime.now()
+            
+        # Process immediately
+        try:
+            # Re-use the single tweet processing logic
+            report_data = self._process_single_tweet(tweet_content)
+            
+            if report_data:
+                # Add injection flag
+                report_data['source'] = 'manual_injection'
+                
+                # Forward to Hazard Agent
+                self._send_reports_to_hazard_agent(
+                    [report_data], 
+                    skipped_count=0, 
+                    llm_count=1 if self.use_llm else 0, 
+                    nlp_count=0 if self.use_llm else 1
+                )
+                return report_data
+            else:
+                logger.warning(f"{self.agent_id} manual injection failed processing")
+                return {"status": "error", "message": "Processing returned no valid report"}
+                
+        except Exception as e:
+            logger.error(f"{self.agent_id} manual injection error: {e}")
+            return {"status": "error", "message": str(e)}
+
 
     def _process_and_forward_tweets(self, tweets: list) -> None:
         """
-        Process tweets using NLP and forward to HazardAgent.
+        Process tweets using LLM (primary) or NLP (fallback) and forward to HazardAgent.
+
+        v2 Processing Pipeline:
+        1. Visual Analysis (if image present) - Vision Model
+        2. Text Analysis - LLM (or fallback NLP)
+        3. Fusion - Combine visual and text signals
+        4. Geocode - Add coordinates if available
+        5. Forward to HazardAgent via MessageQueue
 
         Args:
             tweets: List of tweet dictionaries to process
         """
-        if not self.nlp_processor:
-            logger.warning(f"{self.agent_id} has no NLP processor, skipping tweet processing")
-            return
-
         if not self.message_queue:
             logger.warning(f"{self.agent_id} has no MessageQueue, data not forwarded")
             return
 
-        if not self.geocoder:
-            logger.warning(f"{self.agent_id} has no LocationGeocoder, using old method")
-            self._process_and_forward_tweets_without_coordinates(tweets)
+        # Check if we have any processing capability
+        if not self.use_llm and not self.nlp_processor:
+            logger.error(
+                f"{self.agent_id} has no LLM or NLP processor available, "
+                "cannot process tweets"
+            )
             return
 
         processed_reports = []
         skipped_no_coordinates = 0
+        llm_processed = 0
+        nlp_processed = 0
 
         for tweet in tweets:
             try:
-                # Extract flood info using NLP
-                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+                # Tweet ID deduplication: skip already-processed tweets
+                tweet_id = tweet.get('tweet_id') or tweet.get('id')
+                if tweet_id and tweet_id in self._processed_tweet_ids:
+                    continue
+                if tweet_id:
+                    self._processed_tweet_ids[tweet_id] = None
+                    # Bound the dict to prevent unbounded growth
+                    if len(self._processed_tweet_ids) > 10000:
+                        for _ in range(2000):
+                            self._processed_tweet_ids.popitem(last=False)
 
-                # Enhance with coordinates using geocoder
-                enhanced_info = self.geocoder.geocode_nlp_result(flood_info)
-
-                # Only process flood-related reports with coordinates
-                if enhanced_info['is_flood_related'] and enhanced_info.get('has_coordinates'):
-                    # Create scout report for HazardAgent with coordinates
-                    report = {
-                        "location": enhanced_info['location'] or "Marikina",
-                        "coordinates": enhanced_info['coordinates'],  # NEW: Critical field
-                        "severity": enhanced_info['severity'],
-                        "report_type": enhanced_info['report_type'],
-                        "confidence": enhanced_info['confidence'],
-                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
-                        "source": "twitter",
-                        "source_url": tweet.get('url', ''),
-                        "username": tweet.get('username', ''),
-                        "text": tweet['text']
-                    }
-
-                    processed_reports.append(report)
-
-                    # Log the actual message content being sent
-                    logger.info(
-                        f"Message sent: {tweet['text']}"
-                    )
-
+                # Temporal deduplication: skip if same location reported recently
+                quick_loc = self._extract_quick_location(tweet.get('text', ''))
+                if quick_loc and self._is_recently_reported(quick_loc):
                     logger.debug(
-                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
-                        f"{enhanced_info['location']} ({enhanced_info['coordinates']['lat']:.4f}, "
-                        f"{enhanced_info['coordinates']['lon']:.4f}) - severity {enhanced_info['severity']:.2f}"
+                        f"{self.agent_id} skipping temporally duplicate report "
+                        f"for '{quick_loc}'"
                     )
-                elif enhanced_info['is_flood_related'] and not enhanced_info.get('has_coordinates'):
+                    continue
+
+                report_data = self._process_single_tweet(tweet)
+
+                if report_data is None:
+                    continue
+
+                # Track processing method
+                if report_data.get('source') == 'scout_agent_llm_enhanced':
+                    llm_processed += 1
+                else:
+                    nlp_processed += 1
+
+                # Skip non-flood reports
+                if not report_data.get('is_flood_related', False):
+                    continue
+
+                # Skip reports without coordinates
+                if not report_data.get('coordinates'):
                     skipped_no_coordinates += 1
                     logger.debug(
-                        f"{self.agent_id} skipped flood-related tweet without coordinates: "
-                        f"location '{enhanced_info.get('location')}'"
+                        f"{self.agent_id} skipped flood report without coordinates: "
+                        f"location '{report_data.get('location')}'"
                     )
+                    continue
+
+                processed_reports.append(report_data)
+
+                # Log the message
+                logger.info(f"Message sent: {tweet.get('text', '')[:100]}...")
 
             except Exception as e:
                 logger.error(f"{self.agent_id} error processing tweet: {e}")
                 continue
 
-        # Forward all processed reports to HazardAgent via MessageQueue (MAS architecture)
+        # Forward all processed reports to HazardAgent
         if processed_reports:
-            logger.info(
-                f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports with coordinates to {self.hazard_agent_id} via MessageQueue "
-                f"(skipped {skipped_no_coordinates} without coordinates)"
+            self._send_reports_to_hazard_agent(
+                processed_reports,
+                skipped_no_coordinates,
+                llm_processed,
+                nlp_processed
             )
-
-            try:
-                # Create ACL INFORM message with scout reports (with coordinates)
-                message = create_inform_message(
-                    sender=self.agent_id,
-                    receiver=self.hazard_agent_id,
-                    info_type="scout_report_batch",  # Standard message type
-                    data={
-                        "reports": processed_reports,
-                        "has_coordinates": True,  # Flag for HazardAgent to use coordinate-based processing
-                        "report_count": len(processed_reports),
-                        "skipped_count": skipped_no_coordinates
-                    }
-                )
-
-                # Send via message queue
-                self.message_queue.send_message(message)
-
-                logger.info(
-                    f"{self.agent_id} successfully sent INFORM message to "
-                    f"{self.hazard_agent_id} ({len(processed_reports)} reports with coordinates)"
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
-                )
-
         elif skipped_no_coordinates > 0:
             logger.warning(
                 f"{self.agent_id} all {skipped_no_coordinates} flood-related tweets "
                 f"lacked coordinates and were skipped"
             )
 
-    def _process_and_forward_tweets_without_coordinates(self, tweets: list) -> None:
+    def _process_single_tweet(self, tweet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Fallback method for processing tweets without geocoder (legacy).
+        Process a single tweet using LLM or NLP.
+
+        Pipeline:
+        1. Visual analysis (vision model, if image present)
+        2. Text analysis (LLM with optional cross-modal context, or fallback NLP)
+        3. Depth extraction from text descriptions
+        4. Confidence-weighted fusion of visual and text signals
+        5. Geocoding with retry/simplification
+        6. Multi-factor confidence calculation
+        7. Build final payload
 
         Args:
-            tweets: List of tweet dictionaries to process
+            tweet: Tweet dictionary with 'text', 'timestamp', etc.
+
+        Returns:
+            Processed report dictionary or None if processing fails
         """
-        processed_reports = []
+        report_data = {
+            'visual_evidence': False,
+            'confidence': self._config.default_confidence,
+            'is_flood_related': False,
+            'source': 'scout_agent'
+        }
 
-        for tweet in tweets:
-            try:
-                # Extract flood info using NLP
-                flood_info = self.nlp_processor.extract_flood_info(tweet['text'])
+        # ========== 1. VISUAL ANALYSIS (Vision Model) ==========
+        visual_confidence = 0.0
+        if tweet.get('image_path') and self.llm_service and self.use_llm:
+            visual_result = self._analyze_image(tweet['image_path'])
+            if visual_result:
+                report_data.update(visual_result)
+                visual_confidence = visual_result.get('confidence', 0.0)
 
-                if flood_info['is_flood_related']:
-                    # Create scout report for HazardAgent (without coordinates)
-                    report = {
-                        "location": flood_info['location'] or "Marikina",
-                        "severity": flood_info['severity'],
-                        "report_type": flood_info['report_type'],
-                        "confidence": flood_info['confidence'],
-                        "timestamp": datetime.fromisoformat(tweet['timestamp'].replace('Z', '+00:00')),
-                        "source": "twitter",
-                        "source_url": tweet.get('url', ''),
-                        "username": tweet.get('username', ''),
-                        "text": tweet['text']
-                    }
+        # ========== 2. TEXT ANALYSIS (LLM or fallback NLP) ==========
+        # Use cross-modal context if visual analysis found significant risk
+        visual_risk = report_data.get('risk_score', 0) or 0
+        if visual_risk > 0.3 and report_data.get('visual_evidence'):
+            text_result = self._analyze_text_with_context(
+                tweet.get('text', ''), report_data
+            )
+        else:
+            text_result = self._analyze_text(tweet.get('text', ''))
 
-                    processed_reports.append(report)
+        text_confidence = 0.0
+        if text_result:
+            # Merge text analysis into report
+            report_data['location'] = text_result.get('location') or tweet.get('location')
+            report_data['is_flood_related'] = text_result.get('is_flood_related', False)
+            report_data['description'] = text_result.get('description')
+            report_data['report_type'] = text_result.get('report_type', 'flood')
+            text_confidence = text_result.get('confidence', self._config.default_confidence)
 
-                    # Log the actual message content being sent
-                    logger.info(
-                        f"Message sent: {tweet['text']}"
-                    )
+            # Update source if LLM was used
+            if text_result.get('source') and 'nlp' not in text_result.get('source', '').lower():
+                report_data['source'] = 'scout_agent_llm_enhanced'
 
+        # ========== 3. DEPTH EXTRACTION FROM TEXT ==========
+        # If vision didn't provide depth, derive from text description
+        if not report_data.get('estimated_depth_m') and text_result:
+            depth_desc = text_result.get('flood_depth_description', '')
+            if depth_desc:
+                derived_depth = self._depth_description_to_meters(depth_desc)
+                if derived_depth is not None:
+                    report_data['estimated_depth_m'] = derived_depth
                     logger.debug(
-                        f"{self.agent_id} processed tweet from @{tweet.get('username')}: "
-                        f"{flood_info['location']} - severity {flood_info['severity']:.2f}"
+                        f"Derived depth from text: '{depth_desc}' -> {derived_depth}m"
                     )
 
-            except Exception as e:
-                logger.error(f"{self.agent_id} error processing tweet: {e}")
-                continue
+        # ========== 4. CONFIDENCE-WEIGHTED FUSION ==========
+        text_severity = text_result.get('severity', 0) if text_result else 0
 
-        # Forward via MessageQueue (MAS architecture) - legacy mode without coordinates
-        if processed_reports:
+        if visual_risk > 0 and text_severity > 0:
+            # Both signals present: weighted average by confidence
+            vc = visual_confidence or self._config.default_confidence
+            tc = text_confidence or self._config.default_confidence
+            final_risk = (visual_risk * vc + text_severity * tc) / (vc + tc)
+        elif visual_risk > 0:
+            final_risk = visual_risk
+        else:
+            final_risk = text_severity
+
+        report_data['severity'] = final_risk
+        report_data['risk_score'] = final_risk
+
+        # Skip non-flood reports
+        if not report_data.get('is_flood_related') and not report_data.get('visual_evidence'):
+            return None
+
+        # ========== 5. GEOCODING ==========
+        if report_data.get('location') and self.geocoder:
+            coords = self._geocode_location(report_data['location'])
+            if coords:
+                report_data['coordinates'] = coords
+                report_data['has_coordinates'] = True
+            else:
+                report_data['has_coordinates'] = False
+        else:
+            report_data['has_coordinates'] = False
+
+        # ========== 6. MULTI-FACTOR CONFIDENCE ==========
+        report_data['confidence'] = self._calculate_fused_confidence(
+            visual_confidence=visual_confidence,
+            text_confidence=text_confidence,
+            visual_risk=visual_risk,
+            text_severity=text_severity,
+            has_visual=report_data.get('visual_evidence', False),
+            has_coordinates=report_data.get('has_coordinates', False),
+        )
+
+        # ========== 7. BUILD FINAL PAYLOAD ==========
+        # In simulation mode, use current time so reports aren't filtered as stale
+        if self.simulation_mode:
+            timestamp = datetime.now()
+        else:
+            timestamp = tweet.get('timestamp')
+            if isinstance(timestamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    timestamp = datetime.now()
+
+        depth = report_data.get('estimated_depth_m')
+
+        payload = {
+            "location": report_data.get('location') or "Marikina",
+            "coordinates": report_data.get('coordinates'),
+            "severity": round(report_data.get('severity', 0), 2),
+            "risk_score": round(report_data.get('risk_score', 0), 2),
+            "report_type": report_data.get('report_type', 'flood') if final_risk > 0.3 else 'observation',
+            "confidence": round(report_data.get('confidence', self._config.default_confidence), 2),
+            "visual_evidence": report_data.get('visual_evidence', False),
+            "estimated_depth_m": round(depth, 2) if depth else None,
+            "vehicles_passable": report_data.get('vehicles_passable'),
+            "timestamp": timestamp,
+            "source": report_data.get('source', 'scout_agent'),
+            "source_url": tweet.get('url', ''),
+            "username": tweet.get('username', ''),
+            "text": tweet.get('text', ''),
+            "is_flood_related": report_data.get('is_flood_related', False),
+            "has_coordinates": report_data.get('has_coordinates', False)
+        }
+
+        # Record location for temporal dedup
+        if payload.get('location'):
+            self._record_location_report(payload['location'])
+
+        return payload
+
+    def _analyze_image(self, image_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Analyze flood image using vision model.
+
+        Args:
+            image_path: Path to the image file
+
+        Returns:
+            Dict with visual analysis results or None
+        """
+        if not self.llm_service:
+            return None
+
+        try:
+            visual_analysis = self.llm_service.analyze_flood_image(image_path)
+
+            if visual_analysis:
+                result = {
+                    'estimated_depth_m': visual_analysis.get('estimated_depth_m'),
+                    'risk_score': visual_analysis.get('risk_score', 0),
+                    'vehicles_passable': visual_analysis.get('vehicles_passable', []),
+                    'visual_evidence': True,
+                    'visual_indicators': visual_analysis.get('visual_indicators')
+                }
+
+                # Visual evidence with high risk = high confidence
+                if visual_analysis.get('risk_score', 0) > self._config.min_confidence:
+                    logger.info(
+                        f"[Vision] High-risk visual detected: "
+                        f"depth={visual_analysis.get('estimated_depth_m')}m, "
+                        f"risk={visual_analysis.get('risk_score')}"
+                    )
+
+                return result
+
+        except Exception as e:
+            logger.warning(f"Image analysis failed: {e}")
+
+        return None
+
+    def _analyze_text(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Analyze text using LLM (primary) or NLP (fallback).
+
+        Args:
+            text: Tweet text to analyze
+
+        Returns:
+            Dict with text analysis results or None
+        """
+        if not text or not text.strip():
+            return None
+
+        # Try LLM first
+        if self.use_llm and self.llm_service:
+            try:
+                llm_result = self.llm_service.analyze_text_report(text)
+                if llm_result:
+                    return llm_result
+            except Exception as e:
+                logger.warning(f"LLM text analysis failed, falling back to NLP: {e}")
+
+        # Fallback to traditional NLP
+        if self.nlp_processor:
+            try:
+                nlp_result = self.nlp_processor.extract_flood_info(text)
+                if nlp_result and isinstance(nlp_result, dict):
+                    nlp_result['source'] = 'nlp_processor'
+                    return nlp_result
+            except Exception as e:
+                logger.error(f"NLP processing failed: {e}")
+
+        return None
+
+    def _analyze_text_with_context(
+        self, text: str, visual_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Analyze text with cross-modal visual context for better LLM understanding.
+
+        Falls back to standard _analyze_text() on failure.
+
+        Args:
+            text: Tweet text to analyze
+            visual_data: Visual analysis results to provide as context
+
+        Returns:
+            Dict with text analysis results or None
+        """
+        if not text or not text.strip():
+            return None
+
+        if self.use_llm and self.llm_service:
+            try:
+                visual_context = {
+                    "estimated_depth_m": visual_data.get('estimated_depth_m'),
+                    "risk_score": visual_data.get('risk_score', 0),
+                    "visual_indicators": visual_data.get('visual_indicators'),
+                }
+                result = self.llm_service.analyze_text_with_visual_context(
+                    text, visual_context
+                )
+                if result:
+                    return result
+            except Exception as e:
+                logger.warning(
+                    f"Cross-modal text analysis failed, falling back to standard: {e}"
+                )
+
+        # Fallback to standard text analysis
+        return self._analyze_text(text)
+
+    def _depth_description_to_meters(self, description: str) -> Optional[float]:
+        """
+        Convert a textual flood depth description to an estimated depth in meters.
+
+        Supports direct matches (e.g. "knee") and partial matches
+        (e.g. "knee-deep", "hanggang tuhod").
+
+        Args:
+            description: Text description of flood depth
+
+        Returns:
+            Estimated depth in meters, or None if no match
+        """
+        if not description:
+            return None
+
+        desc_lower = description.lower().strip()
+
+        # Direct match first
+        if desc_lower in self.DEPTH_MAP:
+            return self.DEPTH_MAP[desc_lower]
+
+        # Partial match: check if any key appears in the description
+        for keyword, depth in self.DEPTH_MAP.items():
+            if keyword in desc_lower:
+                return depth
+
+        return None
+
+    def _calculate_fused_confidence(
+        self,
+        visual_confidence: float,
+        text_confidence: float,
+        visual_risk: float,
+        text_severity: float,
+        has_visual: bool,
+        has_coordinates: bool,
+    ) -> float:
+        """
+        Calculate multi-factor fused confidence score.
+
+        Factors:
+        - Base: max of visual/text confidence (minimum 0.3)
+        - +0.1 if visual evidence present
+        - +0.05 if coordinates resolved
+        - +0.1 if visual and text signals agree (within 0.2)
+        - Capped at 0.95
+
+        Returns:
+            Confidence score between 0.3 and 0.95
+        """
+        base = max(visual_confidence, text_confidence, 0.3)
+
+        if has_visual:
+            base += 0.1
+
+        if has_coordinates:
+            base += 0.05
+
+        # Cross-modal agreement bonus
+        if has_visual and text_severity > 0 and visual_risk > 0:
+            if abs(visual_risk - text_severity) <= 0.2:
+                base += 0.1
+
+        return min(base, 0.95)
+
+    # --- TEMPORAL DEDUPLICATION METHODS ---
+
+    def _extract_quick_location(self, text: str) -> Optional[str]:
+        """
+        Extract a known Marikina location from text using regex (no LLM call).
+
+        Used for fast temporal deduplication before full processing.
+
+        Args:
+            text: Raw tweet text
+
+        Returns:
+            Matched location name or None
+        """
+        if not text:
+            return None
+
+        for loc in self._KNOWN_LOCATIONS:
+            if re.search(re.escape(loc), text, re.IGNORECASE):
+                return loc
+        return None
+
+    def _is_recently_reported(self, location: str) -> bool:
+        """
+        Check if a location was reported within the temporal dedup window.
+
+        Args:
+            location: Location name to check
+
+        Returns:
+            True if this location was recently reported
+        """
+        loc_key = location.lower().strip()
+        last_report = self._recent_locations.get(loc_key)
+        if last_report is None:
+            return False
+
+        elapsed = (datetime.now() - last_report).total_seconds() / 60.0
+        return elapsed < self._temporal_dedup_window_minutes
+
+    def _record_location_report(self, location: str) -> None:
+        """
+        Record that a location was reported at the current time.
+
+        Also cleans up entries older than the dedup window.
+
+        Args:
+            location: Location name to record
+        """
+        now = datetime.now()
+        loc_key = location.lower().strip()
+        self._recent_locations[loc_key] = now
+
+        # Cleanup old entries
+        cutoff = self._temporal_dedup_window_minutes
+        expired = [
+            k for k, ts in self._recent_locations.items()
+            if (now - ts).total_seconds() / 60.0 > cutoff
+        ]
+        for k in expired:
+            del self._recent_locations[k]
+
+    # --- GEOCODING ---
+
+    def _geocode_location(self, location: str) -> Optional[Dict[str, float]]:
+        """
+        Geocode a location string to coordinates.
+
+        Tries direct geocoding, then NLP format, then simplified string retry.
+
+        Args:
+            location: Location name/description
+
+        Returns:
+            Dict with 'lat' and 'lon' keys or None
+        """
+        if not self.geocoder or not location:
+            return None
+
+        def _to_dict(coords):
+            """Convert (lat, lon) tuple to {lat, lon} dict for frontend."""
+            if isinstance(coords, dict):
+                return coords
+            if isinstance(coords, (list, tuple)) and len(coords) == 2:
+                return {"lat": coords[0], "lon": coords[1]}
+            return None
+
+        try:
+            # Try direct geocoding first
+            coords = self.geocoder.get_coordinates(location)
+            if coords:
+                return _to_dict(coords)
+
+            # Try geocoding with NLP result format
+            nlp_format = {'location': location}
+            enhanced = self.geocoder.geocode_nlp_result(nlp_format)
+            if enhanced and enhanced.get('has_coordinates'):
+                return _to_dict(enhanced.get('coordinates'))
+
+            # Retry with simplified location string
+            simplified = self._simplify_location(location)
+            if simplified and simplified != location and len(simplified) > 2:
+                coords = self.geocoder.get_coordinates(simplified)
+                if coords:
+                    logger.debug(
+                        f"Geocoding succeeded after simplification: "
+                        f"'{location}' -> '{simplified}'"
+                    )
+                    return _to_dict(coords)
+
+        except Exception as e:
+            logger.debug(f"Geocoding failed for '{location}': {e}")
+
+        return None
+
+    @staticmethod
+    def _simplify_location(location: str) -> Optional[str]:
+        """
+        Simplify a noisy location string for geocoding retry.
+
+        Strips common Filipino/English prefixes and suffixes that
+        confuse geocoders (e.g. "near Sto. Nino Church area" -> "Sto. Nino").
+
+        Args:
+            location: Raw location string
+
+        Returns:
+            Simplified string or None
+        """
+        if not location:
+            return None
+
+        result = location.strip()
+
+        # Strip common prefixes
+        prefix_pattern = r'^(?:near|along|sa|malapit\s+sa|dito\s+sa|around|beside|in\s+front\s+of)\s+'
+        result = re.sub(prefix_pattern, '', result, flags=re.IGNORECASE).strip()
+
+        # Strip common suffixes
+        suffix_pattern = r'\s+(?:area|vicinity|church|school|market|plaza|park|bridge)\s*$'
+        result = re.sub(suffix_pattern, '', result, flags=re.IGNORECASE).strip()
+
+        return result if result else None
+
+    def _send_reports_to_hazard_agent(
+        self,
+        reports: List[Dict[str, Any]],
+        skipped_count: int,
+        llm_count: int,
+        nlp_count: int
+    ) -> None:
+        """
+        Send processed reports to HazardAgent via MessageQueue.
+
+        Args:
+            reports: List of processed report dictionaries
+            skipped_count: Number of reports skipped (no coordinates)
+            llm_count: Number of reports processed with LLM
+            nlp_count: Number of reports processed with NLP
+        """
+        logger.info(
+            f"{self.agent_id} forwarding {len(reports)} flood reports to "
+            f"{self.hazard_agent_id} via MessageQueue "
+            f"(LLM: {llm_count}, NLP: {nlp_count}, skipped: {skipped_count})"
+        )
+
+        # Log details of each report being sent
+        for i, report in enumerate(reports, 1):
+            coords = report.get('coordinates')
+            if coords and isinstance(coords, dict):
+                coord_str = f"[{coords.get('lat', 0):.4f}, {coords.get('lon', 0):.4f}]"
+            elif coords and isinstance(coords, (list, tuple)):
+                coord_str = f"[{coords[0]:.4f}, {coords[1]:.4f}]"
+            else:
+                coord_str = "None"
             logger.info(
-                f"{self.agent_id} forwarding {len(processed_reports)} "
-                f"flood reports to {self.hazard_agent_id} via MessageQueue (legacy mode without coordinates)"
+                f"  Report {i}: location='{report.get('location', 'N/A')}', "
+                f"coords={coord_str}, severity={report.get('severity', 0):.1f}, "
+                f"risk={report.get('risk_score', 0):.1f}, type={report.get('report_type', 'N/A')}, "
+                f"visual={report.get('visual_evidence', False)}"
             )
 
-            try:
-                # Create ACL INFORM message with scout reports (without coordinates)
-                message = create_inform_message(
-                    sender=self.agent_id,
-                    receiver=self.hazard_agent_id,
-                    info_type="scout_report_batch",  # Standard message type
-                    data={
-                        "reports": processed_reports,
-                        "has_coordinates": False,  # Flag for HazardAgent to use legacy processing
-                        "report_count": len(processed_reports)
-                    }
-                )
+        # Check if any reports have visual evidence (for HazardAgent Visual Override)
+        visual_reports = sum(1 for r in reports if r.get('visual_evidence'))
+        if visual_reports > 0:
+            logger.info(
+                f"  {visual_reports} reports have visual evidence "
+                f"(eligible for Visual Override)"
+            )
 
-                # Send via message queue
-                self.message_queue.send_message(message)
+        try:
+            # Create ACL INFORM message with scout reports
+            message = create_inform_message(
+                sender=self.agent_id,
+                receiver=self.hazard_agent_id,
+                info_type="scout_report_batch",
+                data={
+                    "reports": reports,
+                    "has_coordinates": True,
+                    "report_count": len(reports),
+                    "skipped_count": skipped_count,
+                    "llm_processed": llm_count,
+                    "nlp_processed": nlp_count,
+                    "visual_evidence_count": visual_reports,
+                    "processing_version": "v2_llm_enhanced"
+                }
+            )
 
-                logger.info(
-                    f"{self.agent_id} successfully sent INFORM message to "
-                    f"{self.hazard_agent_id} ({len(processed_reports)} reports without coordinates)"
-                )
+            # Send via message queue
+            self.message_queue.send_message(message)
 
-            except Exception as e:
-                logger.error(
-                    f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
-                )
+            logger.info(
+                f"{self.agent_id} successfully sent INFORM message to "
+                f"{self.hazard_agent_id} ({len(reports)} reports)"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"{self.agent_id} failed to send message to {self.hazard_agent_id}: {e}"
+            )
 
     def shutdown(self) -> None:
-        """
-        Gracefully closes the Selenium WebDriver and performs any final cleanup.
-        """
-        self.logger.info(f"{self.agent_id} shutting down")
-        if self.driver:
-            self.driver.quit()
-            self.logger.info(f"{self.agent_id} WebDriver closed")
-
-        if not self.simulation_mode:
-            self._export_master_tweets_to_csv()
+        """Performs cleanup on agent shutdown."""
+        logger.info(f"{self.agent_id} shutting down")
 
     # --- SIMULATION MODE METHODS ---
 
@@ -444,36 +1058,33 @@ class ScoutAgent(BaseAgent):
             bool: True if data loaded successfully, False otherwise
         """
         try:
-            # Build path to synthetic data file
             data_dir = Path(__file__).parent.parent / "data" / "synthetic"
             tweet_file = data_dir / f"scout_tweets_{self.simulation_scenario}.json"
 
             if not tweet_file.exists():
-                self.logger.error(
+                logger.error(
                     f"Simulation data file not found: {tweet_file}\n"
                     f"Run 'scripts/generate_scout_synthetic_data.py' to create synthetic data"
                 )
                 return False
 
-            # Load tweets from file
             with open(tweet_file, 'r', encoding='utf-8') as f:
                 tweets_data = json.load(f)
 
-            # Convert dict to list if necessary
             if isinstance(tweets_data, dict):
                 self.simulation_tweets = list(tweets_data.values())
             else:
                 self.simulation_tweets = tweets_data
 
             self.simulation_index = 0
-            self.logger.info(
+            logger.info(
                 f"{self.agent_id} loaded {len(self.simulation_tweets)} synthetic tweets "
                 f"from scenario {self.simulation_scenario}"
             )
             return True
 
         except Exception as e:
-            self.logger.error(f"{self.agent_id} error loading simulation data: {e}")
+            logger.error(f"{self.agent_id} error loading simulation data: {e}")
             return False
 
     def _get_simulation_tweets(self, batch_size: int = 10) -> list:
@@ -481,31 +1092,29 @@ class ScoutAgent(BaseAgent):
         Get the next batch of simulation tweets.
 
         Args:
-            batch_size: Number of tweets to return per step (default: 10)
+            batch_size: Number of tweets to return per step
 
         Returns:
             list: Next batch of tweet dictionaries
         """
         if not self.simulation_tweets:
-            self.logger.warning(f"{self.agent_id} no simulation data loaded")
+            logger.debug(f"{self.agent_id} no simulation data loaded")
             return []
 
-        # Check if we've reached the end
         if self.simulation_index >= len(self.simulation_tweets):
-            self.logger.info(
+            logger.info(
                 f"{self.agent_id} reached end of simulation data "
                 f"({self.simulation_index}/{len(self.simulation_tweets)} tweets processed)"
             )
             return []
 
-        # Get next batch
         start_idx = self.simulation_index
         end_idx = min(start_idx + batch_size, len(self.simulation_tweets))
         batch = self.simulation_tweets[start_idx:end_idx]
 
         self.simulation_index = end_idx
 
-        self.logger.debug(
+        logger.debug(
             f"{self.agent_id} returning simulation batch: "
             f"tweets {start_idx+1}-{end_idx} of {len(self.simulation_tweets)}"
         )
@@ -516,10 +1125,6 @@ class ScoutAgent(BaseAgent):
         """
         Prepare simulation tweets for ML processing by stripping ground truth.
 
-        When use_ml_in_simulation is True, this method removes pre-computed
-        values from simulation tweets so they are processed through NLP models
-        instead of using ground truth.
-
         Args:
             tweets: List of raw simulation tweet dictionaries
 
@@ -527,26 +1132,15 @@ class ScoutAgent(BaseAgent):
             list: Tweets with ground truth removed, ready for ML processing
         """
         if not self.use_ml_in_simulation:
-            # Return tweets as-is if not using ML (use ground truth)
             return tweets
 
+        KEEP_KEYS = {"tweet_id", "username", "text", "timestamp", "url", "image_path", "replies", "retweets", "likes", "scraped_at"}
         prepared_tweets = []
         for tweet in tweets:
-            # Create a copy without ground truth
-            clean_tweet = {
-                "tweet_id": tweet.get("tweet_id"),
-                "username": tweet.get("username"),
-                "text": tweet.get("text"),  # Raw text for ML processing
-                "timestamp": tweet.get("timestamp"),
-                "url": tweet.get("url"),
-                "replies": tweet.get("replies"),
-                "retweets": tweet.get("retweets"),
-                "likes": tweet.get("likes"),
-                "scraped_at": tweet.get("scraped_at")
-            }
+            clean_tweet = {k: tweet.get(k) for k in KEEP_KEYS}
             prepared_tweets.append(clean_tweet)
 
-        self.logger.debug(
+        logger.debug(
             f"{self.agent_id} prepared {len(prepared_tweets)} simulation tweets "
             f"for ML processing (ground truth stripped)"
         )
@@ -554,12 +1148,9 @@ class ScoutAgent(BaseAgent):
         return prepared_tweets
 
     def reset_simulation(self) -> None:
-        """
-        Reset simulation to the beginning.
-        Useful for running multiple simulation cycles.
-        """
+        """Reset simulation to the beginning."""
         self.simulation_index = 0
-        self.logger.info(f"{self.agent_id} simulation reset to beginning")
+        logger.info(f"{self.agent_id} simulation reset to beginning")
 
     def set_batch_size(self, batch_size: int) -> None:
         """
@@ -572,362 +1163,25 @@ class ScoutAgent(BaseAgent):
             raise ValueError("Batch size must be at least 1")
 
         self.simulation_batch_size = batch_size
-        self.logger.info(f"{self.agent_id} batch size set to {batch_size}")
+        logger.info(f"{self.agent_id} batch size set to {batch_size}")
 
-    # --- PRIVATE HELPER METHODS (from your original script) ---
-    # The following methods are encapsulated within the agent class.
+    def is_llm_enabled(self) -> bool:
+        """Check if LLM processing is enabled and available."""
+        return self.use_llm and self.llm_service is not None
 
-    def _login_to_twitter(self, use_saved_session: bool = True) -> Optional[webdriver.Chrome]:
+    def get_processing_stats(self) -> Dict[str, Any]:
         """
-        Logs into Twitter/X.com using Selenium. Attempts to restore a saved session
-        first, then performs a fresh login if needed.
-        
-        WARNING: This method is deprecated and should be replaced with Twitter API v2.
-        
-        Args:
-            use_saved_session: Whether to attempt session restoration
-        
+        Get processing statistics.
+
         Returns:
-            WebDriver instance if successful, None otherwise.
-        
-        Raises:
-            MissingCredentialError: If credentials are not provided
+            Dict with processing mode and availability info
         """
-        from ..exceptions import MissingCredentialError
-        
-        # Check if credentials are available
-        if not self._credentials or not self._credentials.twitter_email:
-            raise MissingCredentialError("TWITTER_EMAIL")
-        if not self._credentials or not self._credentials.twitter_password:
-            raise MissingCredentialError("TWITTER_PASSWORD")
-        
-        chrome_options = Options()
-        # Standard options
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        
-        # Anti-bot detection options
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument('--disable-infobars')
-        chrome_options.add_argument('--start-maximized')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-gpu")
-        custom_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36"
-        chrome_options.add_argument(f'user-agent={custom_user_agent}')
-
-        # Experimental options to make it look less like a bot
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.maximize_window()
-
-        try:
-            # Try to restore saved session first
-            if use_saved_session and self._load_cookies():
-                if self._verify_login_status():
-                    self.logger.info(f"{self.agent_id} successfully restored session")
-                    return self.driver
-            
-            # Perform fresh login
-            self.logger.info(f"{self.agent_id} performing fresh login")
-            self.driver.get("https://x.com/i/flow/login")
-            
-            # Wait for and enter email/username
-            self.logger.debug(f"{self.agent_id} entering email")
-            email_input = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[autocomplete='username']"))
-            )
-            email_input.send_keys(self._credentials.twitter_email)
-            email_input.send_keys(Keys.RETURN)
-            time.sleep(2)
-            
-            # Sometimes Twitter asks for username verification (unusual activity)
-            try:
-                self.logger.debug(f"{self.agent_id} checking for username verification prompt")
-                username_input = WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[data-testid='ocfEnterTextTextInput']"))
-                )
-                # Extract username from email (assumes email format: username@domain.com)
-                username = self._credentials.twitter_email.split('@')[0]
-                username_input.send_keys(username)
-                username_input.send_keys(Keys.RETURN)
-                time.sleep(2)
-                self.logger.info(f"{self.agent_id} username verification completed")
-            except TimeoutException:
-                self.logger.debug(f"{self.agent_id} no username verification required")
-            
-            # Wait for and enter password
-            self.logger.debug(f"{self.agent_id} entering password")
-            password_input = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='password']"))
-            )
-            password_input.send_keys(self._credentials.twitter_password)
-            password_input.send_keys(Keys.RETURN)
-            
-            # Wait for successful login (home timeline appears)
-            self.logger.info(f"{self.agent_id} waiting for login to complete")
-            WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[aria-label='Home timeline']"))
-            )
-            
-            self.logger.info(f"{self.agent_id} fresh login successful")
-            self._save_cookies()
-            return self.driver
-            
-        except Exception as e:
-            self.logger.error(
-                f"{self.agent_id} error during login: {e}",
-                exc_info=True
-            )
-            if self.driver:
-                self.driver.quit()
-            self.driver = None
-            return None
-
-
-    def _search_tweets(self, search_url: Optional[str] = None) -> list:
-        """
-        Searches for tweets, scrolls to load more, and triggers extraction.
-        
-        Args:
-            search_url: Optional custom search URL. If None, uses default Marikina flood query.
-        
-        Returns:
-            List of extracted tweet dictionaries
-        """
-        if search_url is None:
-            date = datetime.now().strftime("%Y-%m-%d")
-            search_url = f'https://x.com/search?q=%22Marikina%22%20(Baha%20OR%20Flood%20OR%20Ulan%20OR%20Rain%20OR%20pagbaha%20OR%20%22heavy%20rain%22%20OR%20%22water%20level%22)%20since:2025-10-01&f=live'
-
-        try:
-            self.logger.debug(f"{self.agent_id} navigating to search URL")
-            self.driver.get(search_url)
-            
-            # Wait for at least one tweet to appear
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='tweet']"))
-            )
-            self.logger.debug(f"{self.agent_id} search results loaded")
-            
-            # Scroll down to load more tweets from the dynamic feed
-            self.logger.debug(f"{self.agent_id} scrolling to load more tweets")
-            for i in range(3): # Scroll 3 times
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(2)
-
-            tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid='tweet']")
-            self.logger.info(f"{self.agent_id} found {len(tweet_elements)} tweet elements on page")
-            
-            extracted_tweets = [self._extract_tweet_data(t) for t in tweet_elements]
-            return [t for t in extracted_tweets if t]  # Filter out None values
-
-        except TimeoutException:
-            self.logger.warning(
-                f"{self.agent_id} no tweets found on page or page took too long to load"
-            )
-            return []
-        except Exception as e:
-            self.logger.error(
-                f"{self.agent_id} error during tweet search: {e}",
-                exc_info=True
-            )
-            return []
-
-    def _extract_tweet_data(self, tweet_element):
-        """
-        Extracts detailed information from a single Selenium WebElement for a tweet.
-        """
-        try:
-            data = {}
-            # Extract username, text, timestamp, URL, and engagement metrics
-            data['username'] = tweet_element.find_element(By.CSS_SELECTOR, "[data-testid='User-Name'] a").get_attribute('href').split('/')[-1]
-            data['text'] = tweet_element.find_element(By.CSS_SELECTOR, "[data-testid='tweetText']").text
-            time_element = tweet_element.find_element(By.CSS_SELECTOR, "time")
-            data['timestamp'] = time_element.get_attribute('datetime')
-            data['url'] = time_element.find_element(By.XPATH, "..").get_attribute('href')
-            
-            # Engagement metrics can sometimes be absent
-            try:
-                data['replies'] = tweet_element.find_element(By.CSS_SELECTOR, "[data-testid='reply']").text or "0"
-            except NoSuchElementException:
-                data['replies'] = "0"
-            try:
-                data['retweets'] = tweet_element.find_element(By.CSS_SELECTOR, "[data-testid='retweet']").text or "0"
-            except NoSuchElementException:
-                data['retweets'] = "0"
-            try:
-                data['likes'] = tweet_element.find_element(By.CSS_SELECTOR, "[data-testid='like']").text or "0"
-            except NoSuchElementException:
-                data['likes'] = "0"
-            
-            return data
-        except Exception:
-            # This can happen with ads or other non-standard tweet elements
-            return None
-
-    def _add_new_tweets_to_master(self, new_tweets):
-        """
-        Adds new tweets to the master list, checking for duplicates.
-        """
-        newly_added = []
-        for tweet in new_tweets:
-            tweet_id = self._create_tweet_id(tweet)
-            if tweet_id not in self.master_tweets:
-                tweet['scraped_at'] = datetime.now().isoformat()
-                tweet['tweet_id'] = tweet_id
-                self.master_tweets[tweet_id] = tweet
-                newly_added.append(tweet)
-        
-        if newly_added:
-            self._save_master_tweets()
-        return newly_added
-
-    def _create_tweet_id(self, tweet_data):
-        """
-        Creates a unique ID for a tweet, prioritizing the ID from the URL.
-        """
-        # The most reliable ID is the numerical string at the end of the URL
-        if tweet_data.get('url') and 'status' in tweet_data['url']:
-            return tweet_data['url'].split('/status/')[-1]
-        
-        # Fallback to creating a hash if the URL is not available
-        unique_string = f"{tweet_data.get('username', '')}_{tweet_data.get('text', '')}_{tweet_data.get('timestamp', '')}"
-        return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
-
-    def _load_master_tweets(self) -> dict:
-        """
-        Loads the master tweet dictionary from the JSON file.
-        
-        Returns:
-            Dictionary of tweets keyed by tweet ID
-        """
-        try:
-            if os.path.exists(self.master_file):
-                with open(self.master_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.logger.info(
-                        f"{self.agent_id} loaded {len(data)} tweets from master file"
-                    )
-                    return data
-            else:
-                self.logger.info(
-                    f"{self.agent_id} master file not found, will create new one"
-                )
-                return {}
-        except (json.JSONDecodeError, IOError) as e:
-            self.logger.error(
-                f"{self.agent_id} error loading master file: {e}, starting fresh",
-                exc_info=True
-            )
-            return {}
-
-    def _save_master_tweets(self) -> None:
-        """
-        Saves the master tweet dictionary to a JSON file with a backup system.
-        """
-        backup_file = f"{self.master_file}.backup"
-        try:
-            # Create a backup of the existing file
-            if os.path.exists(self.master_file):
-                os.rename(self.master_file, backup_file)
-
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(self.master_file), exist_ok=True)
-
-            # Write the new master file
-            with open(self.master_file, 'w', encoding='utf-8') as f:
-                json.dump(self.master_tweets, f, indent=2, ensure_ascii=False)
-            
-            # Remove the backup if the save was successful
-            if os.path.exists(backup_file):
-                os.remove(backup_file)
-            
-            self.logger.debug(
-                f"{self.agent_id} saved {len(self.master_tweets)} tweets to master file"
-            )
-        except Exception as e:
-            self.logger.error(
-                f"{self.agent_id} error saving master file: {e}, restoring from backup",
-                exc_info=True
-            )
-            # Restore the backup if something went wrong
-            if os.path.exists(backup_file):
-                os.rename(backup_file, self.master_file)
-
-    def _save_cookies(self) -> None:
-        """Saves the current session cookies to the defined session file path."""
-        try:
-            # MODIFIED: Uses the self.session_file path
-            with open(self.session_file, 'wb') as f:
-                pickle.dump(self.driver.get_cookies(), f)
-            self.logger.info(f"{self.agent_id} session cookies saved to {self.session_file}")
-        except Exception as e:
-            self.logger.error(f"{self.agent_id} error saving cookies: {e}", exc_info=True)
-
-    def _load_cookies(self) -> bool:
-        """
-        Loads session cookies from the defined session file path.
-        
-        Returns:
-            True if cookies loaded successfully, False otherwise
-        """
-        # MODIFIED: Uses the self.session_file path
-        if not os.path.exists(self.session_file):
-            return False
-        try:
-            # MODIFIED: Uses the self.session_file path
-            with open(self.session_file, 'rb') as f:
-                cookies = pickle.load(f)
-            self.driver.get("https://x.com")
-            for cookie in cookies:
-                self.driver.add_cookie(cookie)
-            self.logger.info(f"{self.agent_id} session cookies loaded from {self.session_file}")
-            return True
-        except Exception as e:
-            self.logger.error(f"{self.agent_id} error loading cookies: {e}", exc_info=True)
-            return False
-
-    def _verify_login_status(self) -> bool:
-        """
-        Verifies if the driver's session is currently logged in.
-        
-        Returns:
-            True if session is valid, False otherwise
-        """
-        try:
-            # FIX: Uses self.driver
-            self.driver.get("https://x.com/home")
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[aria-label='Home timeline']"))
-            )
-            self.logger.info(f"{self.agent_id} session is valid")
-            return True
-        except TimeoutException:
-            self.logger.warning(f"{self.agent_id} session is invalid or expired")
-            return False
-
-
-    def _export_master_tweets_to_csv(self) -> None:
-        """Exports the entire master tweet list to a timestamped CSV file."""
-        if not self.master_tweets:
-            return
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Ensure the directory exists
-        output_dir = os.path.join("app", "data", "exports")
-        os.makedirs(output_dir, exist_ok=True)
-        csv_filename = os.path.join(output_dir, f"marikina_tweets_export_{timestamp}.csv")
-        
-        try:
-            tweets_list = list(self.master_tweets.values())
-            with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=tweets_list[0].keys())
-                writer.writeheader()
-                writer.writerows(tweets_list)
-            self.logger.info(
-                f"{self.agent_id} exported {len(tweets_list)} tweets to {csv_filename}"
-            )
-        except Exception as e:
-            self.logger.error(f"{self.agent_id} error exporting to CSV: {e}", exc_info=True)
+        return {
+            "llm_enabled": self.use_llm,
+            "llm_available": self.llm_service.is_available() if self.llm_service else False,
+            "nlp_available": self.nlp_processor is not None,
+            "geocoder_available": self.geocoder is not None,
+            "simulation_scenario": self.simulation_scenario,
+            "tweets_processed": self.simulation_index,
+            "tweets_total": len(self.simulation_tweets)
+        }

@@ -11,7 +11,8 @@ export function WebSocketProvider({ children }) {
   const [lastMessage, setLastMessage] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
   const [statistics, setStatistics] = useState(null);
-  const [simulationState, setSimulationState] = useState(null);
+  const [evacuationUpdates, setEvacuationUpdates] = useState([]);
+  const [distressAlerts, setDistressAlerts] = useState([]);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const pingIntervalRef = useRef(null);
@@ -113,9 +114,14 @@ export function WebSocketProvider({ children }) {
               console.log('📊 Risk update received:', data);
               break;
 
-            case 'simulation_state':
-              console.log('🎮 Simulation state update:', data.event, data.data);
-              setSimulationState(data);
+            case 'evacuation_update':
+              console.log('🏥 Evacuation update received:', data);
+              setEvacuationUpdates((prev) => [data, ...prev].slice(0, 50));
+              break;
+
+            case 'distress_alert':
+              console.log('🆘 Distress alert received:', data);
+              setDistressAlerts((prev) => [data, ...prev].slice(0, 20));
               break;
 
             case 'pong':
@@ -197,6 +203,10 @@ export function WebSocketProvider({ children }) {
     return sendMessage({ type: 'request_update' });
   }, [sendMessage]);
 
+  const clearDistressAlerts = useCallback(() => {
+    setDistressAlerts([]);
+  }, []);
+
   // Connect on mount
   useEffect(() => {
     mountedRef.current = true;
@@ -213,9 +223,11 @@ export function WebSocketProvider({ children }) {
     lastMessage,
     systemStatus,
     statistics,
-    simulationState,
+    evacuationUpdates,
+    distressAlerts,
     sendMessage,
     requestUpdate,
+    clearDistressAlerts,
     reconnect: connect
   };
 

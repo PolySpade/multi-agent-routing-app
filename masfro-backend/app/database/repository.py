@@ -1,16 +1,22 @@
 """
-Database repository for flood data operations.
+Database repository for flood data and evacuation center operations.
 
-Provides CRUD operations for flood data collections, river levels, and weather data.
+Provides CRUD operations for flood data collections, river levels, weather data,
+and evacuation center management with persistent occupancy tracking.
 """
 
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
-from uuid import UUID
+from pathlib import Path
 
-from app.database.models import FloodDataCollection, RiverLevel, WeatherData
+import pandas as pd
+
+from app.database.models import (
+    FloodDataCollection, RiverLevel, WeatherData,
+    EvacuationCenter, EvacuationOccupancyLog,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -163,22 +169,6 @@ class FloodDataRepository:
             .first()
         )
 
-    def get_collection_by_id(self, collection_id: UUID) -> Optional[FloodDataCollection]:
-        """
-        Get a specific flood data collection by ID.
-
-        Args:
-            collection_id: Collection UUID
-
-        Returns:
-            FloodDataCollection or None
-        """
-        return (
-            self.db.query(FloodDataCollection)
-            .filter(FloodDataCollection.id == collection_id)
-            .first()
-        )
-
     def get_collections_in_range(
         self,
         start_time: datetime,
@@ -234,25 +224,6 @@ class FloodDataRepository:
                 )
             )
             .order_by(desc(RiverLevel.recorded_at))
-            .all()
-        )
-
-    def get_weather_history(self, hours: int = 24) -> List[WeatherData]:
-        """
-        Get historical weather data.
-
-        Args:
-            hours: Number of hours of history (default 24)
-
-        Returns:
-            List of WeatherData instances
-        """
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-
-        return (
-            self.db.query(WeatherData)
-            .filter(WeatherData.recorded_at >= cutoff_time)
-            .order_by(desc(WeatherData.recorded_at))
             .all()
         )
 
@@ -349,34 +320,226 @@ class FloodDataRepository:
             "critical_alerts": critical_alerts or 0,
         }
 
-    def cleanup_old_data(self, retention_days: int = 90) -> int:
-        """
-        Delete data older than retention period.
 
-        Args:
-            retention_days: Number of days to retain (default 90)
+class EvacuationRepository:
+    """Repository for managing evacuation centers in the database."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def seed_from_csv(self, csv_path: Path) -> int:
+        """
+        Bulk-insert evacuation centers from CSV if the table is empty.
 
         Returns:
-            Number of collections deleted
+            Number of centers inserted (0 if table was already populated).
         """
+        existing = self.db.query(func.count(EvacuationCenter.id)).scalar()
+        if existing > 0:
+            logger.info(f"Evacuation centers table already has {existing} rows, skipping seed")
+            return 0
+
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            df = pd.read_csv(csv_path)
+            # Drop duplicate names (CSV has 5 pairs with same name, different coords)
+            dupes_before = len(df)
+            df = df.drop_duplicates(subset="name", keep="first")
+            if len(df) < dupes_before:
+                logger.info(f"Dropped {dupes_before - len(df)} duplicate center names from CSV")
 
-            deleted_count = (
-                self.db.query(FloodDataCollection)
-                .filter(FloodDataCollection.collected_at < cutoff_date)
-                .delete()
-            )
+            centers = []
+            for _, row in df.iterrows():
+                lat = row.get("latitude")
+                lon = row.get("longitude")
+                if pd.isna(lat) or pd.isna(lon):
+                    continue
 
+                raw_cap = row.get("capacity")
+                try:
+                    capacity = int(raw_cap) if pd.notna(raw_cap) else 0
+                except (ValueError, TypeError, OverflowError):
+                    capacity = 0
+
+                centers.append(EvacuationCenter(
+                    name=str(row["name"]).strip() if pd.notna(row.get("name")) else "Unknown",
+                    latitude=float(lat),
+                    longitude=float(lon),
+                    capacity=capacity,
+                    current_occupancy=0,
+                    type=str(row["type"]).strip() if pd.notna(row.get("type")) else None,
+                    status=str(row["status"]).strip() if pd.notna(row.get("status")) else None,
+                    suitability=str(row["suitability"]).strip() if pd.notna(row.get("suitability")) else None,
+                    barangay=str(row["barangay"]).strip() if pd.notna(row.get("barangay")) else None,
+                    operator=str(row["operator"]).strip() if pd.notna(row.get("operator")) else None,
+                ))
+
+            self.db.add_all(centers)
             self.db.commit()
-
-            logger.info(
-                f"Cleaned up {deleted_count} collections older than {retention_days} days"
-            )
-
-            return deleted_count
+            logger.info(f"Seeded {len(centers)} evacuation centers from {csv_path}")
+            return len(centers)
 
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Error cleaning up old data: {e}")
+            logger.error(f"Error seeding evacuation centers: {e}")
             raise
+
+    def get_all_centers(self, status_filter: Optional[str] = None) -> List[EvacuationCenter]:
+        """Get all active evacuation centers, optionally filtered by status."""
+        query = self.db.query(EvacuationCenter).filter(EvacuationCenter.is_active == True)
+        if status_filter:
+            query = query.filter(EvacuationCenter.status == status_filter)
+        return query.order_by(EvacuationCenter.name).all()
+
+    def get_available_centers(self) -> List[EvacuationCenter]:
+        """Get centers where current_occupancy < capacity (and capacity > 0)."""
+        return (
+            self.db.query(EvacuationCenter)
+            .filter(
+                EvacuationCenter.is_active == True,
+                EvacuationCenter.capacity > 0,
+                EvacuationCenter.current_occupancy < EvacuationCenter.capacity,
+            )
+            .order_by(EvacuationCenter.name)
+            .all()
+        )
+
+    def get_center_by_name(self, name: str) -> Optional[EvacuationCenter]:
+        """Get a single center by exact name."""
+        return (
+            self.db.query(EvacuationCenter)
+            .filter(EvacuationCenter.name == name)
+            .first()
+        )
+
+    def get_centers_as_dataframe(self) -> pd.DataFrame:
+        """
+        Return all active centers as a pandas DataFrame.
+
+        Compatible with RoutingAgent's existing evacuation center logic.
+        """
+        centers = self.get_all_centers()
+        if not centers:
+            return pd.DataFrame(columns=["name", "latitude", "longitude", "capacity", "type"])
+
+        rows = [
+            {
+                "name": c.name,
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "capacity": c.capacity,
+                "current_occupancy": c.current_occupancy,
+                "type": c.type or "unknown",
+                "status": c.status,
+                "barangay": c.barangay,
+            }
+            for c in centers
+        ]
+        return pd.DataFrame(rows)
+
+    def update_occupancy(
+        self, center_name: str, occupancy: int, event_type: str = "manual_update"
+    ) -> bool:
+        """
+        Set a center's occupancy to an absolute value and log the change.
+
+        Returns True on success, False if center not found.
+        """
+        center = self.get_center_by_name(center_name)
+        if not center:
+            return False
+
+        occupancy = max(0, min(occupancy, center.capacity) if center.capacity > 0 else occupancy)
+        center.current_occupancy = occupancy
+        center.updated_at = datetime.utcnow()
+
+        self.db.add(EvacuationOccupancyLog(
+            center_id=center.id,
+            occupancy=occupancy,
+            event_type=event_type,
+        ))
+
+        self.db.commit()
+        return True
+
+    def add_evacuees(self, center_name: str, count: int) -> Dict[str, Any]:
+        """
+        Add *count* evacuees to a center. Returns result dict.
+        """
+        center = self.get_center_by_name(center_name)
+        if not center:
+            return {"success": False, "message": f"Center '{center_name}' not found"}
+
+        available = (center.capacity - center.current_occupancy) if center.capacity > 0 else 0
+        if count > available and center.capacity > 0:
+            return {
+                "success": False,
+                "message": f"Not enough space. Requested: {count}, Available: {available}",
+            }
+
+        new_occ = center.current_occupancy + count
+        if center.capacity > 0:
+            new_occ = min(new_occ, center.capacity)
+
+        center.current_occupancy = new_occ
+        center.updated_at = datetime.utcnow()
+
+        self.db.add(EvacuationOccupancyLog(
+            center_id=center.id,
+            occupancy=new_occ,
+            event_type="evacuees_added",
+        ))
+        self.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Added {count} evacuees to {center_name}",
+            "current_occupancy": new_occ,
+            "capacity": center.capacity,
+        }
+
+    def reset_all_occupancy(self) -> None:
+        """Reset occupancy to 0 for all centers and log a reset event."""
+        centers = self.db.query(EvacuationCenter).all()
+        now = datetime.utcnow()
+        for c in centers:
+            if c.current_occupancy > 0:
+                c.current_occupancy = 0
+                c.updated_at = now
+                self.db.add(EvacuationOccupancyLog(
+                    center_id=c.id,
+                    occupancy=0,
+                    event_type="reset",
+                ))
+        self.db.commit()
+        logger.info("Reset all evacuation center occupancy to 0")
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get aggregate statistics for all active centers."""
+        centers = self.get_all_centers()
+
+        total_capacity = sum(c.capacity for c in centers)
+        total_occupancy = sum(c.current_occupancy for c in centers)
+        total_available = total_capacity - total_occupancy
+
+        status_counts = {"available": 0, "limited": 0, "full": 0}
+        for c in centers:
+            ratio = c.current_occupancy / c.capacity if c.capacity > 0 else 0
+            if ratio >= 0.95:
+                status_counts["full"] += 1
+            elif ratio >= 0.70:
+                status_counts["limited"] += 1
+            else:
+                status_counts["available"] += 1
+
+        return {
+            "total_centers": len(centers),
+            "total_capacity": total_capacity,
+            "total_occupancy": total_occupancy,
+            "total_available_slots": total_available,
+            "overall_occupancy_percentage": round(
+                (total_occupancy / total_capacity * 100) if total_capacity > 0 else 0, 1
+            ),
+            "status_counts": status_counts,
+            "last_update": datetime.utcnow().isoformat(),
+        }
+

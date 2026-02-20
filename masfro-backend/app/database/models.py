@@ -1,10 +1,12 @@
 """
-SQLAlchemy models for flood data persistence.
+SQLAlchemy models for MAS-FRO data persistence.
 
 Tables:
 - flood_data_collections: Main collection runs
 - river_levels: Individual river station readings
 - weather_data: Weather conditions from OpenWeatherMap
+- evacuation_centers: Evacuation center reference data
+- evacuation_occupancy_log: Occupancy change history
 """
 
 from sqlalchemy import (
@@ -267,4 +269,88 @@ class WeatherData(Base):
             f"<WeatherData(rainfall_1h={self.rainfall_1h}mm, "
             f"intensity={self.intensity}, "
             f"temp={self.temperature}°C)>"
+        )
+
+
+class EvacuationCenter(Base):
+    """
+    Evacuation center reference data.
+
+    Stores static information about evacuation centers in Marikina City,
+    seeded from CSV on first startup. Current occupancy is stored directly
+    on this table for fast reads.
+    """
+
+    __tablename__ = "evacuation_centers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), unique=True, nullable=False, index=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    capacity = Column(Integer, nullable=False, default=0)
+    current_occupancy = Column(Integer, nullable=False, default=0)
+    type = Column(String(50), nullable=True)
+    status = Column(String(20), nullable=True)
+    suitability = Column(String(200), nullable=True)
+    barangay = Column(String(100), nullable=True, index=True)
+    operator = Column(String(200), nullable=True)
+    contact = Column(String(200), nullable=True)
+    facilities = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    occupancy_logs = relationship(
+        "EvacuationOccupancyLog",
+        back_populates="center",
+        cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_center_status", status),
+    )
+
+    def __repr__(self):
+        return (
+            f"<EvacuationCenter(name={self.name}, "
+            f"occupancy={self.current_occupancy}/{self.capacity}, "
+            f"status={self.status})>"
+        )
+
+
+class EvacuationOccupancyLog(Base):
+    """
+    Append-only log of occupancy changes for evacuation centers.
+
+    Tracks every occupancy update for audit and historical analysis.
+    """
+
+    __tablename__ = "evacuation_occupancy_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    center_id = Column(
+        Integer,
+        ForeignKey("evacuation_centers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    occupancy = Column(Integer, nullable=False)
+    event_type = Column(
+        String(30),
+        nullable=False,
+        comment="evacuees_added, manual_update, reset"
+    )
+    recorded_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    center = relationship("EvacuationCenter", back_populates="occupancy_logs")
+
+    __table_args__ = (
+        Index("idx_occupancy_center_recorded", center_id, recorded_at.desc()),
+    )
+
+    def __repr__(self):
+        return (
+            f"<EvacuationOccupancyLog(center_id={self.center_id}, "
+            f"occupancy={self.occupancy}, "
+            f"event_type={self.event_type})>"
         )

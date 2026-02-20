@@ -1,0 +1,2262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MAS-FRO Agent Viewer</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+      :root {
+        --primary-bg: #0f172a;
+        --secondary-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-secondary: #94a3b8;
+        --accent: #3b82f6;
+        --success: #22c55e;
+        --warning: #eab308;
+        --error: #ef4444;
+        --border: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background-color: var(--primary-bg);
+        color: var(--text-main);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+        flex-shrink: 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+
+      .container {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 20px;
+        flex: 1;
+        min-height: 0; /* KEY: allows grid to shrink below content size */
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+        min-height: 0;
+      }
+
+      .main-content {
+        display: flex;
+        flex-direction: column;
+        min-height: 0; /* KEY: allows flex children to shrink */
+        overflow: hidden;
+      }
+
+      .card {
+        background-color: var(--secondary-bg);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 15px;
+        overflow: hidden;
+      }
+
+      .card-header {
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      /* Agent List */
+      .agent-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .agent-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .agent-item.selected {
+        border-left: 3px solid var(--accent);
+      }
+      .agent-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .agent-name {
+        font-weight: 500;
+        font-size: 0.9rem;
+      }
+      .agent-id {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+      }
+      .agent-status {
+        font-size: 0.75rem;
+        padding: 2px 8px;
+        border-radius: 12px;
+      }
+      .agent-status.Active {
+        background: rgba(34, 197, 94, 0.2);
+        color: var(--success);
+      }
+      .agent-status.Error {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--error);
+      }
+
+      /* Tab Navigation */
+      .tab-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 2px solid var(--border);
+        margin-bottom: 15px;
+        flex-shrink: 0;
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        padding: 10px 18px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+      .tab-btn:hover {
+        color: var(--text-main);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      /* Tab Panels */
+      .tab-panel {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0; /* KEY: prevents panel from expanding beyond parent */
+        overflow: hidden;
+      }
+      .tab-panel.active {
+        display: flex;
+      }
+
+      /* Stats Cards */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+        margin-bottom: 15px;
+        flex-shrink: 0;
+      }
+      .stat-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+      }
+      .stat-label {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 4px;
+      }
+      .stat-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      .stat-value.bool-true {
+        color: var(--success);
+      }
+      .stat-value.bool-false {
+        color: var(--error);
+      }
+
+      /* Controls */
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .filter-bar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .filter-bar select {
+        font-size: 0.8rem;
+        padding: 4px 8px;
+      }
+
+      input,
+      textarea,
+      select {
+        background: var(--primary-bg);
+        border: 1px solid var(--border);
+        color: var(--text-main);
+        padding: 8px;
+        border-radius: 4px;
+        font-family: inherit;
+      }
+
+      button {
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: opacity 0.2s;
+      }
+      button:hover {
+        opacity: 0.9;
+      }
+
+      /* Logs Card - THE FIX: flex container that fills remaining space */
+      .logs-card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0; /* KEY: allows the card to shrink */
+        overflow: hidden;
+      }
+
+      /* Logs container scrolls within the card */
+      .logs-container {
+        flex: 1;
+        background-color: #000;
+        border-radius: 8px;
+        padding: 10px;
+        overflow-y: auto;
+        font-family: "Fira Code", monospace;
+        font-size: 0.85rem;
+        min-height: 0; /* KEY: allows scroll instead of grow */
+        scrollbar-width: thin;
+        scrollbar-color: #4a5568 #1a1a2e;
+      }
+      .logs-container::-webkit-scrollbar {
+        width: 10px;
+      }
+      .logs-container::-webkit-scrollbar-track {
+        background: #1a1a2e;
+        border-radius: 5px;
+      }
+      .logs-container::-webkit-scrollbar-thumb {
+        background: #4a5568;
+        border-radius: 5px;
+        border: 2px solid #1a1a2e;
+      }
+      .logs-container::-webkit-scrollbar-thumb:hover {
+        background: #6b7280;
+      }
+
+      .log-entry {
+        margin-bottom: 4px;
+        line-height: 1.4;
+        border-bottom: 1px solid #1e1e1e;
+        padding-bottom: 2px;
+      }
+      .log-ts {
+        color: #64748b;
+        margin-right: 8px;
+      }
+      .log-level {
+        font-weight: bold;
+        margin-right: 8px;
+        width: 60px;
+        display: inline-block;
+      }
+      .log-level.DEBUG {
+        color: #6b7280;
+      }
+      .log-level.INFO {
+        color: #3b82f6;
+      }
+      .log-level.WARNING {
+        color: #eab308;
+      }
+      .log-level.ERROR {
+        color: #ef4444;
+      }
+      .log-level.CRITICAL {
+        color: #ff0000;
+        text-decoration: underline;
+      }
+      .log-logger {
+        color: #a855f7;
+        margin-right: 8px;
+      }
+      .log-msg {
+        color: #e2e8f0;
+      }
+
+      /* ── Risk Map ── */
+      .map-wrapper {
+        display: flex;
+        gap: 15px;
+        height: 100%;
+        min-height: 0;
+      }
+      .map-sidebar {
+        width: 260px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow-y: auto;
+        flex-shrink: 0;
+        min-height: 0;
+      }
+      .map-sidebar .card {
+        padding: 12px;
+      }
+      .map-sidebar .card-header {
+        margin-bottom: 8px;
+      }
+      #risk-map-container {
+        flex: 1;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        min-height: 0;
+        z-index: 0;
+      }
+      .layer-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: background 0.15s;
+      }
+      .layer-option:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .layer-option input[type="radio"] {
+        accent-color: var(--accent);
+      }
+      .legend-bar {
+        height: 14px;
+        border-radius: 3px;
+        margin: 6px 0 4px;
+      }
+      .legend-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+      }
+      .map-stat {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        font-size: 0.8rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .map-stat:last-child {
+        border-bottom: none;
+      }
+      .risk-low {
+        color: var(--success);
+      }
+      .risk-medium {
+        color: var(--warning);
+      }
+      .risk-high {
+        color: var(--error);
+      }
+      .dist-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 3px;
+        font-size: 0.7rem;
+      }
+      .dist-bar {
+        height: 10px;
+        border-radius: 2px;
+        transition: width 0.3s;
+      }
+      .dist-label {
+        width: 40px;
+        text-align: right;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+      }
+      .dist-count {
+        width: 36px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+      }
+      .map-refresh-bar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .map-refresh-bar label {
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+      }
+      .map-refresh-bar input[type="checkbox"] {
+        accent-color: var(--accent);
+      }
+
+      /* ── Settings Tab ── */
+      .settings-wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .settings-toolbar {
+        display: flex;
+        gap: 8px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 12px;
+        flex-shrink: 0;
+        align-items: center;
+      }
+      .settings-toolbar button {
+        padding: 6px 14px;
+        font-size: 0.8rem;
+        width: auto;
+      }
+      .settings-toolbar .btn-save {
+        background: rgba(34, 197, 94, 0.2);
+        border: 1px solid rgba(34, 197, 94, 0.4);
+        color: #86efac;
+      }
+      .settings-toolbar .btn-reload {
+        background: rgba(234, 179, 8, 0.2);
+        border: 1px solid rgba(234, 179, 8, 0.4);
+        color: #fde047;
+      }
+      .settings-toolbar .btn-apply {
+        background: var(--accent);
+      }
+      .settings-toolbar .status-msg {
+        margin-left: auto;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+      .settings-scroll {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
+        padding-right: 4px;
+      }
+      .cfg-section {
+        background: var(--secondary-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 10px;
+      }
+      .cfg-section-header {
+        padding: 10px 14px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        user-select: none;
+      }
+      .cfg-section-header:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .cfg-section-header .chevron {
+        transition: transform 0.2s;
+        color: var(--text-secondary);
+      }
+      .cfg-section.open .chevron {
+        transform: rotate(90deg);
+      }
+      .cfg-section-body {
+        display: none;
+        padding: 0 14px 12px;
+      }
+      .cfg-section.open .cfg-section-body {
+        display: block;
+      }
+      .cfg-group-label {
+        font-size: 0.7rem;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin: 10px 0 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+      }
+      .cfg-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 0;
+        gap: 12px;
+      }
+      .cfg-row label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        max-width: 55%;
+      }
+      .cfg-row input[type="number"],
+      .cfg-row input[type="text"] {
+        width: 120px;
+        padding: 4px 8px;
+        font-size: 0.8rem;
+        text-align: right;
+      }
+      .cfg-row input[type="number"]:focus,
+      .cfg-row input[type="text"]:focus {
+        outline: 1px solid var(--accent);
+      }
+      .cfg-toggle {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      .cfg-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .cfg-toggle .slider {
+        position: absolute;
+        inset: 0;
+        background: #475569;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .cfg-toggle .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        bottom: 2px;
+        background: white;
+        border-radius: 50%;
+        transition: transform 0.2s;
+      }
+      .cfg-toggle input:checked + .slider {
+        background: var(--accent);
+      }
+      .cfg-toggle input:checked + .slider::before {
+        transform: translateX(16px);
+      }
+      .cfg-changed input[type="number"],
+      .cfg-changed input[type="text"] {
+        border-color: var(--warning);
+      }
+      .cfg-desc {
+        font-size: 0.68rem;
+        color: var(--text-secondary);
+        margin-top: 2px;
+        line-height: 1.3;
+        opacity: 0.8;
+      }
+
+      /* Leaflet dark theme overrides */
+      .leaflet-popup-content-wrapper {
+        background: var(--secondary-bg);
+        color: var(--text-main);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .leaflet-popup-tip {
+        background: var(--secondary-bg);
+      }
+      .leaflet-popup-close-button {
+        color: var(--text-secondary) !important;
+      }
+      .leaflet-control-zoom a {
+        background: var(--secondary-bg) !important;
+        color: var(--text-main) !important;
+        border-color: var(--border) !important;
+      }
+      .leaflet-control-attribution {
+        background: rgba(15, 23, 42, 0.8) !important;
+        color: var(--text-secondary) !important;
+      }
+      .leaflet-control-attribution a {
+        color: var(--accent) !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>MAS-FRO Agent Viewer</h1>
+      <div id="connection-status" style="color: var(--success)">
+        &#9679; Connected
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="sidebar">
+        <div class="card">
+          <div class="card-header">Active Agents</div>
+          <div id="agent-list">
+            <div class="agent-item">Loading...</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">Actions</div>
+          <button
+            id="btn-reset-graph"
+            onclick="resetGraph()"
+            style="
+              width: 100%;
+              background: rgba(239, 68, 68, 0.2);
+              border: 1px solid rgba(239, 68, 68, 0.4);
+              color: #fca5a5;
+              font-size: 0.8rem;
+              padding: 10px;
+            "
+          >
+            Reset Graph
+          </button>
+          <div
+            style="
+              font-size: 0.65rem;
+              color: var(--text-secondary);
+              margin-top: 6px;
+            "
+          >
+            Reload graph from file, reset all risk scores to 0
+          </div>
+          <div
+            id="reset-graph-status"
+            style="
+              font-size: 0.75rem;
+              margin-top: 8px;
+              display: none;
+            "
+          ></div>
+        </div>
+
+        <!-- Time Control Card -->
+        <div class="card">
+          <div class="card-header">Time Control</div>
+          <div id="sim-time-status" style="font-size: 0.8rem; padding: 6px 0; min-height: 36px;">
+            <span style="color: var(--text-secondary)">Loading...</span>
+          </div>
+
+          <div style="margin-top: 8px;">
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;">Advance clock</div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <input
+                type="number"
+                id="sim-advance-minutes"
+                value="30"
+                min="1"
+                style="flex: 1; font-size: 0.8rem; padding: 4px 6px;"
+              />
+              <span style="font-size: 0.72rem; color: var(--text-secondary); flex-shrink: 0;">min</span>
+              <button
+                onclick="simAdvance()"
+                style="padding: 4px 10px; font-size: 0.8rem; width: auto; flex-shrink: 0;"
+                title="Jump the simulated clock forward by N minutes"
+              >+</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 8px;">
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;">Speedup factor</div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <input
+                type="number"
+                id="sim-speedup-factor"
+                value="1"
+                min="0"
+                step="any"
+                style="flex: 1; font-size: 0.8rem; padding: 4px 6px;"
+              />
+              <span style="font-size: 0.72rem; color: var(--text-secondary); flex-shrink: 0;">x</span>
+              <button
+                onclick="simSetSpeedup()"
+                style="padding: 4px 10px; font-size: 0.8rem; width: auto; flex-shrink: 0;"
+                title="1x = real-time, 60x = 1 real sec equals 1 sim min"
+              >Set</button>
+            </div>
+          </div>
+
+          <button
+            onclick="simReset()"
+            style="
+              width: 100%;
+              margin-top: 10px;
+              background: rgba(234, 179, 8, 0.15);
+              border: 1px solid rgba(234, 179, 8, 0.35);
+              color: #fde047;
+              font-size: 0.78rem;
+              padding: 7px;
+            "
+          >Reset to Real-Time</button>
+
+          <div id="sim-time-msg" style="font-size: 0.7rem; margin-top: 6px; display: none;"></div>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+          <button
+            class="tab-btn active"
+            data-tab="all-logs"
+            onclick="switchTab('all-logs')"
+          >
+            All Logs
+          </button>
+          <button class="tab-btn" data-tab="scout" onclick="switchTab('scout')">
+            Scout
+          </button>
+          <button class="tab-btn" data-tab="flood" onclick="switchTab('flood')">
+            Flood
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="hazard"
+            onclick="switchTab('hazard')"
+          >
+            Hazard
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="routing"
+            onclick="switchTab('routing')"
+          >
+            Routing
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="evacuation"
+            onclick="switchTab('evacuation')"
+          >
+            Evacuation
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="orchestrator"
+            onclick="switchTab('orchestrator')"
+          >
+            Orchestrator
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="risk-map"
+            onclick="switchTab('risk-map')"
+          >
+            Risk Map
+          </button>
+          <button
+            class="tab-btn"
+            data-tab="settings"
+            onclick="switchTab('settings')"
+          >
+            Settings
+          </button>
+        </div>
+
+        <!-- Tab: All Logs -->
+        <div class="tab-panel active" id="panel-all-logs">
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>System Logs</span>
+              <div class="filter-bar">
+                <select id="filter-level" onchange="fetchLogs()">
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+                <button
+                  onclick="fetchLogs()"
+                  style="padding: 2px 8px; font-size: 0.7rem; width: auto"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div id="logs-output" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Scout Agent -->
+        <div class="tab-panel" id="panel-scout">
+          <div id="scout-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Scout Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-scout"
+                  onchange="fetchAgentLogs('scout')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-scout" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Flood Agent -->
+        <div class="tab-panel" id="panel-flood">
+          <div id="flood-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Flood Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-flood"
+                  onchange="fetchAgentLogs('flood')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-flood" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Hazard Agent -->
+        <div class="tab-panel" id="panel-hazard">
+          <div id="hazard-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Hazard Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-hazard"
+                  onchange="fetchAgentLogs('hazard')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-hazard" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Routing Agent -->
+        <div class="tab-panel" id="panel-routing">
+          <div id="routing-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Routing Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-routing"
+                  onchange="fetchAgentLogs('routing')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-routing" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Evacuation Agent -->
+        <div class="tab-panel" id="panel-evacuation">
+          <div id="evacuation-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Evacuation Manager Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-evacuation"
+                  onchange="fetchAgentLogs('evacuation')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-evacuation" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Orchestrator Agent -->
+        <div class="tab-panel" id="panel-orchestrator">
+          <div id="orchestrator-stats" class="stats-grid"></div>
+          <div class="card logs-card">
+            <div
+              class="card-header"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+              "
+            >
+              <span>Orchestrator Agent Logs</span>
+              <div class="filter-bar">
+                <select
+                  id="filter-level-orchestrator"
+                  onchange="fetchAgentLogs('orchestrator')"
+                >
+                  <option value="">All Levels</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+            </div>
+            <div id="logs-orchestrator" class="logs-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Risk Map -->
+        <div class="tab-panel" id="panel-risk-map">
+          <div class="map-wrapper">
+            <div class="map-sidebar">
+              <!-- Layer Selection -->
+              <div class="card">
+                <div class="card-header">Layer</div>
+                <label class="layer-option">
+                  <input
+                    type="radio"
+                    name="map-layer"
+                    value="risk"
+                    checked
+                    onchange="setMapMode('risk')"
+                  />
+                  Risk Score
+                </label>
+              </div>
+
+              <!-- Legend -->
+              <div class="card">
+                <div class="card-header">Legend</div>
+                <div id="map-legend"></div>
+              </div>
+
+              <!-- Statistics -->
+              <div class="card">
+                <div class="card-header">Statistics</div>
+                <div id="map-stats-content">Loading...</div>
+              </div>
+
+              <!-- Distribution -->
+              <div class="card">
+                <div class="card-header">Risk Distribution</div>
+                <div id="map-distribution"></div>
+              </div>
+
+              <!-- Refresh Controls -->
+              <div class="card">
+                <div class="card-header">Refresh</div>
+                <div class="map-refresh-bar">
+                  <label>
+                    <input
+                      type="checkbox"
+                      id="map-auto-refresh"
+                      onchange="toggleMapAutoRefresh()"
+                    />
+                    Auto (10s)
+                  </label>
+                  <button
+                    onclick="refreshMapData()"
+                    style="
+                      padding: 4px 12px;
+                      font-size: 0.75rem;
+                      width: auto;
+                    "
+                  >
+                    Refresh Now
+                  </button>
+                </div>
+                <div
+                  id="map-last-refresh"
+                  style="
+                    font-size: 0.65rem;
+                    color: var(--text-secondary);
+                    margin-top: 6px;
+                  "
+                ></div>
+              </div>
+            </div>
+            <div id="risk-map-container"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Settings -->
+        <div class="tab-panel" id="panel-settings">
+          <div class="settings-wrapper">
+            <div class="settings-toolbar">
+              <button class="btn-apply" onclick="applyAllSettings()">
+                Apply Changes
+              </button>
+              <button class="btn-save" onclick="saveConfigToFile()">
+                Save to File
+              </button>
+              <button class="btn-reload" onclick="reloadConfigFromFile()">
+                Reload from File
+              </button>
+              <span class="status-msg" id="settings-status"></span>
+            </div>
+            <div class="settings-scroll" id="settings-container">
+              Loading configuration...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "/api/v1/agents";
+      let activeTab = "all-logs";
+      let agentsCache = [];
+
+      const TAB_LOG_FILTER = {
+        scout: "scout_agent",
+        flood: "flood_agent",
+        hazard: "hazard_agent",
+        routing: "routing_agent",
+        evacuation: "evacuation_manager_agent",
+        orchestrator: "orchestrator_agent",
+      };
+
+      const TYPE_TO_ROLE = {
+        ScoutAgent: "scout",
+        FloodAgent: "flood",
+        HazardAgent: "hazard",
+        RoutingAgent: "routing",
+        EvacuationManagerAgent: "evacuation",
+        OrchestratorAgent: "orchestrator",
+      };
+
+      setInterval(() => {
+        if (activeTab === "all-logs") fetchLogs();
+        else fetchAgentLogs(activeTab);
+      }, 2000);
+      setInterval(fetchAgents, 5000);
+
+      fetchLogs();
+      fetchAgents();
+
+      function switchTab(tabId) {
+        activeTab = tabId;
+        document.querySelectorAll(".tab-btn").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.tab === tabId);
+        });
+        document.querySelectorAll(".tab-panel").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === "panel-" + tabId);
+        });
+        document.querySelectorAll(".agent-item").forEach((el) => {
+          el.classList.toggle("selected", el.dataset.role === tabId);
+        });
+        if (tabId === "all-logs") fetchLogs();
+        else if (tabId === "risk-map") {
+          initRiskMap();
+          renderLegend();
+        } else if (tabId === "settings") {
+          loadSettings();
+        } else {
+          renderAgentStats(tabId);
+          fetchAgentLogs(tabId);
+        }
+      }
+
+      function selectAgent(role) {
+        switchTab(role);
+      }
+
+      async function fetchAgents() {
+        try {
+          const response = await fetch(API_BASE + "/");
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          agentsCache = await response.json();
+
+          const list = document.getElementById("agent-list");
+          list.innerHTML = agentsCache
+            .map((a) => {
+              const role = TYPE_TO_ROLE[a.type] || a.id;
+              return `<div class="agent-item ${activeTab === role ? "selected" : ""}"
+                     data-role="${role}" onclick="selectAgent('${role}')">
+                <div class="agent-info">
+                  <span class="agent-name">${escapeHtml(a.type)}</span>
+                  <span class="agent-id">${escapeHtml(a.id)}</span>
+                </div>
+                <span class="agent-status ${a.status}">${a.status}</span>
+              </div>`;
+            })
+            .join("");
+
+          document.getElementById("connection-status").style.color =
+            "var(--success)";
+          document.getElementById("connection-status").textContent =
+            "\u25CF Connected";
+          if (activeTab !== "all-logs") renderAgentStats(activeTab);
+        } catch (e) {
+          console.error("Agent fetch error", e);
+          document.getElementById("connection-status").style.color =
+            "var(--error)";
+          document.getElementById("connection-status").textContent =
+            "\u25CF Disconnected";
+        }
+      }
+
+      function renderAgentStats(role) {
+        const container = document.getElementById(role + "-stats");
+        if (!container) return;
+        const typeName = Object.keys(TYPE_TO_ROLE).find(
+          (k) => TYPE_TO_ROLE[k] === role,
+        );
+        const agent = agentsCache.find((a) => a.type === typeName);
+        if (!agent || !agent.details) {
+          container.innerHTML = `<div class="stat-card"><div class="stat-label">Status</div><div class="stat-value">${agent ? agent.status : "Unknown"}</div></div>`;
+          return;
+        }
+        const details = agent.details;
+        container.innerHTML = Object.entries(details)
+          .map(([key, value]) => {
+            const label = key
+              .replace(/_/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+            let displayValue = value;
+            let valueClass = "";
+            if (typeof value === "boolean") {
+              displayValue = value ? "Yes" : "No";
+              valueClass = value ? "bool-true" : "bool-false";
+            } else if (value === null || value === undefined)
+              displayValue = "N/A";
+            else if (typeof value === "number")
+              displayValue = Number.isInteger(value) ? value : value.toFixed(2);
+            else if (typeof value === "object")
+              displayValue = Object.entries(value)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(", ");
+            return `<div class="stat-card"><div class="stat-label">${escapeHtml(label)}</div><div class="stat-value ${valueClass}">${escapeHtml(String(displayValue))}</div></div>`;
+          })
+          .join("");
+      }
+
+      async function fetchLogs() {
+        try {
+          const level = document.getElementById("filter-level").value;
+          let url = API_BASE + "/logs?limit=200";
+          if (level) url += "&level=" + encodeURIComponent(level);
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const logs = await response.json();
+          const container = document.getElementById("logs-output");
+          container.innerHTML = logs.map(renderLogEntry).join("");
+          container.scrollTop = container.scrollHeight;
+        } catch (e) {
+          console.error("Log fetch error", e);
+        }
+      }
+
+      async function fetchAgentLogs(role) {
+        const loggerFragment = TAB_LOG_FILTER[role];
+        if (!loggerFragment) return;
+        try {
+          const levelSelect = document.getElementById("filter-level-" + role);
+          const level = levelSelect ? levelSelect.value : "INFO";
+          let url =
+            API_BASE +
+            "/logs?limit=200&agent_id=" +
+            encodeURIComponent(loggerFragment);
+          if (level) url += "&level=" + encodeURIComponent(level);
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const logs = await response.json();
+          const container = document.getElementById("logs-" + role);
+          if (!container) return;
+          container.innerHTML = logs.map(renderLogEntry).join("");
+          container.scrollTop = container.scrollHeight;
+        } catch (e) {
+          console.error("Log fetch error for " + role + ":", e);
+        }
+      }
+
+      function renderLogEntry(log) {
+        return `<div class="log-entry">
+          <span class="log-ts">${new Date(log.timestamp).toLocaleTimeString()}</span>
+          <span class="log-level ${log.level}">${log.level}</span>
+          <span class="log-logger">[${log.logger.split(".").pop()}]</span>
+          <span class="log-msg">${escapeHtml(log.message)}</span>
+        </div>`;
+      }
+
+      async function resetGraph() {
+        const btn = document.getElementById("btn-reset-graph");
+        const statusEl = document.getElementById("reset-graph-status");
+        btn.disabled = true;
+        btn.textContent = "Resetting...";
+        statusEl.style.display = "block";
+        statusEl.style.color = "var(--warning)";
+        statusEl.textContent = "Resetting graph...";
+        try {
+          const res = await fetch("/api/graph/reset", { method: "POST" });
+          const data = await res.json();
+          if (data.status === "success") {
+            statusEl.style.color = "var(--success)";
+            statusEl.textContent = data.message;
+          } else {
+            statusEl.style.color = "var(--error)";
+            statusEl.textContent = "Failed: " + data.message;
+          }
+        } catch (e) {
+          statusEl.style.color = "var(--error)";
+          statusEl.textContent = "Error: " + e.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Reset Graph";
+          setTimeout(() => { statusEl.style.display = "none"; }, 5000);
+        }
+      }
+
+      function escapeHtml(unsafe) {
+        return unsafe
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      /* ───────────── Risk Map ───────────── */
+      let riskMap = null;
+      let edgeLayer = null;
+      let mapMode = "risk";
+      let mapAutoRefreshTimer = null;
+
+      function initRiskMap() {
+        if (riskMap) {
+          riskMap.invalidateSize();
+          return;
+        }
+        riskMap = L.map("risk-map-container", {
+          center: [14.6507, 121.1029],
+          zoom: 14,
+          renderer: L.canvas(),
+        });
+        L.tileLayer(
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          { attribution: "&copy; OpenStreetMap", maxZoom: 19 },
+        ).addTo(riskMap);
+        // Leaflet needs a resize kick after the hidden tab becomes visible
+        setTimeout(function () {
+          riskMap.invalidateSize();
+        }, 120);
+        refreshMapData();
+      }
+
+      /* ── colour helpers ── */
+      function getRiskColor(score) {
+        var s = Math.max(0, Math.min(1, score));
+        // hue 120 (green) → 0 (red)
+        var hue = 120 * (1 - s);
+        var sat = 70 + s * 15;
+        var lit = 48 - s * 8;
+        return "hsl(" + hue + "," + sat + "%," + lit + "%)";
+      }
+
+      function getFloodColor(depth) {
+        if (depth <= 0) return "#64748b";
+        if (depth < 0.1) return "#93c5fd";
+        if (depth < 0.3) return "#3b82f6";
+        if (depth < 0.5) return "#1d4ed8";
+        if (depth < 1.0) return "#1e3a8a";
+        if (depth < 2.0) return "#7c3aed";
+        return "#581c87";
+      }
+
+      function styleEdge(feature) {
+        var p = feature.properties;
+        var r = p.risk_score;
+        return {
+          color: getRiskColor(r),
+          weight: Math.max(1.5, 1.5 + r * 4),
+          opacity: Math.max(0.4, 0.4 + r * 0.6),
+        };
+      }
+
+      /* ── data loading ── */
+      async function refreshMapData() {
+        try {
+          var res = await fetch("/api/graph/edges/geojson");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          var geojson = await res.json();
+
+          if (edgeLayer) riskMap.removeLayer(edgeLayer);
+
+          edgeLayer = L.geoJSON(geojson, {
+            style: styleEdge,
+            onEachFeature: function (feature, layer) {
+              var p = feature.properties;
+              layer.bindPopup(
+                '<div style="font-size:13px;line-height:1.6">' +
+                  "<b>" +
+                  escapeHtml(p.name || "Unnamed road") +
+                  "</b><br>" +
+                  'Risk: <b style="color:' +
+                  getRiskColor(p.risk_score) +
+                  '">' +
+                  (p.risk_score * 100).toFixed(1) +
+                  "%</b><br>" +
+                  "Length: " +
+                  p.length.toFixed(0) +
+                  " m<br>" +
+                  "Type: " +
+                  escapeHtml(String(p.highway)) +
+                  "</div>",
+              );
+            },
+          }).addTo(riskMap);
+
+          document.getElementById("map-last-refresh").textContent =
+            "Last: " + new Date().toLocaleTimeString();
+          loadMapStats();
+        } catch (e) {
+          console.error("Map data error:", e);
+          document.getElementById("map-last-refresh").textContent =
+            "Error: " + e.message;
+        }
+      }
+
+      async function loadMapStats() {
+        try {
+          var res = await fetch("/api/graph/statistics");
+          if (!res.ok) return;
+          var s = await res.json();
+
+          document.getElementById("map-stats-content").innerHTML =
+            '<div class="map-stat"><span>Total Edges</span><span>' +
+            s.total_edges.toLocaleString() +
+            "</span></div>" +
+            '<div class="map-stat"><span>Avg Risk</span><span>' +
+            (s.avg_risk_score * 100).toFixed(1) +
+            "%</span></div>" +
+            '<div class="map-stat"><span>Max Risk</span><span>' +
+            (s.max_risk_score * 100).toFixed(1) +
+            "%</span></div>" +
+            '<div class="map-stat"><span>Std Dev</span><span>' +
+            (s.std_risk_score * 100).toFixed(1) +
+            "%</span></div>" +
+            '<div class="map-stat"><span>Low Risk</span><span class="risk-low">' +
+            s.low_risk_edges.toLocaleString() +
+            "</span></div>" +
+            '<div class="map-stat"><span>Medium Risk</span><span class="risk-medium">' +
+            s.medium_risk_edges.toLocaleString() +
+            "</span></div>" +
+            '<div class="map-stat"><span>High Risk</span><span class="risk-high">' +
+            s.high_risk_edges.toLocaleString() +
+            "</span></div>";
+
+          renderDistribution(s.risk_distribution, s.total_edges);
+        } catch (e) {
+          console.error("Stats error:", e);
+        }
+      }
+
+      function renderDistribution(dist, total) {
+        if (!dist) return;
+        var container = document.getElementById("map-distribution");
+        var maxCount = Math.max(
+          ...Object.values(dist).map(Number),
+          1,
+        );
+        var html = "";
+        for (var range in dist) {
+          var count = dist[range];
+          var pct = ((count / maxCount) * 100).toFixed(0);
+          var midVal = parseFloat(range.split("-")[0]) + 0.05;
+          var color = getRiskColor(midVal);
+          html +=
+            '<div class="dist-bar-row">' +
+            '<span class="dist-label">' +
+            range +
+            "</span>" +
+            '<div style="flex:1;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden">' +
+            '<div class="dist-bar" style="width:' +
+            pct +
+            "%;background:" +
+            color +
+            '"></div></div>' +
+            '<span class="dist-count">' +
+            count +
+            "</span></div>";
+        }
+        container.innerHTML = html;
+      }
+
+      /* ── layer controls ── */
+      function setMapMode(mode) {
+        mapMode = mode;
+        renderLegend();
+        if (edgeLayer) edgeLayer.setStyle(styleEdge);
+      }
+
+      function renderLegend() {
+        var el = document.getElementById("map-legend");
+        if (!el) return;
+        if (mapMode === "risk") {
+          el.innerHTML =
+            '<div class="legend-bar" style="background:linear-gradient(to right,hsl(120,70%,48%),hsl(60,78%,44%),hsl(30,82%,42%),hsl(0,85%,40%))"></div>' +
+            '<div class="legend-labels"><span>0% Safe</span><span>30%</span><span>60%</span><span>100% High</span></div>';
+        } else {
+          el.innerHTML =
+            '<div class="legend-bar" style="background:linear-gradient(to right,#64748b,#93c5fd,#3b82f6,#1d4ed8,#1e3a8a,#7c3aed,#581c87)"></div>' +
+            '<div class="legend-labels"><span>0 m (dry)</span><span>0.3</span><span>0.5</span><span>1.0</span><span>2.0+ m</span></div>';
+        }
+      }
+
+      /* ── auto-refresh ── */
+      function toggleMapAutoRefresh() {
+        var checked = document.getElementById("map-auto-refresh").checked;
+        if (checked) {
+          mapAutoRefreshTimer = setInterval(refreshMapData, 10000);
+        } else {
+          if (mapAutoRefreshTimer) clearInterval(mapAutoRefreshTimer);
+          mapAutoRefreshTimer = null;
+        }
+      }
+
+      /* ───────────── Settings Tab ───────────── */
+      var _cfgOriginal = {}; // snapshot at load time (for change detection)
+      var _cfgCurrent = {}; // live working copy
+      var _settingsLoaded = false;
+
+      /* Human-friendly labels for YAML sections */
+      var SECTION_LABELS = {
+        hazard_agent: "Hazard Agent",
+        routing_agent: "Routing Agent",
+        flood_agent: "Flood Agent",
+        scout_agent: "Scout Agent",
+        orchestrator_agent: "Orchestrator Agent",
+        evacuation_manager_agent: "Evacuation Manager",
+        global: "Global",
+        validation: "Validation",
+        llm_service: "LLM Service",
+        mock_sources: "Mock Data Sources",
+      };
+
+      /* Descriptions for every config field, keyed as "dotted.path" */
+      var CFG_DESC = {
+        routing_agent: {
+          "risk_penalties.safest_mode":
+            "Cost multiplier for safest route. Formula: edge_cost = length * (1 + risk * weight). risk=0.8 edge costs 81x its length.",
+          "risk_penalties.balanced_mode":
+            "Cost multiplier for balanced route. risk=0.8 edge costs 3.4x its length.",
+          "risk_penalties.fastest_mode":
+            "Cost multiplier for fastest route. 0 = ignore risk entirely (dangerous in floods).",
+          "search.max_node_distance_m":
+            "Max distance (m) to snap a coordinate to the nearest road node.",
+          "search.cache_enabled":
+            "Cache coordinate-to-node lookups for faster repeated queries.",
+          "search.cache_ttl_seconds":
+            "How long (sec) a cached node lookup stays valid.",
+          "search.cache_max_entries":
+            "Max cached lookups before oldest are evicted.",
+          "warnings.long_route_threshold_m":
+            "Warn user if the computed route is longer than this (meters).",
+          "warnings.high_risk_threshold":
+            "Risk score >= this value triggers a high-risk warning on the route.",
+          "warnings.critical_risk_threshold":
+            "Risk score >= this value triggers a critical-risk alert.",
+          "warnings.moderate_risk_threshold":
+            "Risk score >= this value triggers a caution notice.",
+          "evacuation.max_centers_to_evaluate":
+            "How many of the nearest evacuation centers are evaluated for routing.",
+          "evacuation.prefer_capacity_over_distance":
+            "Prioritize shelters with larger capacity over closer ones.",
+        },
+        hazard_agent: {
+          "caches.max_flood_entries":
+            "Max official flood data entries kept in memory.",
+          "caches.max_scout_entries":
+            "Max crowdsourced scout reports kept in memory.",
+          "caches.cleanup_interval_sec":
+            "Seconds between automatic cache cleanup passes.",
+          "caches.use_deque":
+            "Use deque for O(1) eviction (recommended).",
+          "caches.max_risk_history":
+            "Max risk history entries stored per location.",
+          "risk_weights.flood_depth":
+            "Weight for official flood depth data. Weights must sum to 1.0.",
+          "risk_weights.crowdsourced":
+            "Weight for scout crowdsourced reports. Weights must sum to 1.0.",
+          "risk_weights.historical":
+            "Weight for historical flood patterns. Weights must sum to 1.0.",
+          "risk_decay.enable":
+            "Enable time-based risk decay so risk decreases as data ages.",
+          "risk_decay.scout_fast_rate":
+            "Decay rate (%/min) for rain-based flooding (drains quickly).",
+          "risk_decay.scout_slow_rate":
+            "Decay rate (%/min) for river/dam flooding (slow recession).",
+          "risk_decay.flood_rate":
+            "Decay rate (%/min) for official flood agency data.",
+          "risk_decay.ttl_minutes.scout_reports":
+            "Minutes before scout reports expire and are ignored.",
+          "risk_decay.ttl_minutes.flood_data":
+            "Minutes before official flood data expires.",
+          "risk_decay.risk_floor":
+            "Minimum risk maintained until a scout validates 'all clear'.",
+          "risk_decay.min_threshold":
+            "Risk below this is treated as zero / clear.",
+          "spatial.enable_filtering":
+            "Only apply risk within the defined radius of a report location.",
+          "spatial.risk_radius_m":
+            "Radius (m) around a report within which risk is applied to edges.",
+          "spatial.use_spatial_index":
+            "Use a grid-based spatial index for faster proximity lookups.",
+          "spatial.grid_size_degrees":
+            "Grid cell size in degrees (~1.1km per 0.01 deg).",
+          "spatial.decay_function":
+            "How risk decreases with distance from source: linear, exponential, or gaussian.",
+          "visual_override.risk_threshold":
+            "Min visual-analysis risk score to override hazard assessment.",
+          "visual_override.confidence_threshold":
+            "Min visual-analysis confidence to trigger an override.",
+          "dam_threat_modifier.enable":
+            "Apply city-wide risk boost from upstream dam water levels.",
+          "dam_threat_modifier.additive_weight":
+            "Flat risk added to all edges when dams are threatening (max ~0.2).",
+          "dam_threat_modifier.multiplicative_weight":
+            "Factor that amplifies existing edge risk from dam threat (max 1.0).",
+          "dam_threat_modifier.threat_decay_minutes":
+            "Dam data older than this many minutes is ignored.",
+          "dem.enable":
+            "Enable DEM (Digital Elevation Model) terrain-based risk prior.",
+          "dem.file_path":
+            "Path to the DEM GeoTIFF raster file.",
+          "dem.weight_terrain_risk":
+            "Additive weight for terrain risk on top of existing risk sources.",
+          "dem.neighborhood_radius_pixels":
+            "Pixel window for local relative elevation (~31m/pixel).",
+          "dem.low_elevation_threshold":
+            "Meters below neighborhood mean that equals 50% terrain risk.",
+          "dem.slope_drain_threshold":
+            "Slope (degrees) that gets full drainage discount in dry conditions.",
+          "dem.enable_flood_depth_estimation":
+            "Estimate flood depth by interpolating water surface from station data over DEM.",
+          "dem.river_station_interpolation_radius_m":
+            "Max distance (m) for IDW interpolation of water surface elevation.",
+          "dem.regional_radius_pixels":
+            "Wide window for regional relative elevation analysis (~2km).",
+          "dem.barrier_check_enabled":
+            "Skip IDW water interpolation across ridges and levees (line-of-sight check).",
+          "dem.barrier_sample_points":
+            "Number of interior sample points for the line-of-sight barrier check.",
+          "dem.velocity_penalty_enabled":
+            "Apply slope-based water velocity penalty during active flooding.",
+          "dem.wet_slope_depth_threshold":
+            "Flood depth (m) threshold that switches to the wet-slope velocity model.",
+          "dem.velocity_constant":
+            "Multiplier for slope velocity penalty [0..1].",
+          "dem.prior_fade_enabled":
+            "Gradually fade terrain prior when real sensor data confirms dry conditions.",
+          "dem.water_level_is_depth":
+            "true = water level readings are depth above ground. false = readings are absolute elevation (datum).",
+          "river_proximity.enable":
+            "Enable river proximity risk prior. Roads near Marikina River / Nangka River get baseline risk proportional to their distance from the waterway.",
+          "river_proximity.cache_file":
+            "Local GeoJSON file path for cached waterway geometries. Fetched from OSMnx on first startup if absent.",
+          "river_proximity.weight":
+            "Additive risk weight for river proximity (mirrors DEM terrain weight). Applied on top of existing risk sources.",
+          "river_proximity.decay_distance_m":
+            "e-folding decay distance in metres. Risk drops to ~37% at this distance and ~5% at 3x this distance.",
+          "river_proximity.fetch_place":
+            "Place name passed to osmnx.features_from_place() to fetch waterway geometries on first startup.",
+          "formulas.depth_to_risk.method":
+            "Method to convert flood depth to risk: sigmoid (recommended), linear, or exponential.",
+          "formulas.depth_to_risk.sigmoid_steepness":
+            "Sigmoid k parameter. Higher = sharper risk transition around the inflection point.",
+          "formulas.depth_to_risk.sigmoid_inflection":
+            "Sigmoid x0: flood depth (m) at which risk equals 50%. FEMA standard: 0.3m (1ft).",
+          "formulas.depth_to_risk.max_depth_m":
+            "Flood depth >= this is always 100% risk.",
+          "formulas.rainfall_thresholds_mm.light":
+            "Light rainfall threshold (mm/hour).",
+          "formulas.rainfall_thresholds_mm.moderate":
+            "Moderate rainfall threshold (mm/hour).",
+          "formulas.rainfall_thresholds_mm.heavy":
+            "Heavy rainfall threshold (mm/hour).",
+          "formulas.rainfall_thresholds_mm.extreme":
+            "Extreme/torrential rainfall threshold (mm/hour, PAGASA standard).",
+        },
+        flood_agent: {
+          update_interval_sec:
+            "Seconds between data collection cycles from flood APIs.",
+          "apis.enable_real_apis":
+            "Connect to real PAGASA/weather APIs for live data.",
+          "apis.enable_simulated_fallback":
+            "Fall back to simulated data when real APIs are unavailable.",
+          "apis.timeouts_sec.scraper_timeout":
+            "Timeout (sec) for web scraper HTTP requests.",
+          "apis.timeouts_sec.api_timeout":
+            "Timeout (sec) for REST API requests.",
+          "passability.method":
+            "Vehicle passability method: velocity_depth_product (recommended) or depth_only.",
+          "passability.max_safe_depth_m":
+            "Max safe depth for cars. FEMA standard: 0.3m (1ft).",
+          "passability.flow_velocity_mps":
+            "Assumed water flow velocity (m/s) for urban flooding.",
+          "passability.danger_threshold":
+            "depth * velocity product above this is dangerous for vehicles.",
+          "risk_thresholds.rainfall_mm.light":
+            "Light rainfall threshold (mm/hr).",
+          "risk_thresholds.rainfall_mm.moderate":
+            "Moderate rainfall threshold (mm/hr).",
+          "risk_thresholds.rainfall_mm.heavy":
+            "Heavy rainfall threshold (mm/hr).",
+          "risk_thresholds.rainfall_mm.extreme":
+            "Extreme rainfall threshold (mm/hr).",
+          "risk_thresholds.water_level_deviations_m.alert":
+            "Water level deviation (m) that triggers alert/watch status.",
+          "risk_thresholds.water_level_deviations_m.alarm":
+            "Water level deviation (m) that triggers alarm/warning status.",
+          "risk_thresholds.water_level_deviations_m.critical":
+            "Water level deviation (m) that triggers critical/evacuate status.",
+          "risk_thresholds.dam_levels_m.alert":
+            "Dam level deviation (m) for alert status.",
+          "risk_thresholds.dam_levels_m.alarm":
+            "Dam level deviation (m) for alarm status.",
+          "risk_thresholds.dam_levels_m.critical":
+            "Dam level deviation (m) for critical status.",
+        },
+        scout_agent: {
+          batch_size:
+            "Number of social media reports processed per agent step.",
+          max_queue_size:
+            "Max queued reports before oldest are dropped.",
+          "simulation.default_scenario":
+            "Scenario preset: 1 = light flooding, 2 = moderate, 3 = severe.",
+          "simulation.use_ml_prediction":
+            "Use ML classifier vs. ground truth labels in simulation mode.",
+          "nlp.min_confidence":
+            "Minimum NLP confidence score to classify a report as flood-related.",
+          "nlp.extract_severity":
+            "Extract flood severity level from report text.",
+          "nlp.extract_location":
+            "Extract geographic location from report text.",
+          "deduplication.temporal_window_minutes":
+            "Skip duplicate reports from the same location within this window (min).",
+          scraper_throttle_interval_seconds:
+            "Minimum seconds between social media scrape API calls.",
+          default_confidence:
+            "Default confidence assigned to reports without explicit confidence.",
+        },
+        evacuation_manager_agent: {
+          "history.max_route_history":
+            "Max past evacuation routes kept in memory.",
+          "history.max_feedback_history":
+            "Max user feedback entries remembered.",
+          "history.use_deque":
+            "Use deque for O(1) automatic eviction of old entries.",
+          "feedback.default_confidence":
+            "Default confidence for user-reported road conditions.",
+          "feedback.weight_recent_feedback":
+            "Weight for recent feedback vs. older feedback [0..1].",
+          "feedback.feedback_ttl_hours":
+            "Hours before user feedback expires and is ignored.",
+          "evacuation.always_use_safest_mode":
+            "Always use safest routing mode for evacuation routes (ignores user preference).",
+          "evacuation.check_center_capacity":
+            "Check shelter capacity before suggesting it as a destination.",
+          "evacuation.warn_if_far":
+            "Warn user if the nearest shelter exceeds 10km.",
+        },
+        orchestrator_agent: {
+          "timeouts.default":
+            "Fallback timeout (sec) for unknown mission types.",
+          "timeouts.assess_risk":
+            "Timeout (sec) for risk assessment pipeline: Scout -> Flood -> Hazard.",
+          "timeouts.coordinated_evacuation":
+            "Timeout (sec) for evacuation coordination missions.",
+          "timeouts.route_calculation":
+            "Timeout (sec) for direct route calculation.",
+          "timeouts.cascade_risk_update":
+            "Timeout (sec) for cascade risk update: Flood -> Hazard pipeline.",
+          "timeouts.multi_step":
+            "Timeout (sec) for multi-step sequential missions (max 3 steps).",
+          max_concurrent_missions:
+            "Max simultaneous active missions the orchestrator can manage.",
+          max_completed_history:
+            "Completed missions kept in memory for status polling.",
+          max_chat_turns:
+            "Max conversation history turns for orchestrator chat.",
+          "retry.max_retries":
+            "Max retries per failed mission step.",
+          "retry.retry_delay_seconds":
+            "Delay (sec) between mission step retries.",
+        },
+        global: {
+          "logging.level":
+            "Log level filter: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
+          "logging.log_agent_steps":
+            "Log every agent step() call. Very verbose; useful for debugging.",
+          "logging.log_message_queue":
+            "Log MAS message passing between agents.",
+          "message_queue.max_queue_size":
+            "Maximum messages the inter-agent message queue can hold.",
+          "message_queue.message_ttl_seconds":
+            "Messages expire after this many seconds.",
+          "message_queue.enable_dead_letter":
+            "Keep failed/expired messages in a dead-letter queue for debugging.",
+          "message_queue.max_dead_letters":
+            "Max entries in the dead-letter queue.",
+          "performance.enable_profiling":
+            "Enable application-wide performance profiling.",
+          "performance.profile_slow_operations":
+            "Log any operation that exceeds the slow threshold.",
+          "performance.slow_operation_threshold_ms":
+            "Threshold (ms) for what counts as a slow operation.",
+        },
+        validation: {
+          "coordinates.min_latitude":
+            "Minimum valid latitude (Philippines southern bound).",
+          "coordinates.max_latitude":
+            "Maximum valid latitude (Philippines northern bound).",
+          "coordinates.min_longitude":
+            "Minimum valid longitude (Philippines western bound).",
+          "coordinates.max_longitude":
+            "Maximum valid longitude (Philippines eastern bound).",
+        },
+        llm_service: {
+          enable:
+            "Master switch for LLM (Ollama) integration across all agents.",
+          "ollama.base_url": "Ollama server URL.",
+          "ollama.text_model":
+            "Model name for text analysis (e.g. qwen3:4b).",
+          "ollama.vision_model":
+            "Model name for image/visual analysis (e.g. qwen3-vl).",
+          "ollama.timeout_seconds":
+            "Request timeout (sec) for LLM inference calls.",
+          "cache.enable":
+            "Cache LLM responses to skip redundant calls.",
+          "cache.max_entries":
+            "Max cached LLM responses.",
+          "cache.ttl_seconds":
+            "Cache TTL (sec) for LLM responses.",
+          "health_check.cache_seconds":
+            "How long (sec) to cache the LLM health check result.",
+          "health_check.retry_on_failure":
+            "Retry health check automatically when it fails.",
+          "fallback.enable":
+            "Fall back to rule-based NLP when LLM is unavailable.",
+          "fallback.log_fallbacks":
+            "Log whenever the system falls back from LLM to NLP.",
+          "visual_override.enable":
+            "Enable visual analysis override in HazardAgent.",
+          "visual_override.min_risk_threshold":
+            "Min visual risk score to trigger an override of the hazard assessment.",
+          "visual_override.min_confidence_threshold":
+            "Min visual confidence to trigger the override.",
+          "visual_override.log_overrides":
+            "Log each visual override event.",
+        },
+        mock_sources: {
+          enabled:
+            "Use local mock server instead of real APIs (for development).",
+          base_url: "Mock server base URL.",
+          "urls.river_scraper": "Mock URL for river level scraper.",
+          "urls.dam_scraper": "Mock URL for dam level scraper.",
+          "urls.weather_api": "Mock URL for weather API.",
+          "urls.advisory_pagasa":
+            "Mock URL for PAGASA flood advisory.",
+          "urls.advisory_rss": "Mock URL for news RSS feed.",
+          "urls.social_feed": "Mock URL for social media feed page.",
+          "urls.social_api": "Mock URL for social media tweets API.",
+        },
+      };
+
+      async function loadSettings() {
+        try {
+          var res = await fetch("/api/admin/config");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          _cfgOriginal = await res.json();
+          _cfgCurrent = JSON.parse(JSON.stringify(_cfgOriginal));
+          renderSettings(_cfgCurrent);
+          _settingsLoaded = true;
+        } catch (e) {
+          document.getElementById("settings-container").textContent =
+            "Error loading config: " + e.message;
+        }
+      }
+
+      function renderSettings(cfg) {
+        var container = document.getElementById("settings-container");
+        var html = "";
+        for (var section in cfg) {
+          var label = SECTION_LABELS[section] || section;
+          html +=
+            '<div class="cfg-section" data-section="' +
+            section +
+            '">' +
+            '<div class="cfg-section-header" onclick="toggleSection(this.parentElement)">' +
+            "<span>" +
+            escapeHtml(label) +
+            "</span>" +
+            '<span class="chevron">&#9654;</span>' +
+            "</div>" +
+            '<div class="cfg-section-body">' +
+            renderFields(cfg[section], section, "") +
+            "</div></div>";
+        }
+        container.innerHTML = html;
+      }
+
+      function getDesc(section, path) {
+        var d = CFG_DESC[section];
+        return d && d[path] ? d[path] : "";
+      }
+
+      function descHtml(section, path) {
+        var d = getDesc(section, path);
+        return d
+          ? '<div class="cfg-desc">' + escapeHtml(d) + "</div>"
+          : "";
+      }
+
+      function renderFields(obj, section, prefix) {
+        if (obj === null || obj === undefined) return "";
+        var html = "";
+        for (var key in obj) {
+          var val = obj[key];
+          var path = prefix ? prefix + "." + key : key;
+          var inputId =
+            "cfg-" + section + "-" + path.replace(/\./g, "-");
+          var label = key.replace(/_/g, " ");
+
+          if (val !== null && typeof val === "object" && !Array.isArray(val)) {
+            html +=
+              '<div class="cfg-group-label">' +
+              escapeHtml(label) +
+              "</div>";
+            html += renderFields(val, section, path);
+          } else if (typeof val === "boolean") {
+            html +=
+              '<div class="cfg-row">' +
+              '<label for="' +
+              inputId +
+              '">' +
+              escapeHtml(label) +
+              "</label>" +
+              '<label class="cfg-toggle">' +
+              '<input type="checkbox" id="' +
+              inputId +
+              '"' +
+              (val ? " checked" : "") +
+              ' onchange="onCfgChange(\'' +
+              section +
+              "','" +
+              path +
+              "',this.checked)\">" +
+              '<span class="slider"></span></label></div>' +
+              descHtml(section, path);
+          } else if (typeof val === "number") {
+            var step = Number.isInteger(val) ? "1" : "any";
+            html +=
+              '<div class="cfg-row">' +
+              '<label for="' +
+              inputId +
+              '">' +
+              escapeHtml(label) +
+              "</label>" +
+              '<input type="number" step="' +
+              step +
+              '" id="' +
+              inputId +
+              '" value="' +
+              val +
+              "\" onchange=\"onCfgChange('" +
+              section +
+              "','" +
+              path +
+              "',parseFloat(this.value))\">" +
+              "</div>" +
+              descHtml(section, path);
+          } else {
+            html +=
+              '<div class="cfg-row">' +
+              '<label for="' +
+              inputId +
+              '">' +
+              escapeHtml(label) +
+              "</label>" +
+              '<input type="text" id="' +
+              inputId +
+              '" value="' +
+              escapeHtml(String(val == null ? "" : val)) +
+              "\" onchange=\"onCfgChange('" +
+              section +
+              "','" +
+              path +
+              "',this.value)\">" +
+              "</div>" +
+              descHtml(section, path);
+          }
+        }
+        return html;
+      }
+
+      function onCfgChange(section, path, value) {
+        // Update working copy
+        var keys = path.split(".");
+        var obj = _cfgCurrent[section];
+        for (var i = 0; i < keys.length - 1; i++) {
+          obj = obj[keys[i]];
+        }
+        obj[keys[keys.length - 1]] = value;
+
+        // Highlight changed input
+        var inputId =
+          "cfg-" + section + "-" + path.replace(/\./g, "-");
+        var el = document.getElementById(inputId);
+        if (el) el.closest(".cfg-row").classList.add("cfg-changed");
+      }
+
+      function toggleSection(el) {
+        el.classList.toggle("open");
+      }
+
+      /* Collect changes for one section → flat nested object for PATCH */
+      function collectSectionChanges(section) {
+        var orig = _cfgOriginal[section] || {};
+        var curr = _cfgCurrent[section] || {};
+        return diffObjects(orig, curr);
+      }
+
+      function diffObjects(a, b) {
+        if (a === b) return undefined;
+        if (
+          typeof a !== "object" ||
+          typeof b !== "object" ||
+          a === null ||
+          b === null
+        ) {
+          return b;
+        }
+        var diff = {};
+        var hasDiff = false;
+        for (var key in b) {
+          var d = diffObjects(a[key], b[key]);
+          if (d !== undefined) {
+            diff[key] = d;
+            hasDiff = true;
+          }
+        }
+        return hasDiff ? diff : undefined;
+      }
+
+      async function applyAllSettings() {
+        var statusEl = document.getElementById("settings-status");
+        statusEl.textContent = "Applying...";
+        statusEl.style.color = "var(--warning)";
+        var applied = 0;
+        try {
+          for (var section in _cfgCurrent) {
+            var changes = collectSectionChanges(section);
+            if (!changes) continue;
+            var res = await fetch("/api/admin/config/" + section, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(changes),
+            });
+            if (!res.ok) throw new Error(section + ": HTTP " + res.status);
+            applied++;
+          }
+          // Snapshot becomes current
+          _cfgOriginal = JSON.parse(JSON.stringify(_cfgCurrent));
+          // Remove change highlights
+          document
+            .querySelectorAll(".cfg-changed")
+            .forEach(function (el) {
+              el.classList.remove("cfg-changed");
+            });
+          statusEl.style.color = "var(--success)";
+          statusEl.textContent =
+            applied > 0
+              ? "Applied " + applied + " section(s)"
+              : "No changes to apply";
+        } catch (e) {
+          statusEl.style.color = "var(--error)";
+          statusEl.textContent = "Error: " + e.message;
+        }
+      }
+
+      async function saveConfigToFile() {
+        var statusEl = document.getElementById("settings-status");
+        statusEl.textContent = "Saving...";
+        statusEl.style.color = "var(--warning)";
+        try {
+          // Apply pending in-memory changes first
+          await applyAllSettings();
+          var res = await fetch("/api/admin/config/save", {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          statusEl.style.color = "var(--success)";
+          statusEl.textContent = "Saved to agents.yaml";
+        } catch (e) {
+          statusEl.style.color = "var(--error)";
+          statusEl.textContent = "Save error: " + e.message;
+        }
+      }
+
+      async function reloadConfigFromFile() {
+        var statusEl = document.getElementById("settings-status");
+        statusEl.textContent = "Reloading...";
+        statusEl.style.color = "var(--warning)";
+        try {
+          var res = await fetch("/api/admin/config/reload", {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          // Re-fetch and re-render
+          await loadSettings();
+          statusEl.style.color = "var(--success)";
+          statusEl.textContent = "Reloaded from disk";
+        } catch (e) {
+          statusEl.style.color = "var(--error)";
+          statusEl.textContent = "Reload error: " + e.message;
+        }
+      }
+
+      /* ───────────── Simulated Time Control ───────────── */
+
+      async function fetchSimTime() {
+        try {
+          var res = await fetch("/api/admin/time/status");
+          if (!res.ok) return;
+          var s = await res.json();
+          var el = document.getElementById("sim-time-status");
+          if (!el) return;
+          if (s.is_real_time) {
+            el.innerHTML =
+              '<span style="color:var(--text-secondary)">Real-time (no offset)</span>';
+            // Reset speedup input to 1 if it matches real-time
+            var sfEl = document.getElementById("sim-speedup-factor");
+            if (sfEl && parseFloat(sfEl.value) !== 1) sfEl.value = "1";
+          } else {
+            var simTime = new Date(s.sim_time).toLocaleTimeString();
+            var offsetStr =
+              s.offset_minutes >= 0
+                ? "+" + s.offset_minutes.toFixed(1) + " min"
+                : s.offset_minutes.toFixed(1) + " min";
+            el.innerHTML =
+              '<span style="color:var(--warning);font-weight:600">Sim: ' +
+              simTime +
+              "</span><br>" +
+              '<span style="color:var(--text-secondary);font-size:0.7rem">' +
+              offsetStr +
+              " ahead" +
+              (s.speedup_factor !== 1
+                ? " &bull; " + s.speedup_factor + "x speed"
+                : "") +
+              "</span>";
+          }
+        } catch (e) {
+          // silently ignore — server may not be running yet
+        }
+      }
+
+      async function simAdvance() {
+        var minutes = parseFloat(
+          document.getElementById("sim-advance-minutes").value
+        );
+        if (isNaN(minutes) || minutes === 0) return;
+        try {
+          var res = await fetch("/api/admin/time/advance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ minutes: minutes }),
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          showSimMsg(
+            (minutes > 0 ? "+" : "") + minutes + " min applied",
+            true
+          );
+          fetchSimTime();
+        } catch (e) {
+          showSimMsg("Error: " + e.message, false);
+        }
+      }
+
+      async function simSetSpeedup() {
+        var factor = parseFloat(
+          document.getElementById("sim-speedup-factor").value
+        );
+        if (isNaN(factor) || factor < 0) return;
+        try {
+          var res = await fetch("/api/admin/time/speedup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ factor: factor }),
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          showSimMsg("Speedup set to " + factor + "x", true);
+          fetchSimTime();
+        } catch (e) {
+          showSimMsg("Error: " + e.message, false);
+        }
+      }
+
+      async function simReset() {
+        try {
+          var res = await fetch("/api/admin/time/reset", { method: "POST" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          document.getElementById("sim-speedup-factor").value = "1";
+          showSimMsg("Reset to real-time", true);
+          fetchSimTime();
+        } catch (e) {
+          showSimMsg("Error: " + e.message, false);
+        }
+      }
+
+      function showSimMsg(msg, ok) {
+        var el = document.getElementById("sim-time-msg");
+        el.style.display = "block";
+        el.style.color = ok ? "var(--success)" : "var(--error)";
+        el.textContent = msg;
+        setTimeout(function () {
+          el.style.display = "none";
+        }, 3000);
+      }
+
+      fetchSimTime();
+      setInterval(fetchSimTime, 3000);
+    </script>
+  </body>
+</html>

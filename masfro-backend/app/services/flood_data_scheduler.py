@@ -36,12 +36,14 @@ class FloodDataScheduler:
         stats: Collection statistics
     """
 
+    # Maximum collection history entries to prevent memory leaks
+    MAX_STATS_HISTORY = 100
+
     def __init__(
         self,
         flood_agent,
         interval_seconds: int = 300,
-        ws_manager: Optional[Any] = None,
-        hazard_agent: Optional[Any] = None
+        ws_manager: Optional[Any] = None
     ):
         """
         Initialize the scheduler.
@@ -50,12 +52,14 @@ class FloodDataScheduler:
             flood_agent: FloodAgent instance to schedule
             interval_seconds: Collection interval (default: 300 = 5 minutes)
             ws_manager: WebSocket ConnectionManager for broadcasting updates
-            hazard_agent: HazardAgent instance to forward data to (optional)
+
+        Note:
+            HazardAgent forwarding is now handled via MessageQueue. The
+            AgentLifecycleManager calls HazardAgent.step() to process messages.
         """
         self.flood_agent = flood_agent
         self.interval_seconds = interval_seconds
         self.ws_manager = ws_manager
-        self.hazard_agent = hazard_agent
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
@@ -68,14 +72,14 @@ class FloodDataScheduler:
             "last_success_time": None,
             "last_error": None,
             "scheduler_start_time": None,
-            "data_points_collected": 0
+            "data_points_collected": 0,
+            "collection_history": []  # Bounded list of recent collection runs
         }
 
         logger.info(
             f"FloodDataScheduler initialized with interval={interval_seconds}s "
             f"({interval_seconds/60:.1f} minutes), "
-            f"WebSocket broadcasting={'enabled' if ws_manager else 'disabled'}, "
-            f"HazardAgent forwarding={'enabled' if hazard_agent else 'disabled'}"
+            f"WebSocket broadcasting={'enabled' if ws_manager else 'disabled'}"
         )
 
     def _save_to_database(
@@ -199,13 +203,14 @@ class FloodDataScheduler:
                 duration = (end_time - start_time).total_seconds()
 
                 # Update statistics
-                self.stats["total_runs"] += 1
                 self.stats["last_run_time"] = end_time
 
                 if data:
-                    self.stats["successful_runs"] += 1
                     self.stats["last_success_time"] = end_time
                     self.stats["data_points_collected"] += len(data)
+
+                    # Update stats with size limit
+                    self._update_stats(success=True, duration=duration, data_points=len(data))
 
                     logger.info(
                         f"[OK] Scheduled collection successful: {len(data)} data points "
@@ -229,33 +234,24 @@ class FloodDataScheduler:
                             logger.error(f"WebSocket broadcast error: {ws_error}")
 
                     # Send data to HazardAgent via MessageQueue (MAS architecture)
+                    # Note: HazardAgent.step() is called by AgentLifecycleManager to process messages
                     try:
                         await asyncio.to_thread(
                             self.flood_agent.send_flood_data_via_message,
                             data
                         )
-                        logger.debug("Flood data sent to HazardAgent via MessageQueue")
+                        logger.info(
+                            f"[OK] Flood data sent to HazardAgent via MessageQueue "
+                            f"({len(data)} data points)"
+                        )
                     except Exception as msg_error:
                         logger.error(f"MessageQueue send error: {msg_error}")
 
-                    # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
-                    if self.hazard_agent:
-                        try:
-                            await asyncio.to_thread(
-                                self.hazard_agent.update_risk,
-                                flood_data=data,
-                                scout_data=[],
-                                time_step=0  # Real-time collection, not simulation
-                            )
-                            logger.info(
-                                f"✓ Forwarded {len(data)} data points to HazardAgent cache"
-                            )
-                        except Exception as hazard_error:
-                            logger.error(f"HazardAgent forwarding error: {hazard_error}")
-
                 else:
-                    self.stats["failed_runs"] += 1
                     logger.warning("[WARN] Scheduled collection returned no data")
+
+                    # Update stats with size limit
+                    self._update_stats(success=False, duration=duration, error="Collection returned no data")
                     # Save failed collection
                     await asyncio.to_thread(
                         self._save_failed_collection,
@@ -263,10 +259,12 @@ class FloodDataScheduler:
                     )
 
             except Exception as e:
-                self.stats["failed_runs"] += 1
                 self.stats["last_error"] = str(e)
                 self.stats["last_run_time"] = datetime.now()
                 logger.error(f"[ERROR] Scheduled collection error: {e}")
+
+                # Update stats with size limit
+                self._update_stats(success=False, duration=0.0, error=str(e))
                 # Save failed collection
                 await asyncio.to_thread(
                     self._save_failed_collection,
@@ -352,6 +350,35 @@ class FloodDataScheduler:
             }
         }
 
+    def _update_stats(self, success: bool, duration: float, data_points: int = 0, error: str = None):
+        """
+        Update stats with size limit on collection history.
+
+        Args:
+            success: Whether collection succeeded
+            duration: Collection duration in seconds
+            data_points: Number of data points collected
+            error: Error message if failed
+        """
+        self.stats['total_runs'] += 1
+        if success:
+            self.stats['successful_runs'] += 1
+        else:
+            self.stats['failed_runs'] += 1
+
+        # Add to bounded history
+        self.stats['collection_history'].append({
+            'timestamp': datetime.now().isoformat(),
+            'success': success,
+            'duration': duration,
+            'data_points': data_points,
+            'error': error
+        })
+
+        # Trim to max size to prevent unbounded growth
+        if len(self.stats['collection_history']) > self.MAX_STATS_HISTORY:
+            self.stats['collection_history'] = self.stats['collection_history'][-self.MAX_STATS_HISTORY:]
+
     async def trigger_manual_collection(self) -> Dict[str, Any]:
         """
         Manually trigger a data collection (outside of schedule).
@@ -388,30 +415,19 @@ class FloodDataScheduler:
                     logger.error(f"WebSocket broadcast error: {ws_error}")
 
             # Send data to HazardAgent via MessageQueue (MAS architecture)
+            # Note: HazardAgent.step() is called by AgentLifecycleManager to process messages
             if data:
                 try:
                     await asyncio.to_thread(
                         self.flood_agent.send_flood_data_via_message,
                         data
                     )
-                    logger.debug("Manual collection: Flood data sent to HazardAgent via MessageQueue")
+                    logger.info(
+                        f"[OK] Manual collection: Flood data sent to HazardAgent via MessageQueue "
+                        f"({len(data)} data points)"
+                    )
                 except Exception as msg_error:
                     logger.error(f"MessageQueue send error: {msg_error}")
-
-            # Forward to HazardAgent cache for frontend API endpoints (legacy, deprecated)
-            if data and self.hazard_agent:
-                try:
-                    await asyncio.to_thread(
-                        self.hazard_agent.update_risk,
-                        flood_data=data,
-                        scout_data=[],
-                        time_step=0  # Manual collection, not simulation
-                    )
-                    logger.info(
-                        f"✓ Forwarded {len(data)} data points to HazardAgent cache (manual)"
-                    )
-                except Exception as hazard_error:
-                    logger.error(f"HazardAgent forwarding error: {hazard_error}")
 
             return {
                 "status": "success",

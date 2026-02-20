@@ -62,8 +62,7 @@ class LocationGeocoder:
         # Load locations from CSV
         self._load_from_csv()
 
-        # Add complete fallback locations from initial version
-        self._add_fallback_locations()
+
 
         # Index names for search
         self.location_names = list(self.location_coordinates.keys())
@@ -108,151 +107,13 @@ class LocationGeocoder:
         except Exception as e:
             logger.error(f"Error loading location CSV: {e}")
 
-    def _add_fallback_locations(self):
-        """
-        Add hardcoded fallback locations if missing from CSV.
-        Contains the COMPLETE dataset from the initial version.
-        """
-        
-        # ===== LEGACY HARDCODED COORDINATES (FALLBACK) =====
-        # Source: OpenStreetMap, Google Maps
-        # Coordinates represent approximate barangay centers and landmarks
 
-        fallback_barangays = {
-            # District I
-            "Barangka": (14.6386, 121.0978),
-            "Tañong": (14.6425, 121.0892),
-            "Tanong": (14.6425, 121.0892),
-            "Jesus dela Peña": (14.6394, 121.0856),
-            "Jesus de la Peña": (14.6394, 121.0856),
-            "Jesus Dela Pena": (14.6394, 121.0856),
-            "Industrial Valley Complex": (14.6520, 121.0870),
-            "IVC": (14.6520, 121.0870),
-            "Industrial Valley": (14.6520, 121.0870),
-            "Kalumpang": (14.6394, 121.1067),
-            "Calumpang": (14.6394, 121.1067),
-            "San Roque": (14.6319, 121.1156),
-            "Sta. Elena": (14.6489, 121.0956),
-            "Santa Elena": (14.6489, 121.0956),
-            "Sto. Niño": (14.6553, 121.0967),
-            "Santo Niño": (14.6553, 121.0967),
-            "Santo Nino": (14.6553, 121.0967),
-            "Sto Nino": (14.6553, 121.0967),
-            "Malanday": (14.6561, 121.0889),
-
-            # District II
-            "Concepcion Uno": (14.6664, 121.1067),
-            "Concepcion I": (14.6664, 121.1067),
-            "Concepcion 1": (14.6664, 121.1067),
-            "Concepcion Dos": (14.6708, 121.1156),
-            "Concepcion II": (14.6708, 121.1156),
-            "Concepcion 2": (14.6708, 121.1156),
-            "Nangka": (14.6507, 121.1009),
-            "Parang": (14.6700, 121.0911),
-            "Marikina Heights": (14.6631, 121.0822),
-            "Fortune": (14.6689, 121.0956),
-            "Tumana": (14.6789, 121.1100),
-        }
-
-        fallback_landmarks = {
-            # Shopping Centers
-            "SM Marikina": (14.6394, 121.1067),
-            "SM City Marikina": (14.6394, 121.1067),
-            "Robinsons Metro East": (14.6319, 121.1156),
-            "Robinsons Marikina": (14.6319, 121.1156),
-            "Sta. Lucia East Grand Mall": (14.6319, 121.1156),
-            "Sta Lucia Mall": (14.6319, 121.1156),
-            "Riverbanks Center": (14.6394, 121.1067),
-            "Riverbanks Mall": (14.6394, 121.1067),
-
-            # Government & Institutions
-            "Marikina City Hall": (14.6489, 121.0956),
-            "City Hall": (14.6489, 121.0956),
-            "Marikina Sports Center": (14.6420, 121.0928),
-            "Sports Center": (14.6420, 121.0928),
-            "Marikina Health Center": (14.6489, 121.0956),
-
-            # Religious Sites
-            "Our Lady of the Abandoned": (14.6489, 121.0956),
-            "Diocesan Shrine": (14.6489, 121.0956),
-            "Marikina Cathedral": (14.6489, 121.0956),
-
-            # Historical & Cultural
-            "Shoe Museum": (14.6489, 121.0956),
-            "Marikina Shoe Museum": (14.6489, 121.0956),
-
-            # Natural Features
-            "Marikina River": (14.6500, 121.1000),
-            "Marikina Riverbanks": (14.6394, 121.1067),
-            "Riverbanks": (14.6394, 121.1067),
-
-            # Bridges
-            "Marikina Bridge": (14.6386, 121.0978),
-            "Tumana Bridge": (14.6789, 121.1100),
-            "Rosario Bridge": (14.6553, 121.0967),
-
-            # Residential Villages
-            "SSS Village": (14.6631, 121.0822),
-            "Provident Village": (14.6631, 121.0822),
-            "Provident": (14.6631, 121.0822),
-        }
-
-        fallback_lrt = {
-            "Santolan Station": (14.6394, 121.1067),
-            "Santolan LRT": (14.6394, 121.1067),
-            "Marikina-Pasig Station": (14.6319, 121.1156),
-            "Marikina Station": (14.6319, 121.1156),
-            "Antipolo Station": (14.6244, 121.1242),
-            "Antipolo LRT": (14.6244, 121.1242),
-        }
-
-        fallback_roads = {
-            "Marcos Highway": (14.6400, 121.1100),
-            "Marikina-Infanta Highway": (14.6400, 121.1100),
-            "Sumulong Highway": (14.6489, 121.0956),
-            "Sumulong": (14.6489, 121.0956),
-            "Gil Fernando Avenue": (14.6450, 121.0920),
-            "Gil Fernando": (14.6450, 121.0920),
-            "Mayor Gil Fernando": (14.6450, 121.0920),
-            "Felix Avenue": (14.6420, 121.0950),
-            "Felix": (14.6420, 121.0950),
-            "A. Bonifacio": (14.6386, 121.0978),
-            "Andres Bonifacio Avenue": (14.6386, 121.0978),
-            "Aurora Boulevard": (14.6350, 121.1050),
-            "Aurora Blvd": (14.6350, 121.1050),
-            "Ramon Magsaysay Boulevard": (14.6300, 121.1100),
-            "J.P. Rizal": (14.6489, 121.0956),
-            "JP Rizal": (14.6489, 121.0956),
-            "Rizal Avenue": (14.6489, 121.0956),
-            "Shoe Avenue": (14.6489, 121.0956),
-            "Riverbanks Road": (14.6394, 121.1067),
-            "Liamzon Street": (14.6319, 121.1156),
-            "Ditchoy Street": (14.6319, 121.1156),
-            "Dasdasan Street": (14.6319, 121.1156),
-        }
-
-        # Merge complete fallback data
-        fallback_data = {
-            **fallback_barangays,
-            **fallback_landmarks,
-            **fallback_lrt,
-            **fallback_roads
-        }
-
-        added_count = 0
-        for name, coords in fallback_data.items():
-            if name not in self.location_coordinates:
-                self.location_coordinates[name] = coords
-                added_count += 1
-        
-        if added_count > 0:
-            logger.debug(f"Added {added_count} fallback locations not in CSV")
 
     def get_coordinates(
         self, 
         location_name: str, 
         fuzzy: bool = True, 
-        threshold: float = 0.6
+        threshold: float = 0.85
     ) -> Optional[Tuple[float, float]]:
         """
         Get coordinates for a location name.
@@ -299,9 +160,91 @@ class LocationGeocoder:
                 logger.info(f"Fuzzy match: '{location_name}' -> '{best_match}' (confidence: {ratio:.2f})")
                 return self.location_coordinates[best_match]
 
+        # 4. Google Maps Fallback
+        logger.info(f"Trying Google Maps geocoding for: {location_name}")
+        google_result = self._geocode_with_google(location_name)
+        if google_result:
+            return google_result
+
         logger.warning(f"No coordinates found for location: {location_name}")
         return None
 
+    def _geocode_with_google(self, location_name: str) -> Optional[Tuple[float, float]]:
+        """
+        Use Google Maps Geocoding API to resolve a location name to coordinates.
+        Results are biased toward Marikina City and validated against the city bounding box.
+        """
+        import requests
+        from app.core.config import settings
+
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            logger.warning("[MISS] Google Maps API key not configured")
+            return None
+
+        try:
+            # Reject queries that explicitly mention other cities
+            excluded_keywords = [
+                "manila", "quezon city", "qc", "pasig", "antipolo",
+                "cainta", "san mateo", "makati", "taguig"
+            ]
+            query_lower = location_name.lower()
+            if any(city in query_lower for city in excluded_keywords):
+                logger.warning(f"[MISS] Rejected out-of-bounds location query: '{location_name}'")
+                return None
+
+            # Marikina City bounding box (with small buffer)
+            MARIKINA_BOUNDS = {
+                "lat_min": 14.61, "lat_max": 14.68,
+                "lon_min": 121.08, "lon_max": 121.13,
+            }
+
+            params = {
+                "address": f"{location_name}, Marikina City, Philippines",
+                "key": api_key,
+                # Bias results toward Marikina City center
+                "bounds": "14.61,121.08|14.68,121.13",
+            }
+
+            resp = requests.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params=params,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("status") != "OK" or not data.get("results"):
+                logger.info(f"[MISS] Google geocode returned no results for '{location_name}' (status: {data.get('status')})")
+                return None
+
+            result = data["results"][0]
+            loc = result["geometry"]["location"]
+            lat, lon = loc["lat"], loc["lng"]
+
+            # Validate the result is within Marikina bounds
+            if not (MARIKINA_BOUNDS["lat_min"] <= lat <= MARIKINA_BOUNDS["lat_max"]
+                    and MARIKINA_BOUNDS["lon_min"] <= lon <= MARIKINA_BOUNDS["lon_max"]):
+                logger.info(
+                    f"[MISS] Google result for '{location_name}' is outside Marikina: "
+                    f"({lat:.5f}, {lon:.5f})"
+                )
+                return None
+
+            formatted_address = result.get("formatted_address", "")
+            logger.info(
+                f"[OK] Google geocoded '{location_name}' -> ({lat:.5f}, {lon:.5f}) "
+                f"[{formatted_address}]"
+            )
+            return (lat, lon)
+
+        except requests.RequestException as e:
+            logger.error(f"Google geocoding request error: {e}")
+        except (KeyError, ValueError) as e:
+            logger.error(f"Google geocoding parse error: {e}")
+
+        return None
+    
     def geocode_nlp_result(self, nlp_result: Dict) -> Dict:
         """
         Enhance NLP result with coordinates.

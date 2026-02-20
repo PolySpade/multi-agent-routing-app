@@ -17,7 +17,7 @@ Date: November 2025
 import networkx as nx
 from typing import List, Tuple, Dict, Any, Optional
 import logging
-from .risk_aware_astar import risk_aware_astar, calculate_path_metrics
+from .risk_aware_astar import risk_aware_astar, calculate_path_metrics, haversine_distance
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,7 @@ def find_k_shortest_paths(
     graph: nx.MultiDiGraph,
     start: Any,
     end: Any,
-    k: int = 3,
-    risk_weight: float = 0.5,
-    distance_weight: float = 0.5
+    k: int = 3
 ) -> List[Dict[str, Any]]:
     """
     Find k alternative paths between start and end.
@@ -41,8 +39,6 @@ def find_k_shortest_paths(
         start: Start node ID
         end: End node ID
         k: Number of alternative paths to find
-        risk_weight: Weight for risk in path cost
-        distance_weight: Weight for distance in path cost
 
     Returns:
         List of path dictionaries sorted by total cost
@@ -68,7 +64,7 @@ def find_k_shortest_paths(
     try:
         # Use NetworkX's k_shortest_paths as base
         # Note: This finds paths by simple length, we'll re-rank by risk
-        path_generator = nx.shortest_simple_paths(graph, start, end, weight='length')
+        path_generator = nx.shortest_simple_paths(graph, start, end, weight='weight')
 
         count = 0
         for path in path_generator:
@@ -91,54 +87,6 @@ def find_k_shortest_paths(
         logger.error(f"Error finding alternative paths: {e}")
 
     return paths
-
-
-def compare_paths(
-    graph: nx.MultiDiGraph,
-    path1: List[Any],
-    path2: List[Any]
-) -> Dict[str, Any]:
-    """
-    Compare two paths and return detailed comparison metrics.
-
-    Args:
-        graph: Road network graph
-        path1: First path (list of node IDs)
-        path2: Second path (list of node IDs)
-
-    Returns:
-        Dict containing comparison metrics:
-            {
-                "path1_metrics": Dict,
-                "path2_metrics": Dict,
-                "distance_diff": float,  # meters
-                "risk_diff": float,  # 0-1 scale
-                "time_diff": float,  # minutes
-                "recommendation": str  # Which path is better
-            }
-    """
-    metrics1 = calculate_path_metrics(graph, path1)
-    metrics2 = calculate_path_metrics(graph, path2)
-
-    distance_diff = metrics1["total_distance"] - metrics2["total_distance"]
-    risk_diff = metrics1["average_risk"] - metrics2["average_risk"]
-    time_diff = metrics1["estimated_time"] - metrics2["estimated_time"]
-
-    # Determine recommendation based on overall score
-    # Prioritize safety (risk) over distance
-    score1 = metrics1["average_risk"] * 0.6 + (metrics1["total_distance"] / 10000) * 0.4
-    score2 = metrics2["average_risk"] * 0.6 + (metrics2["total_distance"] / 10000) * 0.4
-
-    recommendation = "path1" if score1 < score2 else "path2"
-
-    return {
-        "path1_metrics": metrics1,
-        "path2_metrics": metrics2,
-        "distance_diff": distance_diff,
-        "risk_diff": risk_diff,
-        "time_diff": time_diff,
-        "recommendation": recommendation
-    }
 
 
 def optimize_evacuation_route(
@@ -199,9 +147,9 @@ def optimize_evacuation_route(
             continue
 
         try:
-            path = risk_aware_astar(graph, start_node, center_node)
+            path, edge_keys = risk_aware_astar(graph, start_node, center_node)
             if path:
-                metrics = calculate_path_metrics(graph, path)
+                metrics = calculate_path_metrics(graph, path, edge_keys)
                 routes.append({
                     "center": center,
                     "path": path,
@@ -238,41 +186,61 @@ def optimize_evacuation_route(
 def _find_nearest_node(
     graph: nx.MultiDiGraph,
     coords: Tuple[float, float],
-    max_distance: float = 500.0
+    max_distance: Optional[float] = None
 ) -> Optional[Any]:
     """
-    Find nearest graph node to given coordinates.
+    Find nearest graph node to given coordinates using OSMnx spatial index.
+
+    Uses a KD-tree internally for O(log n) lookup instead of O(n) brute force.
 
     Args:
         graph: Road network graph
         coords: Target coordinates (lat, lon)
-        max_distance: Maximum search distance in meters
+        max_distance: Maximum search distance in meters (default: from config)
 
     Returns:
         Nearest node ID or None if none found within max_distance
     """
-    from .risk_aware_astar import haversine_distance
+    if max_distance is None:
+        from app.core.agent_config import AgentConfigLoader
+        max_distance = AgentConfigLoader().get_routing_config().max_node_distance_m
+
+    import osmnx as ox
 
     target_lat, target_lon = coords
-    nearest_node = None
-    min_distance = float('inf')
 
-    for node in graph.nodes():
-        node_lat = graph.nodes[node]['y']
-        node_lon = graph.nodes[node]['x']
+    try:
+        nearest_node = ox.nearest_nodes(graph, target_lon, target_lat)
+    except Exception:
+        # Fallback to manual search if OSMnx spatial index fails
+        logger.warning("ox.nearest_nodes failed, falling back to brute-force search")
+        nearest_node = None
+        min_distance = float('inf')
+        for node in graph.nodes():
+            node_lat = graph.nodes[node]['y']
+            node_lon = graph.nodes[node]['x']
+            distance = haversine_distance(
+                (target_lat, target_lon),
+                (node_lat, node_lon)
+            )
+            if distance < min_distance:
+                min_distance = distance
+                nearest_node = node
+        if min_distance > max_distance:
+            return None
+        return nearest_node
 
-        distance = haversine_distance(
-            (target_lat, target_lon),
-            (node_lat, node_lon)
-        )
+    # Verify distance is within threshold
+    node_lat = graph.nodes[nearest_node]['y']
+    node_lon = graph.nodes[nearest_node]['x']
+    distance = haversine_distance(
+        (target_lat, target_lon),
+        (node_lat, node_lon)
+    )
 
-        if distance < min_distance:
-            min_distance = distance
-            nearest_node = node
-
-    if min_distance > max_distance:
+    if distance > max_distance:
         logger.warning(
-            f"Nearest node is {min_distance:.0f}m away "
+            f"Nearest node is {distance:.0f}m away "
             f"(exceeds max_distance of {max_distance:.0f}m)"
         )
         return None
@@ -305,10 +273,12 @@ def _calculate_evacuation_score(
     capacity_score = 1.0 / (center.get("capacity", 100) / 100)  # Prefer high capacity
 
     # Weighted combination (prioritize safety and distance)
+    from app.core.agent_config import AgentConfigLoader
+    _algo_config = AgentConfigLoader().get_algorithms_config()
     score = (
-        distance_score * 0.4 +
-        risk_score * 0.5 +
-        capacity_score * 0.1
+        distance_score * _algo_config.evac_weight_distance +
+        risk_score * _algo_config.evac_weight_risk +
+        capacity_score * _algo_config.evac_weight_capacity
     )
 
     return score

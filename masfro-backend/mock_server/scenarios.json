@@ -1,0 +1,129 @@
+{
+  "light": {
+    "river_stations": [
+      {"station_name": "Sto Nino",      "water_level_m": 12.5, "alert_level_m": 15.0, "alarm_level_m": 16.0, "critical_level_m": 17.0},
+      {"station_name": "Nangka",        "water_level_m": 10.2, "alert_level_m": 13.0, "alarm_level_m": 14.5, "critical_level_m": 15.5},
+      {"station_name": "Tumana Bridge", "water_level_m": 11.0, "alert_level_m": 14.0, "alarm_level_m": 15.0, "critical_level_m": 16.0},
+      {"station_name": "Montalban",     "water_level_m": 9.8,  "alert_level_m": 12.5, "alarm_level_m": 13.5, "critical_level_m": 14.5},
+      {"station_name": "Rosario Bridge","water_level_m": 11.5, "alert_level_m": 14.5, "alarm_level_m": 15.5, "critical_level_m": 16.5}
+    ],
+    "dam_levels": [
+      {"dam_name": "ANGAT",    "latest_rwl": 210.5, "nhwl": 212.0,  "dev_nhwl": -1.5,  "rule_curve": 209.0, "dev_rule_curve": 1.5, "previous_rwl": 210.4, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.1},
+      {"dam_name": "IPO",      "latest_rwl": 100.5, "nhwl": 101.0,  "dev_nhwl": -0.5,  "rule_curve": 99.5,  "dev_rule_curve": 1.0, "previous_rwl": 100.4, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.1},
+      {"dam_name": "LA MESA",  "latest_rwl": 78.5,  "nhwl": 80.15,  "dev_nhwl": -1.65, "rule_curve": 77.0,  "dev_rule_curve": 1.5, "previous_rwl": 78.4,  "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.1},
+      {"dam_name": "CALIRAYA", "latest_rwl": 284.5, "nhwl": 287.0,  "dev_nhwl": -2.5,  "rule_curve": 284.0, "dev_rule_curve": 0.5, "previous_rwl": 284.4, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.1}
+    ],
+    "weather_current": {
+      "coord": {"lon": 121.1029, "lat": 14.6507},
+      "weather": [{"id": 800, "main": "Clear", "description": "clear sky", "icon": "01d"}],
+      "main": {"temp": 31.0, "humidity": 65, "pressure": 1012},
+      "wind": {"speed": 2.5},
+      "rain": {},
+      "name": "Marikina"
+    },
+    "weather_forecast": [
+      {"main": {"temp": 30.0, "humidity": 60, "pressure": 1012}, "weather": [{"main": "Clear"}], "pop": 0.05, "rain": {}},
+      {"main": {"temp": 31.0, "humidity": 61, "pressure": 1012}, "weather": [{"main": "Clear"}], "pop": 0.05, "rain": {}},
+      {"main": {"temp": 32.0, "humidity": 62, "pressure": 1012}, "weather": [{"main": "Clear"}], "pop": 0.05, "rain": {}}
+    ],
+    "advisories": [],
+    "social_posts": []
+  },
+
+  "medium": {
+    "river_stations": [
+      {"station_name": "Sto Nino",      "water_level_m": 15.2, "alert_level_m": 15.0, "alarm_level_m": 16.0, "critical_level_m": 17.0},
+      {"station_name": "Nangka",        "water_level_m": 13.5, "alert_level_m": 13.0, "alarm_level_m": 14.5, "critical_level_m": 15.5},
+      {"station_name": "Tumana Bridge", "water_level_m": 12.0, "alert_level_m": 14.0, "alarm_level_m": 15.0, "critical_level_m": 16.0},
+      {"station_name": "Montalban",     "water_level_m": 11.0, "alert_level_m": 12.5, "alarm_level_m": 13.5, "critical_level_m": 14.5},
+      {"station_name": "Rosario Bridge","water_level_m": 12.5, "alert_level_m": 14.5, "alarm_level_m": 15.5, "critical_level_m": 16.5}
+    ],
+    "dam_levels": [
+      {"dam_name": "ANGAT",    "latest_rwl": 212.3, "nhwl": 212.0, "dev_nhwl": 0.3,   "rule_curve": 209.0, "dev_rule_curve": 3.3, "previous_rwl": 211.8, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.5},
+      {"dam_name": "IPO",      "latest_rwl": 101.2, "nhwl": 101.0, "dev_nhwl": 0.2,   "rule_curve": 99.5,  "dev_rule_curve": 1.7, "previous_rwl": 100.9, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.3},
+      {"dam_name": "LA MESA",  "latest_rwl": 79.8,  "nhwl": 80.15, "dev_nhwl": -0.35, "rule_curve": 77.0,  "dev_rule_curve": 2.8, "previous_rwl": 79.5,  "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.3},
+      {"dam_name": "CALIRAYA", "latest_rwl": 287.3, "nhwl": 287.0, "dev_nhwl": 0.3,   "rule_curve": 284.0, "dev_rule_curve": 3.3, "previous_rwl": 286.8, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.5}
+    ],
+    "weather_current": {
+      "coord": {"lon": 121.1029, "lat": 14.6507},
+      "weather": [{"id": 502, "main": "Rain", "description": "heavy intensity rain", "icon": "10d"}],
+      "main": {"temp": 26.0, "humidity": 88, "pressure": 1005},
+      "wind": {"speed": 5.0},
+      "rain": {"1h": 7.5},
+      "name": "Marikina"
+    },
+    "weather_forecast": [
+      {"main": {"temp": 25.0, "humidity": 85, "pressure": 1005}, "weather": [{"main": "Rain"}], "pop": 0.7, "rain": {"3h": 15.0}},
+      {"main": {"temp": 26.0, "humidity": 88, "pressure": 1005}, "weather": [{"main": "Rain"}], "pop": 0.8, "rain": {"3h": 19.0}},
+      {"main": {"temp": 27.0, "humidity": 91, "pressure": 1005}, "weather": [{"main": "Rain"}], "pop": 0.9, "rain": {"3h": 23.0}}
+    ],
+    "advisories": [
+      {
+        "title": "PAGASA Yellow Rainfall Warning for Metro Manila",
+        "text": "PAGASA has issued a yellow rainfall warning for Metro Manila including Marikina City. Moderate to heavy rainfall is expected in the next 3 hours. Water levels in the Marikina River are rising. Residents along low-lying areas are advised to monitor conditions."
+      }
+    ],
+    "social_posts": [
+      {"username": "barangay_nangka",   "text": "Water level sa Marikina River mataas na. Knee-deep flooding along Nangka area. Stay safe! #FloodAlert #Marikina"},
+      {"username": "marikina_resident", "text": "Flooding at Sto Nino area. Water is ankle-deep on the streets. Be careful if traveling. #baha #Marikina"},
+      {"username": "weather_update_ph", "text": "Heavy rain continues in Marikina area. PAGASA issued yellow warning."},
+      {"username": "commuter_ph",       "text": "Traffic is slow on Marcos Highway due to rain. Drive carefully everyone."},
+      {"username": "food_blogger_ph",   "text": "Rainy day perfect for bulalo! Any recommendations in Marikina?"}
+    ]
+  },
+
+  "heavy": {
+    "river_stations": [
+      {"station_name": "Sto Nino",      "water_level_m": 17.5, "alert_level_m": 15.0, "alarm_level_m": 16.0, "critical_level_m": 17.0},
+      {"station_name": "Nangka",        "water_level_m": 15.8, "alert_level_m": 13.0, "alarm_level_m": 14.5, "critical_level_m": 15.5},
+      {"station_name": "Tumana Bridge", "water_level_m": 15.5, "alert_level_m": 14.0, "alarm_level_m": 15.0, "critical_level_m": 16.0},
+      {"station_name": "Montalban",     "water_level_m": 13.8, "alert_level_m": 12.5, "alarm_level_m": 13.5, "critical_level_m": 14.5},
+      {"station_name": "Rosario Bridge","water_level_m": 15.0, "alert_level_m": 14.5, "alarm_level_m": 15.5, "critical_level_m": 16.5}
+    ],
+    "dam_levels": [
+      {"dam_name": "ANGAT",    "latest_rwl": 214.5, "nhwl": 212.0, "dev_nhwl": 2.5,  "rule_curve": 209.0, "dev_rule_curve": 5.5, "previous_rwl": 213.0, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 1.5},
+      {"dam_name": "IPO",      "latest_rwl": 102.5, "nhwl": 101.0, "dev_nhwl": 1.5,  "rule_curve": 99.5,  "dev_rule_curve": 3.0, "previous_rwl": 101.8, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.7},
+      {"dam_name": "LA MESA",  "latest_rwl": 81.0,  "nhwl": 80.15, "dev_nhwl": 0.85, "rule_curve": 77.0,  "dev_rule_curve": 4.0, "previous_rwl": 80.2,  "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 0.8},
+      {"dam_name": "CALIRAYA", "latest_rwl": 290.5, "nhwl": 287.0, "dev_nhwl": 3.5,  "rule_curve": 284.0, "dev_rule_curve": 6.5, "previous_rwl": 289.0, "latest_time": "06:00", "latest_date": "Feb 08, 2026", "previous_time": "18:00", "previous_date": "Feb 07, 2026", "wl_dev_hr": 12, "wl_dev_amt": 1.5}
+    ],
+    "weather_current": {
+      "coord": {"lon": 121.1029, "lat": 14.6507},
+      "weather": [{"id": 503, "main": "Rain", "description": "very heavy rain", "icon": "10d"}],
+      "main": {"temp": 24.0, "humidity": 95, "pressure": 998},
+      "wind": {"speed": 12.0},
+      "rain": {"1h": 35.0},
+      "name": "Marikina"
+    },
+    "weather_forecast": [
+      {"main": {"temp": 23.0, "humidity": 92, "pressure": 998}, "weather": [{"main": "Rain"}], "pop": 0.95, "rain": {"3h": 80.0}},
+      {"main": {"temp": 24.0, "humidity": 96, "pressure": 998}, "weather": [{"main": "Rain"}], "pop": 0.95, "rain": {"3h": 85.0}},
+      {"main": {"temp": 23.0, "humidity": 99, "pressure": 998}, "weather": [{"main": "Rain"}], "pop": 0.95, "rain": {"3h": 90.0}}
+    ],
+    "advisories": [
+      {
+        "title": "PAGASA Red Rainfall Warning - Marikina City",
+        "text": "PAGASA has raised a RED RAINFALL WARNING for Marikina City and surrounding areas. Torrential rainfall exceeding 30mm/hr has been recorded. The Marikina River has breached critical levels at Sto Nino station (17.5m). Immediate evacuation is advised for residents in low-lying barangays including Tumana, Nangka, and Malanday."
+      },
+      {
+        "title": "Angat Dam Spilling Advisory",
+        "text": "NIA reports that Angat Dam water level has reached 214.5m, which is 2.5m above the Normal High Water Level of 212.0m. Controlled spillway operations are underway. Downstream communities along the Angat-Ipo-La Mesa water system should prepare for increased water flow. Dam status: CRITICAL."
+      },
+      {
+        "title": "Flood Bulletin - Marikina River System",
+        "text": "As of 06:00 AM today, the Marikina River has reached critical levels. Sto Nino station: 17.5m (Critical), Nangka: 15.8m (Critical), Tumana Bridge: 15.5m (Alarm). Forced evacuation orders have been issued for Barangays Tumana, Nangka, and Malanday. All residents must proceed to nearest evacuation centers immediately."
+      }
+    ],
+    "social_posts": [
+      {"username": "barangay_tumana",    "text": "EMERGENCY! Waist-deep flooding in Tumana! Rescue operations ongoing. Please evacuate immediately! #BahaMarikina #FloodAlert"},
+      {"username": "marikina_rescue",    "text": "Chest-deep na ang baha sa Nangka! RESCUE TEAM deployed. Call 161 for help. #Marikina #Rescue"},
+      {"username": "news_ph",            "text": "BREAKING: Marikina River breaches critical level. Forced evacuation ordered for 3 barangays. Water level at 17.5m at Sto Nino."},
+      {"username": "resident_malanday",  "text": "Knee-deep flooding here in Malanday. Water keeps rising. We need help! #baha #Malanday"},
+      {"username": "mmda_traffic",       "text": "Marcos Highway IMPASSABLE due to flooding. Waist-deep in some areas. Use alternate routes via Ortigas Extension."},
+      {"username": "parang_resident",    "text": "Water ankle-deep na here in Parang area. Still manageable but river level rising fast. #StaySafe"},
+      {"username": "volunteer_ph",       "text": "Deployed at Marikina Sports Center evacuation site. Need more blankets and food. Waist-deep flooding in surrounding streets."},
+      {"username": "concerned_citizen",  "text": "Chest-deep baha along J.P. Rizal near Riverbanks. Cars stranded. Do NOT attempt to cross! #FloodWarning"},
+      {"username": "weather_enthusiast", "text": "Recording 35mm/hr rainfall in Marikina. This is torrential level. Stay indoors if possible."},
+      {"username": "pet_rescue_ph",      "text": "Anyone in San Roque area? Several pets stranded on rooftops. Water is thigh-deep. Need boat rescue."}
+    ]
+  }
+}

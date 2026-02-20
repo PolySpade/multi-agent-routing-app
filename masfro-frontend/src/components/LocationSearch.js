@@ -1,45 +1,31 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location...", type = "start" }) => {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [error, setError] = useState(null);
+  const errorTimeout = useRef(null);
   const searchTimeout = useRef(null);
   const dropdownRef = useRef(null);
-  const sessionTokenRef = useRef(null);
-
-  const ensureSessionToken = () => {
-    if (!sessionTokenRef.current) {
-      try {
-        const cryptoRef = typeof window !== 'undefined' ? window.crypto : undefined;
-        if (cryptoRef?.randomUUID) {
-          sessionTokenRef.current = cryptoRef.randomUUID();
-          return;
-        }
-      } catch (error) {
-        // ignore and fallback
-      }
-      sessionTokenRef.current = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    }
-  };
 
   useEffect(() => {
-    ensureSessionToken();
+    return () => {
+      if (errorTimeout.current) clearTimeout(errorTimeout.current);
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    };
   }, []);
 
-  const clearSessionToken = () => {
-    sessionTokenRef.current = null;
-    ensureSessionToken();
+  const showError = (message) => {
+    if (errorTimeout.current) clearTimeout(errorTimeout.current);
+    setError(message);
+    errorTimeout.current = setTimeout(() => setError(null), 5000);
   };
 
-  const headers = useMemo(() => ({
-    'Content-Type': 'application/json',
-  }), []);
-
-  // Search locations using Mapbox Geocoding API
+  // Search locations using Google Geocoding API (single call — returns coordinates directly)
   const searchLocations = async (searchQuery) => {
     if (!searchQuery.trim() || searchQuery.length < 3) {
       setSuggestions([]);
@@ -47,35 +33,30 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
     }
 
     setIsLoading(true);
-    ensureSessionToken();
 
     try {
-      const response = await fetch('/api/places/autocomplete', {
+      const response = await fetch('/api/places/geocode', {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
-          input: searchQuery,
-          sessionToken: sessionTokenRef.current,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: searchQuery }),
       });
 
       if (response.ok) {
         const data = await response.json();
 
-        if (data.status === 'OK') {
-          setSuggestions(data.predictions || []);
+        if (data.status === 'OK' && data.results?.length > 0) {
+          setSuggestions(data.results);
           setShowDropdown(true);
         } else {
-          console.warn('Autocomplete response status:', data.status, data.error_message);
           setSuggestions([]);
         }
       } else {
-        const errorData = await response.json().catch(() => null);
-        console.warn('Autocomplete error response:', errorData);
+        showError('Location search failed. Please try again.');
         setSuggestions([]);
       }
     } catch (error) {
       console.error('Error searching locations:', error);
+      showError('Unable to search locations. Check your connection.');
       setSuggestions([]);
     } finally {
       setIsLoading(false);
@@ -86,62 +67,33 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
   const handleInputChange = (e) => {
     const value = e.target.value;
     setQuery(value);
+    if (error) setError(null);
 
-    // Clear previous timeout
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
     }
 
-    // Set new timeout for search
     searchTimeout.current = setTimeout(() => {
       searchLocations(value);
     }, 300);
   };
 
-  // Handle suggestion selection
-  const handleSuggestionClick = async (suggestion) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/places/details', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          placeId: suggestion.place_id,
-          sessionToken: sessionTokenRef.current,
-        }),
+  // Handle suggestion selection — coordinates already available, no second API call needed
+  const handleSuggestionClick = (result) => {
+    const location = result.geometry?.location;
+
+    if (location && onLocationSelect) {
+      onLocationSelect({
+        lat: location.lat,
+        lng: location.lng,
+        name: result.formatted_address,
+        address: result.formatted_address,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'OK' && data.result) {
-          const { formatted_address, geometry, name } = data.result;
-          const location = geometry?.location;
-
-          if (location && onLocationSelect) {
-            onLocationSelect({
-              lat: location.lat,
-              lng: location.lng,
-              name: name || suggestion.description,
-              address: formatted_address,
-            });
-          }
-
-          setQuery(formatted_address || suggestion.description || '');
-          clearSessionToken();
-        } else {
-          console.warn('Place details status:', data.status, data.error_message);
-        }
-      } else {
-        const errorData = await response.json().catch(() => null);
-        console.warn('Place details error response:', errorData);
-      }
-    } catch (error) {
-      console.error('Error fetching place details:', error);
-    } finally {
-      setSuggestions([]);
-      setShowDropdown(false);
-      setIsLoading(false);
     }
+
+    setQuery(result.formatted_address || '');
+    setSuggestions([]);
+    setShowDropdown(false);
   };
 
   // Close dropdown when clicking outside
@@ -159,6 +111,17 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
   const inputIcon = type === 'start' ? '📍' : '🎯';
   const inputColor = type === 'start' ? '#10b981' : '#ef4444';
 
+  // Extract a short name from address components
+  const getShortName = (result) => {
+    const components = result.address_components || [];
+    // Try to find a meaningful short name: establishment > route > neighborhood > sublocality
+    for (const type of ['establishment', 'point_of_interest', 'route', 'neighborhood', 'sublocality_level_1', 'sublocality', 'locality']) {
+      const match = components.find(c => c.types.includes(type));
+      if (match) return match.long_name;
+    }
+    return result.formatted_address?.split(',')[0] || result.formatted_address;
+  };
+
   return (
     <div style={{ position: 'relative', width: '100%' }} ref={dropdownRef}>
       <div style={{
@@ -174,7 +137,7 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
         }}>
           {inputIcon}
         </span>
-        
+
         <input
           type="text"
           value={query}
@@ -199,7 +162,7 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
             }
           }}
         />
-        
+
         {isLoading && (
           <div style={{
             position: 'absolute',
@@ -214,6 +177,24 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
         )}
       </div>
 
+      {error && (
+        <div style={{
+          marginTop: '4px',
+          padding: '8px 12px',
+          borderRadius: '6px',
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          color: '#ef4444',
+          fontSize: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          <span style={{ fontSize: '14px' }}>!</span>
+          {error}
+        </div>
+      )}
+
       {showDropdown && suggestions.length > 0 && (
         <div style={{
           position: 'absolute',
@@ -224,16 +205,16 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
           backdropFilter: 'blur(10px)',
           borderRadius: '8px',
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-          zIndex: 1000,
-          maxHeight: '200px',
+          zIndex: 50,
+          maxHeight: '280px',
           overflowY: 'auto',
           marginTop: '4px',
           border: '1px solid rgba(255, 255, 255, 0.3)'
         }}>
-          {suggestions.map((suggestion, index) => (
+          {suggestions.map((result, index) => (
             <div
-              key={suggestion.place_id || index}
-              onClick={() => handleSuggestionClick(suggestion)}
+              key={result.place_id || index}
+              onClick={() => handleSuggestionClick(result)}
               style={{
                 padding: '12px 16px',
                 cursor: 'pointer',
@@ -250,10 +231,10 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
               }}
             >
               <div style={{ fontWeight: '500', marginBottom: '2px' }}>
-                {suggestion.structured_formatting?.main_text || suggestion.description}
+                {getShortName(result)}
               </div>
               <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                {suggestion.structured_formatting?.secondary_text || suggestion.description}
+                {result.formatted_address}
               </div>
             </div>
           ))}

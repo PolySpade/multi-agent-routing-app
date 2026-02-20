@@ -1,7 +1,7 @@
 [project]
-name = "masfro-backend"
-version = "0.1.0"
-description = "Multi-Agent System for Flood Route Optimization Backend"
+name = "masfro-backend-v2"
+version = "2.0.0"
+description = "Multi-Agent System for Flood Route Optimization Backend v2 with Qwen 3 LLM Integration"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -30,9 +30,22 @@ dependencies = [
     "rich>=14.2.0",
     "spacy>=3.8.11",
     "joblib>=1.5.2",
+    "tenacity>=8.2.3",
+    "pyyaml>=6.0.0",
+    # v2: Qwen 3 LLM Integration via Ollama
+    "ollama>=0.4.0",
+    "python-multipart>=0.0.22",
 ]
 
 [dependency-groups]
 dev = [
     "pytest-cov>=7.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests requiring live server or LLM",
+    "requires_server: tests needing running FastAPI",
+    "requires_llm: tests needing Ollama",
 ]

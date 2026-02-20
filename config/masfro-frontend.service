@@ -1,0 +1,28 @@
+# MAS-FRO Frontend (nginx) Service
+# This is a dependency wrapper that ensures nginx starts after the backend.
+#
+# Install:
+#   sudo cp config/masfro-frontend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable masfro-frontend
+#
+# Note: Requires nginx to be installed and masfro site config in
+# /etc/nginx/sites-available/masfro (see config/nginx-masfro.conf)
+
+[Unit]
+Description=MAS-FRO Frontend (nginx)
+After=masfro-backend.service
+Wants=masfro-backend.service
+
+[Service]
+Type=forking
+PIDFile=/run/nginx.pid
+ExecStartPre=/usr/sbin/nginx -t
+ExecStart=/usr/sbin/nginx
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+Restart=on-failure
+MemoryMax=32M
+
+[Install]
+WantedBy=multi-user.target

@@ -10,18 +10,10 @@ Uses Selenium and Pandas for robust data extraction from JavaScript-rendered con
 import logging
 import re
 from typing import List, Dict, Optional, Any
-import pandas as pd
 from io import StringIO
 from bs4 import BeautifulSoup
 
-# Selenium imports
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
+# selenium and pandas imported lazily to reduce startup memory
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +29,21 @@ class RiverScraperService:
     - Critical levels
     """
 
-    def __init__(self):
-        """Initialize the scraper service."""
-        self.base_url = "https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph"
-        self.html_url = f"{self.base_url}/water/map.do"
-        logger.info("RiverScraperService initialized")
+    def __init__(self, base_url: str = None):
+        """
+        Initialize the scraper service.
+
+        Args:
+            base_url: Override base URL (e.g. mock server URL).
+                      If None, uses real PAGASA URL.
+        """
+        if base_url:
+            self.base_url = base_url.rstrip("/")
+            self.html_url = self.base_url if "/water/map.do" in self.base_url else f"{self.base_url}/water/map.do"
+        else:
+            self.base_url = "https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph"
+            self.html_url = f"{self.base_url}/water/map.do"
+        logger.info(f"RiverScraperService initialized (url={self.html_url})")
 
     def get_river_levels(self) -> List[Dict[str, Any]]:
         """
@@ -52,6 +54,19 @@ class RiverScraperService:
             A list of dictionaries, where each dictionary represents a monitoring station.
             Returns an empty list if the request fails.
         """
+        from app.core.config import settings
+        if not settings.is_selenium_enabled():
+            logger.info("Selenium disabled (MASFRO_DISABLE_SELENIUM=true), skipping scrape")
+            return []
+
+        import pandas as pd
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException, WebDriverException
+
         logger.info("Fetching river data from PAGASA website using Selenium")
 
         driver = None
@@ -123,7 +138,7 @@ class RiverScraperService:
                 driver.quit()
                 logger.debug("Browser closed")
 
-    def _process_dataframe(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _process_dataframe(self, df) -> List[Dict[str, Any]]:
         """
         Process the raw pandas DataFrame into clean station data.
 
@@ -133,6 +148,7 @@ class RiverScraperService:
         Returns:
             List of station data dictionaries
         """
+        import pandas as pd
         logger.info("Processing DataFrame into clean station data")
         stations_data = []
 
@@ -182,6 +198,7 @@ class RiverScraperService:
         Returns:
             Float value or None if invalid
         """
+        import pandas as pd
         if pd.isna(value):
             return None
 

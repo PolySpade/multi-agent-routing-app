@@ -1,0 +1,30 @@
+# MAS-FRO FastAPI Backend Service
+# Install:
+#   sudo cp config/masfro-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable masfro-backend
+
+[Unit]
+Description=MAS-FRO FastAPI Backend
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=ajet
+Group=ajet
+WorkingDirectory=/home/ajet/projects/multi-agent-routing-app/masfro-backend
+EnvironmentFile=-/home/ajet/projects/multi-agent-routing-app/masfro-backend/.env
+Environment=MASFRO_LOW_RAM=true
+Environment=MASFRO_DISABLE_SELENIUM=true
+Environment=MASFRO_DISABLE_LLM=true
+ExecStart=/home/ajet/projects/multi-agent-routing-app/masfro-backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --limit-max-requests 1000
+Restart=on-failure
+RestartSec=5
+MemoryMax=400M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=masfro-backend
+
+[Install]
+WantedBy=multi-user.target

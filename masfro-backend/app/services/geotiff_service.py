@@ -21,18 +21,11 @@ Date: November 2025
 import os
 import logging
 from pathlib import Path
-from typing import Dict, Tuple, Optional, List
-import numpy as np
-
-# Configure GDAL environment variables BEFORE importing rasterio
-# These settings handle non-standard GeoTIFF coordinate reference systems
-os.environ['GTIFF_SRS_SOURCE'] = 'EPSG'  # Use official EPSG parameters over GeoTIFF keys
-os.environ['GTIFF_HONOUR_NEGATIVE_SCALEY'] = 'YES'  # Handle negative ScaleY values correctly
-os.environ['CPL_LOG'] = '/dev/null'  # Suppress GDAL C-level log messages
-
-import rasterio
-from rasterio.transform import rowcol
+from typing import Dict, Tuple, Optional, List, Any
 from functools import lru_cache
+
+# numpy and rasterio imported lazily via _ensure_rasterio() to reduce startup memory
+# GDAL env vars are set before first rasterio import
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +64,7 @@ class GeoTIFFService:
         self.time_steps = list(range(1, 19))  # 1-18
 
         # Cache for loaded GeoTIFF data
-        self._cache: Dict[str, np.ndarray] = {}
+        self._cache: Dict[str, Any] = {}
         self._metadata_cache: Dict[str, Dict] = {}
 
         # Verify data directory exists
@@ -87,6 +80,15 @@ class GeoTIFFService:
             f"Using manual coordinate mapping: center=({self.MANUAL_CENTER_LAT}, "
             f"{self.MANUAL_CENTER_LON})"
         )
+
+    def _ensure_rasterio(self):
+        """Lazy-load rasterio and numpy, setting GDAL env vars first."""
+        import numpy as np
+        os.environ.setdefault('GTIFF_SRS_SOURCE', 'EPSG')
+        os.environ.setdefault('GTIFF_HONOUR_NEGATIVE_SCALEY', 'YES')
+        os.environ.setdefault('CPL_LOG', '/dev/null')
+        import rasterio
+        return np, rasterio
 
     def _get_file_path(self, return_period: str, time_step: int) -> Path:
         """
@@ -110,7 +112,7 @@ class GeoTIFFService:
         self,
         return_period: str = "rr01",
         time_step: int = 1
-    ) -> Tuple[np.ndarray, Dict]:
+    ) -> Tuple[Any, Dict]:
         """
         Load flood map data from GeoTIFF file.
 
@@ -125,6 +127,8 @@ class GeoTIFFService:
             ValueError: If invalid return period or time step
             FileNotFoundError: If GeoTIFF file not found
         """
+        np, rasterio = self._ensure_rasterio()
+
         # Validate inputs
         if return_period not in self.return_periods:
             raise ValueError(
@@ -290,6 +294,8 @@ class GeoTIFFService:
             Flood depth in meters, or None if outside bounds or NaN
         """
         try:
+            np, _ = self._ensure_rasterio()
+
             # Load TIFF data
             data, metadata = self.load_flood_map(return_period, time_step)
             height, width = data.shape
@@ -366,7 +372,7 @@ class GeoTIFFService:
 
 
 # Global service instance
-_geotiff_service: Optional[GeoTIFFService] = None
+_geotiff_service = None
 
 
 def get_geotiff_service() -> GeoTIFFService:

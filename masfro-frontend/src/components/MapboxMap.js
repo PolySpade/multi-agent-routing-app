@@ -1,35 +1,55 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import shp from 'shpjs';
-import { fromUrl, fromBlob } from 'geotiff';
-import proj4 from 'proj4';
-import { useWebSocket } from '../hooks/useWebSocket';
-import { useWebSocketContext } from '../contexts/WebSocketContext';
-import FloodAlerts from './FloodAlerts';
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
+import shp from "shpjs";
+import { fromUrl, fromBlob } from "geotiff";
+import proj4 from "proj4";
+import { useWebSocket } from "../hooks/useWebSocket";
+import FloodAlerts from "./FloodAlerts";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-const BACKEND_API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001';
+const BACKEND_API_URL =
+  process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:8000";
 
 // Define projections for coordinate conversion
 // EPSG:3857 is Web Mercator, used by many web maps and found in your GeoTIFF
 // EPSG:4326 is WGS 84, the standard lat/lng coordinate system
-proj4.defs("EPSG:3857", "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext  +no_defs");
+proj4.defs(
+  "EPSG:3857",
+  "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext  +no_defs",
+);
 proj4.defs("EPSG:4326", "+proj=longlat +datum=WGS84 +no_defs");
 
-export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick, onLocationSearch, showTraffic = true, panelCollapsed = false, selectionMode = null }) {
+export default function MapboxMap({
+  startPoint,
+  endPoint,
+  routePath,
+  onMapClick,
+  onLocationSearch,
+  showTraffic = true,
+  panelCollapsed = false,
+  selectionMode = null,
+}) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const startMarkerRef = useRef(null);
   const endMarkerRef = useRef(null);
-  const initialCenterRef = useRef(startPoint ? [startPoint.lng, startPoint.lat] : [121.0943, 14.6507]);
+  const initialCenterRef = useRef(
+    startPoint ? [startPoint.lng, startPoint.lat] : [121.0943, 14.6507],
+  );
   const initialZoomRef = useRef(startPoint ? 12 : 10);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [boundaryFeature, setBoundaryFeature] = useState(null);
   const [graphData, setGraphData] = useState(null);
   const [floodTimeStep, setFloodTimeStep] = useState(18); //modify this to one if you wanna test everything
-  const [returnPeriod, setReturnPeriod] = useState('rr01');
+  const [returnPeriod, setReturnPeriod] = useState("rr01");
   const [floodEnabled, setFloodEnabled] = useState(false);
   const onMapClickRef = useRef(onMapClick);
   const selectionModeRef = useRef(selectionMode);
@@ -40,68 +60,23 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     floodData,
     criticalAlerts,
     schedulerStatus,
-    clearAlerts
+    clearAlerts,
   } = useWebSocket();
-
-  // Get simulation state for real-time graph updates
-  const { simulationState } = useWebSocketContext();
 
   // Log WebSocket connection status
   useEffect(() => {
-    console.log('WebSocket connection status:', isConnected ? 'Connected ✅' : 'Disconnected ❌');
+    console.log(
+      "WebSocket connection status:",
+      isConnected ? "Connected ✅" : "Disconnected ❌",
+    );
   }, [isConnected]);
 
   // Log when new flood data arrives via WebSocket
   useEffect(() => {
     if (floodData) {
-      console.log('🌊 Received real-time flood data update:', floodData);
+      console.log("🌊 Received real-time flood data update:", floodData);
     }
   }, [floodData]);
-
-  // Real-time graph updates during simulation
-  // Throttled to refresh every 5 ticks to balance performance and visual updates
-  const lastGraphUpdateTickRef = useRef(0);
-  useEffect(() => {
-    if (!simulationState || !mapRef.current || !isMapLoaded) return;
-
-    const { event, data } = simulationState;
-
-    // Only update on tick events when simulation is running
-    if (event === 'tick' && data?.state === 'running') {
-      const currentTick = data.tick_count || 0;
-
-      // Throttle: update every 5 ticks to avoid excessive API calls
-      if (currentTick - lastGraphUpdateTickRef.current >= 5) {
-        lastGraphUpdateTickRef.current = currentTick;
-
-        console.log(`🔄 Refreshing graph risk visualization (tick ${currentTick})...`);
-
-        // Fetch updated graph data with current risk scores
-        fetch('http://localhost:8000/api/graph/edges/geojson')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-          })
-          .then(geojsonData => {
-            console.log(`✅ Updated graph data: ${geojsonData.features.length} edges (avg risk: ${data.average_risk?.toFixed(4) || 'N/A'})`);
-
-            // Update the graph data state (will trigger re-render with new risk scores)
-            setGraphData(geojsonData);
-          })
-          .catch(error => {
-            console.error('❌ Error refreshing graph data:', error);
-          });
-      }
-    }
-
-    // Reset tick counter when simulation stops
-    if (event === 'stopped' || data?.state === 'stopped') {
-      lastGraphUpdateTickRef.current = 0;
-      console.log('⏹️ Simulation stopped, graph updates paused');
-    }
-  }, [simulationState, isMapLoaded]);
 
   useEffect(() => {
     onMapClickRef.current = onMapClick;
@@ -118,50 +93,83 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11', //navigation-night-v1
+      style: "mapbox://styles/mapbox/dark-v11", //navigation-night-v1
       center: initialCenterRef.current,
       zoom: initialZoomRef.current,
     });
 
-    mapRef.current.on('load', () => {
+    mapRef.current.on("load", () => {
       setIsMapLoaded(true);
 
+      // === HIGHLIGHT RIVERS & WATER BODIES ===
+      const map = mapRef.current;
+      if (map.getLayer("water")) {
+        map.setPaintProperty("water", "fill-color", "#1e4d7a");
+      }
+      // Waterway lines (rivers, streams, canals)
+      const style = map.getStyle();
+      if (style && style.layers) {
+        style.layers.forEach((layer) => {
+          if (layer.id.includes("waterway")) {
+            if (layer.type === "line") {
+              map.setPaintProperty(layer.id, "line-color", "#3b82f6");
+              map.setPaintProperty(layer.id, "line-opacity", 0.8);
+            }
+          }
+          // Brighten street name labels
+          if (layer.type === "symbol" && layer.id.includes("road")) {
+            map.setPaintProperty(layer.id, "text-color", "#e2e8f0");
+            map.setPaintProperty(layer.id, "text-halo-color", "#000000");
+            map.setPaintProperty(layer.id, "text-halo-width", 1.5);
+          }
+        });
+      }
+
       // === GRAPH RISK LAYER - Load after map is ready ===
-      console.log('🔄 Loading graph risk visualization...');
+      console.log("🔄 Loading graph risk visualization...");
 
       // Fetch road risk data from backend (no sample_size = ALL edges)
-      fetch('http://localhost:8000/api/graph/edges/geojson')
-        .then(response => {
+      fetch(`${BACKEND_API_URL}/api/graph/edges/geojson`)
+        .then((response) => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           return response.json();
         })
-        .then(geojsonData => {
-          console.log('✅ Loaded graph data:', {
+        .then((geojsonData) => {
+          console.log("✅ Loaded graph data:", {
             totalEdges: geojsonData.features.length,
-            sampled: geojsonData.properties?.sampled
+            sampled: geojsonData.properties?.sampled,
           });
 
           // Store graph data in state to be processed when boundary is available
           setGraphData(geojsonData);
         })
-        .catch(error => {
-          console.error('❌ Error loading graph risk data:', error);
-          console.error('Make sure backend is running: uvicorn app.main:app --reload');
+        .catch((error) => {
+          console.error("❌ Error loading graph risk data:", error);
+          console.error(
+            "Make sure backend is running: uvicorn app.main:app --reload",
+          );
         });
     });
 
     // Add general map click handler for selecting start/end points
-    mapRef.current.on('click', (e) => {
-      console.log('Mapbox click event:', e.lngLat);
+    mapRef.current.on("click", (e) => {
+      console.log("Mapbox click event:", e.lngLat);
+
+      // Clear road highlight when clicking on empty map area
+      const highlightSrc = mapRef.current.getSource("graph-risk-highlight");
+      if (highlightSrc) {
+        highlightSrc.setData({ type: "FeatureCollection", features: [] });
+      }
+
       const coords = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-      console.log('Calling onMapClick with:', coords);
+      console.log("Calling onMapClick with:", coords);
       const clickHandler = onMapClickRef.current;
       if (clickHandler) {
         clickHandler(coords);
       } else {
-        console.warn('onMapClick handler is not defined');
+        console.warn("onMapClick handler is not defined");
       }
     });
 
@@ -181,10 +189,13 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       if (!polygon) return true;
       let inside = false;
       for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        const xi = polygon[i][0], yi = polygon[i][1];
-        const xj = polygon[j][0], yj = polygon[j][1];
-        const intersect = ((yi > lat) !== (yj > lat)) &&
-          (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        const xi = polygon[i][0],
+          yi = polygon[i][1];
+        const xj = polygon[j][0],
+          yj = polygon[j][1];
+        const intersect =
+          yi > lat !== yj > lat &&
+          lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
         if (intersect) inside = !inside;
       }
       return inside;
@@ -194,14 +205,17 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     let boundaryRing = null;
     if (boundaryFeature?.geometry) {
       const geom = boundaryFeature.geometry;
-      boundaryRing = geom.type === 'Polygon'
-        ? geom.coordinates[0]
-        : geom.coordinates[0][0];
-      console.log('🗺️ Clipping graph edges to boundary with', boundaryRing.length, 'points');
+      boundaryRing =
+        geom.type === "Polygon" ? geom.coordinates[0] : geom.coordinates[0][0];
+      console.log(
+        "🗺️ Clipping graph edges to boundary with",
+        boundaryRing.length,
+        "points",
+      );
     }
 
     // Filter edges: keep only if BOTH endpoints are within boundary (strict clipping)
-    const filteredFeatures = graphData.features.filter(feature => {
+    const filteredFeatures = graphData.features.filter((feature) => {
       if (!boundaryRing) return true; // No boundary = show all
 
       const coords = feature.geometry.coordinates;
@@ -209,8 +223,16 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       if (coords.length >= 2) {
         const startPoint = coords[0];
         const endPoint = coords[coords.length - 1];
-        const startInside = isPointInPolygon(startPoint[0], startPoint[1], boundaryRing);
-        const endInside = isPointInPolygon(endPoint[0], endPoint[1], boundaryRing);
+        const startInside = isPointInPolygon(
+          startPoint[0],
+          startPoint[1],
+          boundaryRing,
+        );
+        const endInside = isPointInPolygon(
+          endPoint[0],
+          endPoint[1],
+          boundaryRing,
+        );
 
         // Keep edge only if BOTH endpoints are inside boundary (stricter clipping)
         return startInside && endInside;
@@ -218,79 +240,117 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       return true;
     });
 
-    console.log(`✂️ Filtered graph edges: ${graphData.features.length} → ${filteredFeatures.length} (removed ${graphData.features.length - filteredFeatures.length} edges outside boundary)`);
+    console.log(
+      `✂️ Filtered graph edges: ${graphData.features.length} → ${filteredFeatures.length} (removed ${graphData.features.length - filteredFeatures.length} edges outside boundary)`,
+    );
 
     const filteredData = {
-      type: 'FeatureCollection',
-      features: filteredFeatures
+      type: "FeatureCollection",
+      features: filteredFeatures,
     };
 
-    // Remove existing graph layer and source if they exist
-    if (mapRef.current.getLayer('graph-risk-edges')) {
-      mapRef.current.removeLayer('graph-risk-edges');
+    // Remove existing graph layers and sources if they exist
+    if (mapRef.current.getLayer("graph-risk-highlight")) {
+      mapRef.current.removeLayer("graph-risk-highlight");
     }
-    if (mapRef.current.getSource('graph-risk-source')) {
-      mapRef.current.removeSource('graph-risk-source');
+    if (mapRef.current.getSource("graph-risk-highlight")) {
+      mapRef.current.removeSource("graph-risk-highlight");
+    }
+    if (mapRef.current.getLayer("graph-risk-edges")) {
+      mapRef.current.removeLayer("graph-risk-edges");
+    }
+    if (mapRef.current.getSource("graph-risk-source")) {
+      mapRef.current.removeSource("graph-risk-source");
     }
 
     // Add GeoJSON source
-    mapRef.current.addSource('graph-risk-source', {
-      type: 'geojson',
+    mapRef.current.addSource("graph-risk-source", {
+      type: "geojson",
       data: filteredData,
-      tolerance: 0.5  // Simplify for better performance
+      tolerance: 0.5, // Simplify for better performance
     });
 
     // Find first symbol layer (labels) to insert our layer before it
     const layers = mapRef.current.getStyle().layers;
     let firstSymbolId;
     for (const layer of layers) {
-      if (layer.type === 'symbol') {
+      if (layer.type === "symbol") {
         firstSymbolId = layer.id;
         break;
       }
     }
 
     // Add the risk visualization layer
+    mapRef.current.addLayer(
+      {
+        id: "graph-risk-edges",
+        type: "line",
+        source: "graph-risk-source",
+        layout: {
+          "line-join": "round",
+          "line-cap": "round",
+          visibility: "visible", // Make sure it's visible!
+        },
+        paint: {
+          // Color based on risk score
+          "line-color": [
+            "interpolate",
+            ["linear"],
+            ["get", "risk_score"],
+            0.0,
+            "#248ea8", // Blue - safe
+            0.3,
+            "#FFA500", // Orange - caution
+            0.6,
+            "#FF6347", // Tomato - danger
+            1.0,
+            "rgba(110, 17, 0, 1)", // Dark red - critical
+          ],
+          // Width based on risk score (thicker = more dangerous)
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["get", "risk_score"],
+            0.0,
+            4,
+            0.6,
+            6,
+            1.0,
+            8,
+          ],
+          // Opacity
+          "line-opacity": 0.8,
+        },
+      },
+      firstSymbolId,
+    ); // Insert before labels so text is readable
+
+    // Add highlight source + layer (empty initially, populated on click)
+    mapRef.current.addSource("graph-risk-highlight", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
     mapRef.current.addLayer({
-      id: 'graph-risk-edges',
-      type: 'line',
-      source: 'graph-risk-source',
+      id: "graph-risk-highlight",
+      type: "line",
+      source: "graph-risk-highlight",
       layout: {
-        'line-join': 'round',
-        'line-cap': 'round',
-        'visibility': 'visible'  // Make sure it's visible!
+        "line-join": "round",
+        "line-cap": "round",
       },
       paint: {
-        // Color based on risk score
-        'line-color': [
-          'interpolate',
-          ['linear'],
-          ['get', 'risk_score'],
-          0.0, '#248ea8',   // Blue - safe
-          0.3, '#FFA500',   // Orange - caution
-          0.6, '#FF6347',   // Tomato - danger
-          1.0, 'rgba(110, 17, 0, 1)'    // Dark red - critical
-        ],
-        // Width based on risk score (thicker = more dangerous)
-        'line-width': [
-          'interpolate',
-          ['linear'],
-          ['get', 'risk_score'],
-          0.0, 2,
-          0.6, 3,
-          1.0, 4
-        ],
-        // Opacity
-        'line-opacity': 0.4
-      }
-    }, firstSymbolId);  // Insert before labels so text is readable
+        "line-color": "#ffffff",
+        "line-width": 6,
+        "line-opacity": 0.9,
+      },
+    });
 
-    console.log('✅ Graph risk layer added successfully!');
-    console.log('📊 You should see colored roads on the map now');
+    console.log("✅ Graph risk layer added successfully!");
+    console.log("📊 You should see colored roads on the map now");
 
     // Add click handler for road details (only once)
     if (!mapRef.current._graphClickHandlerAdded) {
-      mapRef.current.on('click', 'graph-risk-edges', (e) => {
+      mapRef.current.on("click", "graph-risk-edges", (e) => {
         // Stop propagation to prevent general map click from firing
         e.originalEvent.stopPropagation();
 
@@ -302,41 +362,66 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         const feature = e.features[0];
         const props = feature.properties;
 
-        new mapboxgl.Popup()
+        // Highlight the clicked road segment
+        const highlightSrc = mapRef.current.getSource("graph-risk-highlight");
+        if (highlightSrc) {
+          highlightSrc.setData({
+            type: "FeatureCollection",
+            features: [feature.toJSON()],
+          });
+        }
+
+        const riskPct = (props.risk_score * 100).toFixed(1);
+        const riskColor =
+          props.risk_category === "low"
+            ? "#4ade80"
+            : props.risk_category === "medium"
+              ? "#fbbf24"
+              : "#f87171";
+        const roadName = props.name || props.highway || "Unknown road";
+        const floodDepthM = props.flood_depth || 0;
+        const floodDepthFt = (floodDepthM * 3.28084).toFixed(1);
+        const floodLabel = floodDepthM > 0.01 ? `${floodDepthFt} ft` : "None";
+        const floodColor = floodDepthM > 1.0 ? "#f87171" : floodDepthM > 0.3 ? "#fbbf24" : floodDepthM > 0.01 ? "#38bdf8" : "#94a3b8";
+
+        new mapboxgl.Popup({ className: "risk-popup" })
           .setLngLat(e.lngLat)
-          .setHTML(`
-            <div style="padding: 10px; font-family: sans-serif;">
-              <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #333;">
-                🛣️ Road Risk Info
-              </h3>
-              <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                <strong>Risk Level:</strong> ${(props.risk_score * 100).toFixed(1)}%
-              </p>
-              <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                <strong>Category:</strong>
-                <span style="color: ${
-                  props.risk_category === 'low' ? '#4CAF50' :
-                  props.risk_category === 'medium' ? '#FF9800' :
-                  '#F44336'
-                }; font-weight: bold;">
-                  ${props.risk_category.toUpperCase()}
-                </span>
-              </p>
-              <p style="margin: 4px 0; font-size: 12px; color: #666;">
-                <strong>Road Type:</strong> ${props.highway || 'unknown'}
-              </p>
+          .setHTML(
+            `
+            <div style="padding: 12px 14px; font-family: 'Inter', system-ui, sans-serif; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); min-width: 180px;">
+              <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">
+                ${roadName}
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${riskColor}; box-shadow: 0 0 6px ${riskColor};"></div>
+                <span style="font-size: 12px; color: #cbd5e1;">Risk</span>
+                <span style="font-size: 12px; font-weight: 600; color: ${riskColor}; margin-left: auto;">${riskPct}%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <span style="font-size: 12px; color: #cbd5e1;">Category</span>
+                <span style="font-size: 12px; font-weight: 600; color: ${riskColor}; margin-left: auto;">${(props.risk_category || "unknown").toUpperCase()}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <span style="font-size: 12px; color: #cbd5e1;">Flood Depth</span>
+                <span style="font-size: 12px; font-weight: 600; color: ${floodColor}; margin-left: auto;">${floodLabel}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: #cbd5e1;">Type</span>
+                <span style="font-size: 12px; font-weight: 500; color: #94a3b8; margin-left: auto;">${props.highway || "unknown"}</span>
+              </div>
             </div>
-          `)
+          `,
+          )
           .addTo(mapRef.current);
       });
 
       // Change cursor on hover
-      mapRef.current.on('mouseenter', 'graph-risk-edges', () => {
-        mapRef.current.getCanvas().style.cursor = 'pointer';
+      mapRef.current.on("mouseenter", "graph-risk-edges", () => {
+        mapRef.current.getCanvas().style.cursor = "pointer";
       });
 
-      mapRef.current.on('mouseleave', 'graph-risk-edges', () => {
-        mapRef.current.getCanvas().style.cursor = '';
+      mapRef.current.on("mouseleave", "graph-risk-edges", () => {
+        mapRef.current.getCanvas().style.cursor = "";
       });
 
       mapRef.current._graphClickHandlerAdded = true;
@@ -357,11 +442,11 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     let observer;
     const container = mapContainerRef.current;
 
-    if (typeof ResizeObserver !== 'undefined' && container) {
+    if (typeof ResizeObserver !== "undefined" && container) {
       observer = new ResizeObserver(() => resizeMap());
       observer.observe(container);
     } else {
-      window.addEventListener('resize', resizeMap);
+      window.addEventListener("resize", resizeMap);
     }
 
     return () => {
@@ -369,7 +454,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         observer.unobserve(container);
         observer.disconnect();
       } else {
-        window.removeEventListener('resize', resizeMap);
+        window.removeEventListener("resize", resizeMap);
       }
     };
   }, [isMapLoaded]);
@@ -386,22 +471,22 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     try {
       const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query + ', Marikina City, Philippines')}&key=${GOOGLE_MAPS_API_KEY}`
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query + ", Marikina City, Philippines")}&key=${GOOGLE_MAPS_API_KEY}`,
       );
-      
+
       const data = await response.json();
-      
+
       if (data.results && data.results.length > 0) {
         const location = data.results[0].geometry.location;
         return {
           lat: location.lat,
           lng: location.lng,
-          address: data.results[0].formatted_address
+          address: data.results[0].formatted_address,
         };
       }
       return null;
     } catch (error) {
-      console.error('Error searching location:', error);
+      console.error("Error searching location:", error);
       return null;
     }
   };
@@ -417,11 +502,11 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
     if (!mapRef.current || !isMapLoaded) return;
 
     // Remove previous route layer and source if they exist
-    if (mapRef.current.getLayer('route')) {
-      mapRef.current.removeLayer('route');
+    if (mapRef.current.getLayer("route")) {
+      mapRef.current.removeLayer("route");
     }
-    if (mapRef.current.getSource('route')) {
-      mapRef.current.removeSource('route');
+    if (mapRef.current.getSource("route")) {
+      mapRef.current.removeSource("route");
     }
 
     // Remove previous markers if they exist
@@ -436,7 +521,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     // Add start marker
     if (startPoint) {
-      startMarkerRef.current = new mapboxgl.Marker({ color: 'green' })
+      startMarkerRef.current = new mapboxgl.Marker({ color: "green" })
         .setLngLat([startPoint.lng, startPoint.lat])
         .addTo(mapRef.current);
 
@@ -455,10 +540,10 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     // Add end marker
     if (endPoint) {
-      endMarkerRef.current = new mapboxgl.Marker({ color: 'red' })
+      endMarkerRef.current = new mapboxgl.Marker({ color: "red" })
         .setLngLat([endPoint.lng, endPoint.lat])
         .addTo(mapRef.current);
-      
+
       // If both points exist, fit bounds to show both
       if (startPoint) {
         const bounds = new mapboxgl.LngLatBounds();
@@ -478,30 +563,30 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         return [pt.lng, pt.lat];
       });
 
-      mapRef.current.addSource('route', {
-        type: 'geojson',
+      mapRef.current.addSource("route", {
+        type: "geojson",
         data: {
-          type: 'Feature',
+          type: "Feature",
           geometry: {
-            type: 'LineString',
+            type: "LineString",
             coordinates: coordinates,
           },
         },
       });
       mapRef.current.addLayer({
-        id: 'route',
-        type: 'line',
-        source: 'route',
+        id: "route",
+        type: "line",
+        source: "route",
         paint: {
-          'line-color': '#76a9ff',
-          'line-width': 4,
+          "line-color": "#76a9ff",
+          "line-width": 4,
         },
       });
-      
+
       // Fit bounds to show entire route
       if (coordinates.length > 1) {
         const bounds = new mapboxgl.LngLatBounds();
-        coordinates.forEach(coord => bounds.extend(coord));
+        coordinates.forEach((coord) => bounds.extend(coord));
         mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15 });
       }
     }
@@ -512,13 +597,13 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
     const loadBoundary = async () => {
       try {
-        const geojson = await shp('/data/marikina-boundary.zip');
+        const geojson = await shp("/data/marikina-boundary.zip");
         const feature = geojson?.features ? geojson.features[0] : geojson;
         if (isSubscribed && feature?.geometry) {
           setBoundaryFeature(feature);
         }
       } catch (error) {
-        console.error('Failed to load Marikina boundary shapefile:', error);
+        console.error("Failed to load Marikina boundary shapefile:", error);
       }
     };
 
@@ -531,13 +616,13 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded || !boundaryFeature?.geometry) return;
 
-    const maskSourceId = 'marikina-mask';
-    const outlineSourceId = 'marikina-outline';
-    const maskLayerId = 'marikina-dim';
-    const outlineLayerId = 'marikina-outline';
+    const maskSourceId = "marikina-mask";
+    const outlineSourceId = "marikina-outline";
+    const maskLayerId = "marikina-dim";
+    const outlineLayerId = "marikina-outline";
     const boundaryGeometry = boundaryFeature.geometry;
     const boundaryRing =
-      boundaryGeometry.type === 'Polygon'
+      boundaryGeometry.type === "Polygon"
         ? boundaryGeometry.coordinates[0]
         : boundaryGeometry.coordinates[0][0];
     if (!boundaryRing) return;
@@ -550,31 +635,39 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       [-180, -85],
     ];
     const maskFeature = {
-      type: 'Feature',
+      type: "Feature",
       geometry: {
-        type: 'Polygon',
+        type: "Polygon",
         coordinates: [outerRing, [...boundaryRing].reverse()],
       },
     };
     const outlineFeature = {
-      type: 'Feature',
+      type: "Feature",
       geometry: {
-        type: 'LineString',
+        type: "LineString",
         coordinates: [...boundaryRing, boundaryRing[0]],
       },
     };
     const labelLayerId = mapRef.current
       .getStyle()
-      ?.layers?.find((layer) => layer.type === 'symbol' && layer.layout?.['text-field'])?.id;
+      ?.layers?.find(
+        (layer) => layer.type === "symbol" && layer.layout?.["text-field"],
+      )?.id;
 
     if (!mapRef.current.getSource(maskSourceId)) {
-      mapRef.current.addSource(maskSourceId, { type: 'geojson', data: maskFeature });
+      mapRef.current.addSource(maskSourceId, {
+        type: "geojson",
+        data: maskFeature,
+      });
     } else {
       mapRef.current.getSource(maskSourceId).setData(maskFeature);
     }
 
     if (!mapRef.current.getSource(outlineSourceId)) {
-      mapRef.current.addSource(outlineSourceId, { type: 'geojson', data: outlineFeature });
+      mapRef.current.addSource(outlineSourceId, {
+        type: "geojson",
+        data: outlineFeature,
+      });
     } else {
       mapRef.current.getSource(outlineSourceId).setData(outlineFeature);
     }
@@ -583,14 +676,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       mapRef.current.addLayer(
         {
           id: maskLayerId,
-          type: 'fill',
+          type: "fill",
           source: maskSourceId,
           paint: {
-            'fill-color': 'rgba(11, 17, 42, 0.6)',
-            'fill-opacity': 0.55,
+            "fill-color": "rgba(11, 17, 42, 0.6)",
+            "fill-opacity": 0.55,
           },
         },
-        labelLayerId
+        labelLayerId,
       );
     }
 
@@ -598,15 +691,15 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
       mapRef.current.addLayer(
         {
           id: outlineLayerId,
-          type: 'line',
+          type: "line",
           source: outlineSourceId,
           paint: {
-            'line-color': '#5eead4',
-            'line-width': 2,
-            'line-opacity': 0.8,
+            "line-color": "#5eead4",
+            "line-width": 2,
+            "line-opacity": 0.8,
           },
         },
-        labelLayerId
+        labelLayerId,
       );
     }
   }, [isMapLoaded, boundaryFeature]);
@@ -614,14 +707,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
 
-    const floodLayerId = 'flood-layer';
+    const floodLayerId = "flood-layer";
     let isCancelled = false;
 
     const loadFloodMap = async () => {
       try {
-        console.log('Loading flood map for time step:', floodTimeStep);
-        console.log('Boundary feature available:', !!boundaryFeature);
-        
+        console.log("Loading flood map for time step:", floodTimeStep);
+        console.log("Boundary feature available:", !!boundaryFeature);
+
         // Remove existing layer and source
         if (mapRef.current.getLayer(floodLayerId)) {
           mapRef.current.removeLayer(floodLayerId);
@@ -632,19 +725,21 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
         // Fetch and parse the GeoTIFF from backend server
         const tiffUrl = `${BACKEND_API_URL}/data/timed_floodmaps/${returnPeriod}/${returnPeriod}-${floodTimeStep}.tif`;
-        console.log('Fetching TIFF from:', tiffUrl);
-        
+        console.log("Fetching TIFF from:", tiffUrl);
+
         const response = await fetch(tiffUrl);
-        console.log('Response status:', response.status, response.statusText);
-        
+        console.log("Response status:", response.status, response.statusText);
+
         if (!response.ok) {
-          console.error(`Failed to fetch flood map: ${response.status} ${response.statusText}`);
+          console.error(
+            `Failed to fetch flood map: ${response.status} ${response.statusText}`,
+          );
           return;
         }
 
-        console.log('Parsing GeoTIFF...');
+        console.log("Parsing GeoTIFF...");
         const arrayBuffer = await response.arrayBuffer();
-        console.log('ArrayBuffer size:', arrayBuffer.byteLength, 'bytes');
+        console.log("ArrayBuffer size:", arrayBuffer.byteLength, "bytes");
 
         const tiff = await fromBlob(new Blob([arrayBuffer]));
         const image = await tiff.getImage();
@@ -652,8 +747,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         const height = image.getHeight();
         const tiffAspectRatio = width / height;
 
-        console.log('TIFF dimensions:', width, 'x', height, 'pixels');
-        console.log('TIFF aspect ratio:', tiffAspectRatio.toFixed(3));
+        console.log("TIFF dimensions:", width, "x", height, "pixels");
+        console.log("TIFF aspect ratio:", tiffAspectRatio.toFixed(3));
 
         // MARIKINA CITY CENTER AND COVERAGE
         // Center point of Marikina flood-prone area
@@ -661,7 +756,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         const centerLat = 14.6456;
 
         // Calculate bounds based on TIFF aspect ratio to prevent stretching
-        const baseCoverage = 0.06;  // Base coverage in degrees
+        const baseCoverage = 0.06; // Base coverage in degrees
         let coverageWidth, coverageHeight;
 
         if (tiffAspectRatio > 1) {
@@ -675,33 +770,42 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         }
 
         const MARIKINA_BOUNDS = {
-          west:  centerLng - (coverageWidth / 2),
-          east:  centerLng + (coverageWidth / 2),
-          south: centerLat - (coverageHeight / 2),
-          north: centerLat + (coverageHeight / 2)
+          west: centerLng - coverageWidth / 2,
+          east: centerLng + coverageWidth / 2,
+          south: centerLat - coverageHeight / 2,
+          north: centerLat + coverageHeight / 2,
         };
 
-        console.log('Auto-calculated Marikina bounds (aspect ratio corrected):', MARIKINA_BOUNDS);
-        console.log('Coverage width:', coverageWidth.toFixed(4), '° | height:', coverageHeight.toFixed(4), '°');
+        console.log(
+          "Auto-calculated Marikina bounds (aspect ratio corrected):",
+          MARIKINA_BOUNDS,
+        );
+        console.log(
+          "Coverage width:",
+          coverageWidth.toFixed(4),
+          "° | height:",
+          coverageHeight.toFixed(4),
+          "°",
+        );
 
         const reprojectedCoords = [
           [MARIKINA_BOUNDS.west, MARIKINA_BOUNDS.north], // top-left
           [MARIKINA_BOUNDS.east, MARIKINA_BOUNDS.north], // top-right
           [MARIKINA_BOUNDS.east, MARIKINA_BOUNDS.south], // bottom-right
-          [MARIKINA_BOUNDS.west, MARIKINA_BOUNDS.south]  // bottom-left
+          [MARIKINA_BOUNDS.west, MARIKINA_BOUNDS.south], // bottom-left
         ];
 
-        console.log('Flood map coordinates:', reprojectedCoords);
-        
+        console.log("Flood map coordinates:", reprojectedCoords);
+
         const rasters = await image.readRasters();
-        
+
         if (isCancelled) return;
 
         // Create canvas to render the raster data
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext("2d");
         const imageData = ctx.createImageData(width, height);
 
         // Convert raster data to RGBA
@@ -721,17 +825,32 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           }
         }
 
-        console.log('Flood depth range:', minVal.toFixed(2), 'to', maxVal.toFixed(2), 'meters');
-        console.log('Flood threshold:', FLOOD_THRESHOLD, 'meters (values below this are transparent)');
+        console.log(
+          "Flood depth range:",
+          minVal.toFixed(2),
+          "to",
+          maxVal.toFixed(2),
+          "meters",
+        );
+        console.log(
+          "Flood threshold:",
+          FLOOD_THRESHOLD,
+          "meters (values below this are transparent)",
+        );
 
         // Get boundary polygon for clipping (if available)
         let boundaryRing = null;
         if (boundaryFeature?.geometry) {
           const geom = boundaryFeature.geometry;
-          boundaryRing = geom.type === 'Polygon'
-            ? geom.coordinates[0]
-            : geom.coordinates[0][0];
-          console.log('Applying boundary clipping with', boundaryRing.length, 'points');
+          boundaryRing =
+            geom.type === "Polygon"
+              ? geom.coordinates[0]
+              : geom.coordinates[0][0];
+          console.log(
+            "Applying boundary clipping with",
+            boundaryRing.length,
+            "points",
+          );
         }
 
         // Point-in-polygon check (ray casting algorithm)
@@ -740,11 +859,14 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
 
           let inside = false;
           for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i][0], yi = polygon[i][1];
-            const xj = polygon[j][0], yj = polygon[j][1];
+            const xi = polygon[i][0],
+              yi = polygon[i][1];
+            const xj = polygon[j][0],
+              yj = polygon[j][1];
 
-            const intersect = ((yi > lat) !== (yj > lat))
-              && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+            const intersect =
+              yi > lat !== yj > lat &&
+              lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
             if (intersect) inside = !inside;
           }
           return inside;
@@ -759,8 +881,12 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           // Calculate pixel's geographic coordinates
           const row = Math.floor(i / width);
           const col = i % width;
-          const lng = MARIKINA_BOUNDS.west + (col / width) * (MARIKINA_BOUNDS.east - MARIKINA_BOUNDS.west);
-          const lat = MARIKINA_BOUNDS.north - (row / height) * (MARIKINA_BOUNDS.north - MARIKINA_BOUNDS.south);
+          const lng =
+            MARIKINA_BOUNDS.west +
+            (col / width) * (MARIKINA_BOUNDS.east - MARIKINA_BOUNDS.west);
+          const lat =
+            MARIKINA_BOUNDS.north -
+            (row / height) * (MARIKINA_BOUNDS.north - MARIKINA_BOUNDS.south);
 
           // Check if pixel is within boundary
           const inBoundary = isPointInPolygon(lng, lat, boundaryRing);
@@ -768,7 +894,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           // Only render pixels with significant flood depth AND within boundary
           if (value > FLOOD_THRESHOLD && inBoundary) {
             // Normalize value to 0-1 range (0 = shallow, 1 = deep)
-            const normalized = maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0;
+            const normalized =
+              maxVal > minVal ? (value - minVal) / (maxVal - minVal) : 0;
 
             // Realistic flood water color gradient
             // Shallow water: Light cyan/aqua (#40E0D0)
@@ -814,15 +941,15 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         }
 
         ctx.putImageData(imageData, 0, 0);
-        console.log('Canvas created successfully');
+        console.log("Canvas created successfully");
 
         if (isCancelled || !mapRef.current) return;
 
         // Add the canvas as an image source
         mapRef.current.addSource(floodLayerId, {
-          type: 'image',
+          type: "image",
           url: canvas.toDataURL(),
-          coordinates: reprojectedCoords
+          coordinates: reprojectedCoords,
         });
 
         // Add flood layer on top of everything except route layer
@@ -830,36 +957,40 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         // Find the first symbol layer (labels) to insert flood layer before it
         let firstSymbolId;
         for (let i = 0; i < layers.length; i++) {
-          if (layers[i].type === 'symbol') {
+          if (layers[i].type === "symbol") {
             firstSymbolId = layers[i].id;
             break;
           }
         }
 
-        mapRef.current.addLayer({
-          id: floodLayerId,
-          type: 'raster',
-          source: floodLayerId,
-          layout: {
-            'visibility': floodEnabled ? 'visible' : 'none'
+        mapRef.current.addLayer(
+          {
+            id: floodLayerId,
+            type: "raster",
+            source: floodLayerId,
+            layout: {
+              visibility: floodEnabled ? "visible" : "none",
+            },
+            paint: {
+              "raster-opacity": 0.5, // Increased visibility (was 0.7)
+              "raster-fade-duration": 0,
+              "raster-brightness-max": 1.0,
+              "raster-saturation": 0.3, // Enhance color saturation
+            },
           },
-          paint: {
-            'raster-opacity': 0.5,  // Increased visibility (was 0.7)
-            'raster-fade-duration': 0,
-            'raster-brightness-max': 1.0,
-            'raster-saturation': 0.3  // Enhance color saturation
-          }
-        }, firstSymbolId); // Insert before labels so labels remain visible
-        
-        // Move route layer on top of flood layer if it exists
-        if (mapRef.current.getLayer('route')) {
-          mapRef.current.moveLayer('route');
-        }
-        
-        console.log('FLOOD MAP LOADED SUCCESSFULLY with manual Marikina bounds!');
+          firstSymbolId,
+        ); // Insert before labels so labels remain visible
 
+        // Move route layer on top of flood layer if it exists
+        if (mapRef.current.getLayer("route")) {
+          mapRef.current.moveLayer("route");
+        }
+
+        console.log(
+          "FLOOD MAP LOADED SUCCESSFULLY with manual Marikina bounds!",
+        );
       } catch (error) {
-        console.warn('Flood map not available:', error.message);
+        console.warn("Flood map not available:", error.message);
         // Silently fail - flood maps are optional for basic map functionality
       }
     };
@@ -875,23 +1006,30 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
 
-    const floodLayerId = 'flood-layer';
+    const floodLayerId = "flood-layer";
 
     // Check if the flood layer exists
     if (mapRef.current.getLayer(floodLayerId)) {
       mapRef.current.setLayoutProperty(
         floodLayerId,
-        'visibility',
-        floodEnabled ? 'visible' : 'none'
+        "visibility",
+        floodEnabled ? "visible" : "none",
       );
-      console.log('Flood layer visibility set to:', floodEnabled ? 'visible' : 'none');
+      console.log(
+        "Flood layer visibility set to:",
+        floodEnabled ? "visible" : "none",
+      );
     }
   }, [floodEnabled, isMapLoaded, floodTimeStep, returnPeriod]);
 
   return (
     <div
       ref={mapContainerRef}
-      style={{ width: '100%', height: '100%', minHeight: '100vh' }}
+      style={{
+        width: "100%",
+        height: "100%",
+        minHeight: "calc(100vh - var(--mobile-nav-height, 0px))",
+      }}
     >
       {/* <div style={{
         position: 'absolute',
@@ -951,8 +1089,8 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           </button>
         </div> */}
 
-        {/* Return Period Selector */}
-        {/* <div style={{ marginBottom: '0.75rem' }}>
+      {/* Return Period Selector */}
+      {/* <div style={{ marginBottom: '0.75rem' }}>
           <label style={{
             display: 'block',
             color: 'rgba(255, 255, 255, 0.9)',
@@ -992,7 +1130,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
             </option>
           </select>
         </div> */}
-{/* 
+      {/* 
         <input
           type="range"
           min="1"
@@ -1028,7 +1166,7 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
           </span>
         </div>
  */}
-        
+
       {/* </div> */}
 
       {/* Real-time Flood Alerts */}
@@ -1037,7 +1175,6 @@ export default function MapboxMap({ startPoint, endPoint, routePath, onMapClick,
         onClear={clearAlerts}
         isConnected={isConnected}
       />
-      
     </div>
   );
 }

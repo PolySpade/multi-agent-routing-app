@@ -1,0 +1,864 @@
+%%
+%% This file is adapted from the ACM 'acmart' template.
+%%
+\documentclass[sigconf,nonacm]{acmart}
+
+%%
+%% Essential packages
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage{subcaption}
+
+%% Code listing style
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+  tabsize=2
+}
+
+\begin{document}
+
+%%
+%% The "title" command
+\title{MAS-FRO: A Multi-Agent System Integrating Real-Time Geospatial Data and Predictive Analytics for Flood Route Optimization}
+\subtitle{Dynamic Evacuation Routing for Marikina City Using Risk-Aware A* Pathfinding}
+
+%%
+%% The "author" commands
+\author{Anjelo Patrick A. Atanacio}
+\affiliation{%
+  \institution{De La Salle University}
+  \department{Department of Software Technology}
+  \city{Manila}
+  \country{Philippines}
+}
+\email{anjelo_atanacio@dlsu.edu.ph}
+
+\author{Reever Mikael S. Lacson}
+\affiliation{%
+  \institution{De La Salle University}
+  \department{Department of Software Technology}
+  \city{Manila}
+  \country{Philippines}
+}
+\email{reever_lacson@dlsu.edu.ph}
+
+\author{Jaryll Francis P. Salvador}
+\affiliation{%
+  \institution{De La Salle University}
+  \department{Department of Software Technology}
+  \city{Manila}
+  \country{Philippines}
+}
+\email{jaryll_salvador@dlsu.edu.ph}
+
+\author{Donald G. Xu}
+\affiliation{%
+  \institution{De La Salle University}
+  \department{Department of Software Technology}
+  \city{Manila}
+  \country{Philippines}
+}
+\email{xu_xu@dlsu.edu.ph}
+
+\author{Jazzie R. Jao}
+\affiliation{%
+  \institution{De La Salle University}
+  \department{Department of Software Technology}
+  \position{MSc.}
+  \city{Manila}
+  \country{Philippines}
+}
+\email{jazzie.jao@dlsu.edu.ph}
+%%
+%% The abstract
+\begin{abstract}
+This paper presents the design, implementation, and experimental methodology of the Multi-Agent System for Flood Route Optimization (MAS-FRO), a comprehensive flood-aware evacuation routing platform for Marikina City, Philippines. Current navigation systems optimize for traffic congestion but fail to account for real-time hydrological hazards, potentially directing evacuees into dangerous flood zones. MAS-FRO addresses this critical gap through three key technical contributions: (1) a novel \textit{Virtual Meters} heuristic that converts normalized risk scores into distance-equivalent units, solving the heuristic domination problem in traditional risk-aware A* implementations while maintaining admissibility; (2) a multi-source data fusion engine integrating official government sensors (PAGASA river monitoring, dam water levels), crowdsourced social media reports processed via NLP (TF-IDF classification, spaCy NER), and GeoTIFF-based flood simulations with source-specific exponential temporal decay modeling; and (3) a client-side GeoTIFF processing pipeline enabling real-time flood visualization with boundary-aware rendering. The system employs five specialized agents following a Hybrid Multi-Agent System architecture communicating via FIPA-ACL compliant messaging over a dynamic road network graph comprising Marikina City's road infrastructure. We define a rigorous experimental methodology encompassing five controlled experiments: routing algorithm performance comparison, risk reduction analysis, data fusion effectiveness, system scalability under concurrent load, and NLP pipeline accuracy evaluation with statistical hypothesis testing. The system architecture, algorithms, and experimental framework are presented in full detail to enable reproducibility.
+\end{abstract}
+
+%%
+%% Keywords
+\keywords{Multi-Agent Systems, Flood Evacuation, Dynamic Routing, Risk-Aware A*, GeoTIFF Processing, Real-Time Systems, Marikina City}
+
+\maketitle
+
+%% ============================================================================
+\section{Introduction}
+%% ============================================================================
+
+The Philippines ranks among the most disaster-prone countries globally, with flooding constituting the most frequent and destructive hydrometeorological hazard affecting urban centers. Marikina City, situated in a low-lying valley within the Pasig-Marikina River Basin, is particularly vulnerable to rapid inundation events triggered by monsoon rains and typhoons originating from the Sierra Madre mountain range. Historical flood events, notably Typhoon Ondoy (Ketsana) in 2009, resulted in water levels exceeding 6 meters in some areas, causing significant loss of life and property damage.
+
+During flood emergencies, residents typically rely on commercial navigation applications such as Waze and Google Maps for evacuation guidance. However, these systems are fundamentally optimized for traffic congestion rather than hydrological safety. They lack critical capabilities including: (1) real-time flood depth sensing at road segment granularity, (2) flow velocity estimation for vehicle passability assessment, and (3) dynamic risk recalculation as flood conditions evolve. Consequently, these applications may inadvertently guide evacuees into inundated and potentially life-threatening routes.
+
+To address this critical gap, we present the \textbf{Multi-Agent System for Flood Route Optimization (MAS-FRO)}, a comprehensive decision support platform that integrates heterogeneous environmental data sources to compute dynamically optimized evacuation routes. The system makes three primary technical contributions:
+
+\begin{enumerate}
+    \item \textbf{Virtual Meters Heuristic:} A novel approach to risk-aware pathfinding that converts normalized risk scores (0--1) into distance-equivalent ``virtual meters,'' resolving the heuristic domination problem inherent in traditional weighted A* implementations.
+
+    \item \textbf{Multi-Source Data Fusion with Temporal Decay:} An integration framework combining official government sensor data, NLP-processed crowdsourced reports, and GeoTIFF-based flood simulations, with physics-based exponential decay modeling reflecting flood recession dynamics.
+
+    \item \textbf{Client-Side GeoTIFF Processing Pipeline:} A browser-based flood visualization system that processes 72 GeoTIFF raster flood hazard maps entirely on the client, enabling real-time flood depth rendering with boundary-aware color gradients without server-side image processing bottlenecks.
+\end{enumerate}
+
+The remainder of this paper is organized as follows: Section~2 reviews related work in flood management and multi-agent systems. Section~3 details the system architecture and agent design. Section~4 presents the Risk-Aware A* algorithm and hazard assessment methodology. Section~5 describes the frontend visualization system. Section~6 defines the experimental methodology. Section~7 presents results. Section~8 discusses findings and limitations. Section~9 concludes with future research directions.
+
+%% ============================================================================
+\section{Related Work}
+%% ============================================================================
+\subsection{Limitations of Current Flood Routing and Management}
+While national frameworks like Project NOAH and PAGASA provide essential macro-level forecasting, current flood management in the Philippines relies heavily on static hazard maps and manual decision-making \cite{gistam17, dpwh2021}. In high-risk areas like Marikina City, where water levels can rise rapidly due to the Sierra Madre catch basin, this manual interpretation of hydrological data is often too slow to match the speed of urban flash floods \cite{dangcalan2020}.
+
+\begin{figure}[h]
+
+    \centering
+
+    \includegraphics[width=1\columnwidth]{marikina_map.png}
+
+    \caption{Working area of Marikina City.}
+
+    \label{fig:marikina_map}
+
+\end{figure}
+
+The primary technological gap in current evacuation routing lies in the reliance on static network graphs. Standard algorithms used in navigation, such as Dijkstra’s algorithm or the standard Vehicle Routing Problem (VRP), typically optimize for the shortest distance or fastest time based on historical road data \cite{benticha2017, baty2023}. These static approaches fail during disasters because they do not account for real-time road accessibility or the physical danger of the water. Commercial navigation apps function similarly; they may detect traffic congestion, but they lack the hydrological data to distinguish between a traffic jam and a flooded street.
+
+Furthermore, academic attempts to integrate flood variables often treat risk as a binary factor (passable/not passable) based solely on depth ($h$). However, literature suggests that true safety is a function of the specific energy of the water, represented by the Energy Head equation ($E = h + v^2/2g$), which accounts for both depth and velocity \cite{kreibich2009}. This study addresses this gap by moving away from binary, distance-based routing. Instead, it implements a modified pathfinding approach that integrates specific energy metrics directly into the cost function, prioritizing safe corridors over merely short ones.
+
+\subsection{Multi-Agent Systems (MAS) in Dynamic Environments}
+To handle the complexity of changing floodwaters, Multi-Agent Systems (MAS) offer a distinct advantage over traditional centralized control. In a centralized system, a single central processor analyzes all data and issues commands. While this offers global coordination, it creates a single point of failure and suffers from computational bottlenecks, replicating the weaknesses of traditional Command and Control structures \cite{norwawi2002}.
+
+In contrast, MAS distributes decision-making across autonomous agents. Literature distinguishes between reactive agents, which respond simply to stimuli, and cognitive agents capable of planning. Recent studies suggest that for urban floods, a hybrid or federated MAS architecture is superior \cite{Rashid2024}. This approach combines the scalability of decentralized agents with a layer of centralized data fusion to maintain situational awareness.
+
+This study adopts this hybrid MAS paradigm to bridge the gap between responsiveness and coordination. While purely decentralized systems rely on stigmergy and often struggle with global optimization, the use of hybrid agents compliant with FIPA ACL standards allows for autonomous re-routing at the local level while still receiving global hazard updates. This ensures agents do not route evacuees into newly flooded zones, addressing the coordination failures often seen in fully decentralized models \cite{antonio2022, mancy2025}.
+
+\subsection{Algorithmic Implementation and The Digital Shadow}
+Implementing dynamic routing within an MAS requires a more heuristic-driven algorithm than standard pathfinding. The A* algorithm is preferred in recent literature due to its efficiency in point-to-point routing using the heuristic function $f(n) = g(n) + h(n)$ \cite{hart1968}. However, existing implementations of A* in disaster scenarios often lack real-time environmental inputs, relying instead on pre-calculated scenarios.
+
+To address this, modern frameworks utilizing a ``Digital Shadow''—a one-way data flow from the physical world to the digital agent—have emerged as a robust solution. This involves processing environmental data through Machine Learning models, such as Random Forest (RF) or Convolutional Neural Networks (CNNs), to rapidly convert sensor or crowdsourced data into a readable flood state \cite{jeddoub2023, ge2025}. This study leverages this concept to create a dynamic feedback loop: as the digital shadow updates the flood map in real-time, the A* algorithm dynamically recalculates the traversal cost $g(n)$ based on the hydrological risk, effectively allowing the MAS to adapt to the evolving flood state.
+
+\subsection{Crowdsourced Flood Intelligence}
+The integration of Volunteered Geographic Information (VGI) and social media data into flood management has gained significant attention in recent years \cite{degrossi2014, see2025}. Arthur et al. \cite{arthur2018} demonstrated the feasibility of detecting flood events from Twitter data in the UK, achieving near real-time spatial mapping of flood extent. Huang et al. \cite{huang2018} combined post-event satellite imagery with social media to generate rapid flood maps, showing that crowdsourced data can supplement authoritative sources during the critical early hours of a flood event.
+
+However, applying these techniques to the Philippine context presents unique challenges. Filipino social media posts frequently employ code-switching between English and Tagalog, use colloquial depth descriptions (e.g., ``tuhod'' for knee-level, ``baywang'' for waist-level), and reference hyperlocal landmarks rather than formal addresses. This study addresses these challenges through a multi-stage NLP pipeline combining TF-IDF classification, severity assessment, and custom Named Entity Recognition trained on Philippine geographic entities.
+
+Furthermore, while prior work treats crowdsourced data as a standalone information source, MAS-FRO implements a formal data fusion framework (Equation~\ref{eq:fusion}) that combines crowdsourced reports with authoritative sensor data using confidence-weighted integration and temporal decay modeling. This ensures that the system degrades gracefully when any single data source becomes unavailable, a critical requirement for disaster response systems \cite{Rashid2024}.
+
+%% ============================================================================
+\section{System Architecture}
+%% ============================================================================
+
+\subsection{Architectural Overview}
+
+MAS-FRO employs a microservices-based architecture with FastAPI (Python 3.10+) serving as the backend framework and Next.js 15 powering the frontend application. The system maintains a \textbf{Dynamic Graph Environment}---a thread-safe, in-memory representation of the Marikina road network using NetworkX MultiDiGraph structures---that serves as the shared state accessible to all agents.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\columnwidth]{masfro_system_archtecture.png}
+    \caption{Multi-agent system architecture showing data flow between specialized agents and the shared graph environment.}
+    \label{fig:masfro_architecture}
+\end{figure}
+
+\subsection{Agent Specifications}
+
+The system implements five specialized agents following a Hybrid Multi-Agent System architecture pattern:
+
+\subsubsection{FloodAgent}
+Responsible for collecting authoritative environmental data exclusively from government sources. These data streams include \textbf{PAGASA River Monitoring}, which provides real-time water levels along with alert, alarm, and critical thresholds, scraped via Selenium with BeautifulSoup to handle JavaScript-rendered content. It also fetches data from the \textbf{OpenWeatherMap API} for current rainfall rates ($\text{mm/hr}$), 24-hour forecasts, and other necessary meteorological parameters. Finally, the agent monitors \textbf{Dam Water Level Monitoring} systems to acquire spillway status, inflow, and outflow rates.
+
+For text-based advisories from PAGASA, the FloodAgent employs an LLM-based semantic parser (Qwen-3) to extract structured flood data from unstructured bulletin text, with regex-based fallback when the LLM is unavailable. This dual-mode parsing ensures robust data extraction regardless of service availability.
+
+\subsubsection{ScoutAgent}
+Specializes in processing crowdsourced flood intelligence gathered from social media platforms through a detailed, sequential processing pipeline. The process begins with \textbf{Social Media Scraping} for Selenium-based collection of flood-related posts. The data then undergoes \textbf{NLP Classification}, involving a binary classification (Logistic Regression, $\sim 92\%$ accuracy) to distinguish flood posts from non-flood posts, followed by a severity assessment (Random Forest, $\sim 87\%$ accuracy). Subsequently, \textbf{Named Entity Recognition} is performed using spaCy NER with a custom Philippine corpus ($\sim 85\%$ accuracy) to extract location data. The pipeline concludes with \textbf{Geocoding}, using fuzzy matching techniques against a database containing over 3,000 specific Marikina locations to map the crowdsourced reports to precise coordinates.
+
+\subsubsection{HazardAgent}
+Serves as the central data fusion hub, integrating multi-source data and computing road segment risk scores. The fusion algorithm applies the following weights:
+
+\begin{equation}
+R_{composite} = 0.5 \cdot R_{flood} + 0.3 \cdot R_{scout} + 0.2 \cdot R_{historical}
+\label{eq:fusion}
+\end{equation}
+
+where $R_{flood}$ corresponds to the normalized Energy Head ($E$) value derived in Section 4.4 based on official sensor data, $R_{scout}$ is derived from crowdsourced reports, and $R_{historical}$ is based on past flood frequency analysis.
+
+Additionally, the HazardAgent computes a city-wide dam threat modifier by monitoring upstream dam water levels (Angat, Ipo, La Mesa, Caliraya). Dam status is mapped to threat levels: normal ($0.0$), alert ($0.3$), alarm ($0.6$), and critical ($1.0$). This modifier amplifies risk scores across the entire graph when upstream dam conditions deteriorate, reflecting the systemic flood risk posed by dam releases.
+
+\subsubsection{RoutingAgent}
+Executes the Risk-Aware A* pathfinding algorithm with configurable risk penalties. Three operational modes are supported:
+
+\begin{table}[h]
+\caption{Routing Mode Configurations}
+\label{tab:routing_modes}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Mode} & \textbf{Risk Penalty ($\lambda$)} & \textbf{Behavior} \\
+\midrule
+SAFEST & 100.0 & Strong risk avoidance; risk=0.8 road costs 81$\times$ \\
+BALANCED & 3.0 & Moderate trade-off; risk=0.8 road costs 3.4$\times$ \\
+FASTEST & 0.0 & Pure shortest path; blocks only $r \geq 0.9$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{EvacuationManagerAgent}
+Manages user interactions, route tracking, and evacuation center recommendations.
+
+\subsection{Communication Protocol}
+
+Inter-agent communication follows the FIPA-ACL (Foundation for Intelligent Physical Agents - Agent Communication Language) specification. Messages are structured as:
+
+\begin{lstlisting}[language=Python,caption={ACL Message Structure}]
+@dataclass
+class ACLMessage:
+    performative: Performative  # REQUEST, INFORM, QUERY, etc.
+    sender: str
+    receiver: str
+    content: Dict[str, Any]
+    language: str = "json"
+    ontology: str = "flood-routing"
+    conversation_id: Optional[str] = None
+    timestamp: datetime = None
+\end{lstlisting}
+
+A thread-safe MessageQueue manages asynchronous message passing between agents, supporting both point-to-point and broadcast communication patterns.
+
+Each agent extends a \texttt{BaseAgent} class that implements a non-blocking message drain pattern. During each simulation step, agents poll their message queue with zero timeout, dispatching incoming requests to registered handler functions. This design enables agents to process inter-agent messages without blocking their primary sensing or computation loops, following a cooperative multitasking model.
+
+%% ============================================================================
+\section{Risk-Aware Routing Algorithm}
+%% ============================================================================
+
+\subsection{The Heuristic Domination Problem}
+
+Traditional A* with additive risk weights suffers from \textit{heuristic domination}. Consider a graph where edge costs combine physical distance $d(e)$ in meters with normalized risk $r(e) \in [0,1]$:
+
+\begin{equation}
+c(e) = d(e) + \alpha \cdot r(e)
+\end{equation}
+
+For the heuristic $h(n)$ to remain admissible (never overestimating), it must satisfy $h(n) \leq$ actual remaining cost. The standard Haversine distance heuristic, measured in meters, typically ranges from hundreds to thousands of meters. When $\alpha$ is small (e.g., 1.0), the risk component contributes negligibly to edge costs, causing A* to behave as standard shortest-path. When $\alpha$ is large, the heuristic underestimates significantly, degrading to Dijkstra-like exhaustive search.
+
+\subsection{Virtual Meters Solution}
+
+We propose converting risk scores to ``virtual meters'' that operate in the same dimensional space as physical distance:
+
+\begin{equation}
+c(e) = d(e) \cdot (1.0 + r(e) \cdot \lambda)
+\label{eq:virtual_meters}
+\end{equation}
+
+where $\lambda$ represents the \textit{risk penalty}---the number of virtual meters added per unit risk per physical meter of road. This formulation offers several advantages. 
+
+It first ensures \textbf{Dimensional Consistency}, as both physical distance and risk contributions are explicitly defined in terms of meters. 
+
+Then, the approach facilitates \textbf{Intuitive Parameterization}; for example, setting $\lambda = 2000$ translates to a preference: ``I prefer a 2km detour over traversing 1 meter of road with maximum risk ($r(e)=1.0$).'' 
+
+This method also maintains \textbf{Heuristic Admissibility} because the Haversine heuristic (which estimates physical distance) never overestimates the actual cost, as the true cost ($c(e)$) is always greater than or equal to the physical distance ($d(e)$).
+
+\subsection{Algorithm Implementation}
+
+Algorithm~\ref{alg:riskastar} presents the Risk-Aware A* implementation.
+
+\begin{algorithm}[h]
+\caption{Risk-Aware A* Pathfinding}
+\label{alg:riskastar}
+\begin{algorithmic}[1]
+\REQUIRE Graph $G = (V, E)$, start node $s$, goal node $t$, risk penalty $\lambda$
+\ENSURE Optimal path $P$ from $s$ to $t$ or $\emptyset$ if none exists
+
+\STATE Initialize priority queue $Q$ with $(s, 0, h(s,t))$
+\STATE Initialize $g[v] \leftarrow \infty$ for all $v \in V$; $g[s] \leftarrow 0$
+\STATE Initialize $parent[v] \leftarrow \text{null}$ for all $v \in V$
+
+\WHILE{$Q$ is not empty}
+    \STATE $(u, g_u, f_u) \leftarrow$ extract-min from $Q$
+    \IF{$u = t$}
+        \RETURN ReconstructPath($parent$, $t$)
+    \ENDIF
+    \FORALL{edges $(u, v, data) \in E$}
+        \STATE $r \leftarrow data.\text{risk\_score}$
+        \IF{$r \geq 0.9$}
+            \STATE \textbf{continue} \COMMENT{Block impassable roads}
+        \ENDIF
+        \STATE $d \leftarrow data.\text{length}$
+        \STATE $cost \leftarrow d \cdot (1.0 + r \cdot \lambda)$ \COMMENT{Virtual meters}
+        \STATE $g_{new} \leftarrow g[u] + cost$
+        \IF{$g_{new} < g[v]$}
+            \STATE $g[v] \leftarrow g_{new}$
+            \STATE $parent[v] \leftarrow u$
+            \STATE $f[v] \leftarrow g_{new} + h(v, t)$
+            \STATE Insert or update $(v, g[v], f[v])$ in $Q$
+        \ENDIF
+    \ENDFOR
+\ENDWHILE
+\RETURN $\emptyset$
+\end{algorithmic}
+\end{algorithm}
+
+The heuristic function $h(n, t)$ computes Haversine (great-circle) distance:
+
+\begin{equation}
+h(n,t) = 2R \cdot \arcsin\left(\sqrt{\sin^2\frac{\Delta\phi}{2} + \cos\phi_n\cos\phi_t\sin^2\frac{\Delta\lambda}{2}}\right)
+\end{equation}
+
+where $R = 6,371,000$ meters is Earth's radius, and $\phi$, $\lambda$ denote latitude and longitude in radians.
+
+\subsection{Hazard Assessment: Energy Head Model}
+
+To account for the hydrodynamic force exerted by floodwaters, the system is architected to calculate risk using the Energy Head equation \cite{kreibich2009}:
+\begin{equation}
+    E = h + \frac{v^{2}}{2g}
+\end{equation}
+where $h$ is flood depth ($m$), $v$ is flow velocity ($m/s$), and $g$ is gravity. In the current preliminary prototype, real-time velocity data is unavailable. Therefore, the system assumes static water conditions ($v \approx 0$), simplifying the risk calculation to hydrostatic depth ($E = h$). The architecture supports full hydrodynamic risk scoring once velocity data becomes available from advanced hydraulic models.
+
+\begin{table}[h]
+\caption{Energy Head to Risk Normalization}
+\label{tab:energy_risk}
+\begin{tabular}{lll}
+\toprule
+\textbf{Energy Head} & \textbf{Risk Range} & \textbf{Vehicle Safety} \\
+\midrule
+$< 0.3$ m & 0.0--0.4 & Passable with caution \\
+0.3--0.6 m & 0.4--0.7 & Dangerous for small vehicles \\
+$> 0.6$ m & 0.7--1.0 & Impassable for most vehicles \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Temporal Decay Modeling}
+
+Risk scores from crowdsourced reports and sensor data decay over time following an exponential model reflecting flood recession dynamics:
+
+\begin{equation}
+R(t) = R_0 \cdot e^{-\delta \cdot t}
+\label{eq:decay}
+\end{equation}
+
+where $R_0$ is the initial risk score, $t$ is the elapsed time in minutes since the observation, and $\delta$ is the source-specific decay rate constant. We apply differentiated decay rates calibrated to hydrological behavior: $\delta_{\text{scout,fast}} = 0.10$ min$^{-1}$ for rain-induced surface flooding that drains rapidly (37\% remaining after 10 minutes), $\delta_{\text{scout,slow}} = 0.03$ min$^{-1}$ for river-level flooding with slower recession (74\% remaining after 10 minutes), and $\delta_{\text{flood}} = 0.05$ min$^{-1}$ for official sensor data (61\% remaining after 10 minutes). Reports exceeding their Time-to-Live (TTL)---45 minutes for scout data, 90 minutes for official flood data---are evicted from the risk calculation entirely.
+
+\subsection{Spatial Risk Propagation}
+
+Flood reports from discrete observation points must be propagated to nearby road segments that lack direct sensor coverage. The system employs spatial risk propagation within a configurable radius ($r_{\text{max}} = 800$ m):
+
+\begin{equation}
+R_{\text{propagated}}(d) = R_{\text{source}} \cdot \max\left(0, 1 - \frac{d}{r_{\text{max}}}\right)
+\label{eq:spatial_decay}
+\end{equation}
+
+where $d$ is the Euclidean distance from the observation point to the target road edge, and $r_{\text{max}}$ is the maximum propagation radius. A spatial grid index (cell size $0.01^{\circ} \approx 1.1$ km) enables efficient neighbor lookup, avoiding $O(n^2)$ pairwise distance computations across the graph's edges.
+
+\subsection{Infrastructure Vulnerability Assessment}
+
+Road infrastructure vulnerability varies with road type due to differences in drainage capacity and construction standards. The system assigns base vulnerability scores that are modulated by flood depth:
+
+\begin{equation}
+R_{\text{infra}} = V_{\text{base}}(type) \cdot (1.0 + \min(h \cdot 0.5, 1.0))
+\end{equation}
+
+where $V_{\text{base}}$ is the road-type-specific base vulnerability and $h$ is the local flood depth in meters.
+
+\begin{table}[h]
+\caption{Base Infrastructure Vulnerability by Road Type}
+\label{tab:infra_vuln}
+\begin{tabular}{lr}
+\toprule
+\textbf{Road Type} & \textbf{Base Vulnerability} \\
+\midrule
+Motorway / Trunk & 0.10 \\
+Primary & 0.20 \\
+Secondary & 0.30 \\
+Tertiary & 0.40 \\
+Residential & 0.50 \\
+Unclassified & 0.60 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Vehicle Passability Thresholds}
+
+Vehicle-specific passability thresholds determine when a road segment is considered impassable, following FEMA guidelines \cite{fema2015}:
+
+\begin{table}[h]
+\caption{Vehicle Passability Thresholds}
+\label{tab:passability}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Vehicle} & \textbf{Static Depth (m)} & \textbf{Flowing Depth (m)} & \textbf{Max Velocity (m/s)} \\
+\midrule
+Car & 0.30 & 0.40 & 0.50 \\
+SUV & 0.50 & 0.60 & 0.50 \\
+Truck & 0.60 & 0.70 & 0.60 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ============================================================================
+\section{Frontend Visualization System}
+%% ============================================================================
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\columnwidth]{masfro_ui.png}
+    \caption{FrontEnd Interface}
+    \label{fig:masfro_ui}
+\end{figure}
+
+
+\subsection{Client-Side GeoTIFF Processing}
+
+A key technical contribution is the browser-based GeoTIFF processing pipeline, which eliminates server-side image rendering bottlenecks. The pipeline processes 72 GeoTIFF flood hazard maps (4 return periods $\times$ 18 time steps) representing scenarios from 2-year to 25-year flood events.
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\columnwidth]{geotiff_processing_pipeline.png}
+    \caption{Client-side flood visualization pipeline.}
+    \label{fig:pipeline}
+\end{figure}
+
+\subsection{Three-Tier Color Gradient}
+
+Flood depth is visualized using a perceptually-optimized three-tier color gradient:
+
+\begin{table}[h]
+\caption{Flood Depth Color Mapping}
+\label{tab:color_gradient}
+\begin{tabular}{llll}
+\toprule
+\textbf{Depth Range} & \textbf{Color} & \textbf{Opacity} & \textbf{Purpose} \\
+\midrule
+0--30\% & Light Cyan & 70\% & Shallow, base map visible \\
+30--70\% & Blue & 85\% & Moderate depth \\
+70--100\% & Dark Navy & 100\% & Deep flooding \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Real-Time Communication}
+
+The frontend maintains a WebSocket connection for real-time updates from the multi-agent backend. Message types include:
+
+\begin{itemize}
+    \item \texttt{system\_status}: Agent health and graph statistics (every 10s)
+    \item \texttt{flood\_update}: New sensor data from FloodAgent (every 5--30s)
+    \item \texttt{risk\_update}: Edge risk scores changed (event-driven)
+    \item \texttt{critical\_alert}: High water level warnings (event-driven)
+\end{itemize}
+
+Reconnection employs linear backoff with delays of $\min(5000 \cdot k, 30000)$ ms for attempt $k$.
+
+%% ============================================================================
+\section{Experimental Design}
+%% ============================================================================
+
+This section defines the experimental methodology for evaluating MAS-FRO. Five experiments assess routing performance, risk reduction effectiveness, data fusion quality, system scalability, and NLP pipeline accuracy. All experiments use the Marikina City road network and follow a controlled experimental design \cite{wohlin2012}.
+
+\subsection{Experimental Environment}
+
+\begin{table}[h]
+\caption{Experimental Environment}
+\label{tab:env}
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Specification} \\
+\midrule
+OS & \textit{$<$insert$>$} \\
+CPU & \textit{$<$insert$>$} \\
+RAM & \textit{$<$insert$>$} \\
+Python & 3.10+ \\
+Backend & FastAPI 0.118.0, NetworkX 3.4.2, OSMnx 2.0.6 \\
+Frontend & Next.js 15.5.4, React 19.1.0, Mapbox GL 3.15.0 \\
+Database & PostgreSQL 14+ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\caption{Marikina Road Network Characteristics}
+\label{tab:graph_stats}
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Nodes (intersections) & \textit{$<$insert count from graph$>$} \\
+Edges (road segments) & \textit{$<$insert count from graph$>$} \\
+Total road length (km) & \textit{$<$insert$>$} \\
+Average node degree & \textit{$<$insert$>$} \\
+Geographic coverage & 14.61\textdegree--14.75\textdegree N, 121.08\textdegree--121.13\textdegree E \\
+GeoTIFF resolution & 372 $\times$ 368 pixels \\
+Flood scenario maps & 72 (4 return periods $\times$ 18 time steps) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Flood Scenario Definitions}
+
+Three flood severity levels are used across experiments, applied by loading GeoTIFF raster data that assigns per-edge flood depth values:
+
+\begin{table}[h]
+\caption{Flood Scenario Definitions}
+\label{tab:scenarios}
+\begin{tabular}{llll}
+\toprule
+\textbf{Scenario} & \textbf{Return Period} & \textbf{Time Step} & \textbf{Description} \\
+\midrule
+Light (S1) & 2-year & $t=6$ & Typical monsoon rainfall \\
+Medium (S2) & 5-year & $t=12$ & Moderate flood event \\
+Heavy (S3) & 25-year & $t=18$ & Extreme event (cf. Ondoy 2009) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experiment 1: Routing Algorithm Performance}
+
+\textbf{Objective:} Compare execution time, path quality, and route availability across algorithms and flood conditions.
+
+\textbf{Independent Variables:}
+\begin{itemize}
+    \item Algorithm: (a) Risk-Aware A* (SAFEST), (b) Risk-Aware A* (BALANCED), (c) Risk-Aware A* (FASTEST), (d) Standard A* (no risk), (e) Dijkstra (no risk)
+    \item Flood scenario: S1, S2, S3
+\end{itemize}
+
+\textbf{Dependent Variables:}
+\begin{itemize}
+    \item Computation time (ms)
+    \item Total path distance (m)
+    \item Number of edges explored (nodes expanded)
+    \item Route availability (\% of OD pairs with valid path)
+\end{itemize}
+
+\textbf{Procedure:}
+\begin{enumerate}
+    \item Generate $N = 1{,}000$ random origin-destination (OD) pairs using uniform sampling over graph nodes, with minimum Haversine separation of 500m.
+    \item For each flood scenario, apply the corresponding GeoTIFF risk scores to all graph edges.
+    \item Execute each algorithm on all 1,000 OD pairs. Record computation time, path length, nodes expanded, and success/failure.
+    \item Repeat 5 times with different random seeds to account for OD pair variability.
+\end{enumerate}
+
+\textbf{Statistical Analysis:} Report mean, standard deviation, median, and 95th percentile. Use paired Wilcoxon signed-rank tests for pairwise algorithm comparisons with Bonferroni correction for multiple comparisons ($\alpha = 0.05 / 10 = 0.005$) \cite{arcuri2011}.
+
+\subsection{Experiment 2: Risk Reduction Analysis}
+
+\textbf{Objective:} Quantify the safety benefit of risk-aware routing versus shortest-path baselines.
+
+\textbf{Metrics:}
+\begin{itemize}
+    \item \textbf{Average path risk:} Distance-weighted mean risk score across all edges in the path: $\bar{R} = \sum_{e \in P} r(e) \cdot d(e) / \sum_{e \in P} d(e)$
+    \item \textbf{Maximum edge risk:} $R_{\max} = \max_{e \in P} r(e)$
+    \item \textbf{High-risk edge fraction:} Proportion of path edges with $r(e) > 0.7$
+    \item \textbf{Distance overhead:} $(d_{\text{risk-aware}} - d_{\text{baseline}}) / d_{\text{baseline}} \times 100\%$
+\end{itemize}
+
+\textbf{Procedure:}
+\begin{enumerate}
+    \item Using the same 1,000 OD pairs from Experiment~1, compute paths under each algorithm for each scenario.
+    \item For each OD pair, compute the four risk metrics for both the risk-aware path and the shortest-path baseline.
+    \item Calculate pairwise differences (risk-aware $-$ baseline) for each metric.
+\end{enumerate}
+
+\textbf{Statistical Analysis:} Report paired differences with 95\% confidence intervals. Use paired $t$-tests (or Wilcoxon if non-normal) for significance testing. Visualize with box plots and Pareto fronts (distance vs. risk).
+
+\subsection{Experiment 3: Data Fusion Effectiveness}
+
+\textbf{Objective:} Evaluate whether multi-source data fusion (Equation~\ref{eq:fusion}) produces more accurate risk assessments than any single source alone.
+
+\textbf{Conditions:}
+\begin{enumerate}
+    \item Official data only ($R = R_{\text{flood}}$)
+    \item Crowdsourced data only ($R = R_{\text{scout}}$)
+    \item Fused data ($R = 0.5 R_{\text{flood}} + 0.3 R_{\text{scout}} + 0.2 R_{\text{historical}}$)
+\end{enumerate}
+
+\textbf{Ground Truth:} GeoTIFF flood depth maps serve as the reference ground truth for actual flood conditions.
+
+\textbf{Metrics:}
+\begin{itemize}
+    \item Mean Absolute Error (MAE) between computed risk and ground truth
+    \item Root Mean Squared Error (RMSE)
+    \item Spearman rank correlation between computed risk ranking and ground truth ranking
+\end{itemize}
+
+\textbf{Procedure:}
+\begin{enumerate}
+    \item Apply each data condition to the graph for each flood scenario.
+    \item Compare computed edge risk scores against GeoTIFF-derived reference risk scores.
+    \item Compute MAE, RMSE, and Spearman $\rho$ across all edges.
+\end{enumerate}
+
+\subsection{Experiment 4: System Scalability and Latency}
+
+\textbf{Objective:} Measure system performance under concurrent load and real-time update throughput.
+
+\textbf{Sub-experiments:}
+
+\textit{4a. Routing Latency Under Load:} Issue $k$ concurrent routing requests ($k \in \{1, 5, 10, 25, 50\}$) and measure per-request latency (mean, P50, P95, P99).
+
+\textit{4b. WebSocket Update Throughput:} Measure end-to-end latency from backend risk update to frontend visualization update, across $n$ simultaneous WebSocket clients ($n \in \{1, 5, 10, 25\}$).
+
+\textit{4c. Data Collection Cycle Time:} Measure the wall-clock time for a complete FloodAgent data collection cycle (PAGASA scrape + weather API + dam levels + risk update propagation).
+
+\textbf{Metrics:}
+\begin{itemize}
+    \item Request latency percentiles (ms)
+    \item WebSocket message delivery latency (ms)
+    \item Collection cycle duration (s)
+    \item Memory usage (MB)
+\end{itemize}
+
+\subsection{Experiment 5: NLP Pipeline Evaluation}
+
+\textbf{Objective:} Evaluate the ScoutAgent's text processing pipeline on Philippine flood-related social media data.
+
+\textbf{Dataset:} A labeled corpus of \textit{$<$insert count$>$} social media posts (Filipino/English mixed) annotated for: (a) flood relevance (binary), (b) severity level (none/minor/dangerous/critical), (c) location entities.
+
+\textbf{Metrics:}
+\begin{itemize}
+    \item \textbf{Flood Classification:} Precision, Recall, F1-score (binary)
+    \item \textbf{Severity Assessment:} Weighted F1-score (4-class), confusion matrix
+    \item \textbf{Location NER:} Entity-level Precision, Recall, F1-score
+    \item \textbf{Geocoding Accuracy:} Percentage of extracted locations correctly geocoded within 500m of actual coordinates
+\end{itemize}
+
+\textbf{Evaluation Protocol:} 5-fold stratified cross-validation. Report mean and standard deviation across folds.
+
+\subsection{Reproducibility}
+
+All source code, configuration files, and experimental scripts are available in the project repository. Graph data is extracted from OpenStreetMap via OSMnx \cite{boeing2017osmnx}. GeoTIFF flood hazard maps are sourced from DOST-NOAH/Project NOAH. Random seeds are fixed for reproducibility.
+
+%% ============================================================================
+\section{Results}
+%% ============================================================================
+
+This section presents the results of the five experiments defined in Section~6. \textbf{Note: Experimental data collection is pending. Tables contain placeholder entries to be populated upon completion of experiments.}
+
+\subsection{Experiment 1: Routing Algorithm Performance}
+
+\begin{table*}[t]
+\caption{Routing Algorithm Performance Across Flood Scenarios ($N = 1{,}000$ OD pairs, 5 repetitions)}
+\label{tab:routing_results}
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Scenario} & \textbf{Algorithm} & \textbf{Mean Time (ms)} & \textbf{P95 Time (ms)} & \textbf{Nodes Expanded} & \textbf{Route Avail. (\%)} \\
+\midrule
+\multirow{5}{*}{Light (S1)}
+ & Risk-Aware A* (SAFEST)   & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (BALANCED) & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (FASTEST)  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Standard A*              & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Dijkstra                 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\midrule
+\multirow{5}{*}{Medium (S2)}
+ & Risk-Aware A* (SAFEST)   & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (BALANCED) & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (FASTEST)  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Standard A*              & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Dijkstra                 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\midrule
+\multirow{5}{*}{Heavy (S3)}
+ & Risk-Aware A* (SAFEST)   & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (BALANCED) & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Risk-Aware A* (FASTEST)  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Standard A*              & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+ & Dijkstra                 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Experiment 2: Risk Reduction Analysis}
+
+\begin{table}[h]
+\caption{Risk Reduction: BALANCED Mode vs. Shortest-Path Baseline}
+\label{tab:risk_reduction}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Metric} & \textbf{S1 (Light)} & \textbf{S2 (Medium)} & \textbf{S3 (Heavy)} \\
+\midrule
+Mean risk reduction (\%)         & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Max risk avoidance (\%)          & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+High-risk edge fraction (\%)     & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Distance overhead (\%)           & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Wilcoxon $p$-value               & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\caption{Risk Reduction Across All Routing Modes (Medium Scenario S2)}
+\label{tab:risk_all_modes}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Mode} & \textbf{Mean Risk Red. (\%)} & \textbf{Dist. Overhead (\%)} & \textbf{$R_{\max}$ Avoidance (\%)} \\
+\midrule
+SAFEST   & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+BALANCED & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+FASTEST  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experiment 3: Data Fusion Effectiveness}
+
+\begin{table}[h]
+\caption{Data Fusion Accuracy Against GeoTIFF Ground Truth}
+\label{tab:fusion_results}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Data Source} & \textbf{MAE} & \textbf{RMSE} & \textbf{Spearman $\rho$} \\
+\midrule
+Official only         & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Crowdsourced only     & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Fused (Equation~\ref{eq:fusion}) & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experiment 4: Scalability and Latency}
+
+\begin{table}[h]
+\caption{Routing Latency Under Concurrent Load}
+\label{tab:latency}
+\begin{tabular}{rrrrr}
+\toprule
+\textbf{Concurrent Req.} & \textbf{Mean (ms)} & \textbf{P50 (ms)} & \textbf{P95 (ms)} & \textbf{P99 (ms)} \\
+\midrule
+1  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+5  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+10 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+25 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+50 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\caption{WebSocket Update Latency}
+\label{tab:ws_latency}
+\begin{tabular}{rrrr}
+\toprule
+\textbf{Clients} & \textbf{Mean (ms)} & \textbf{P95 (ms)} & \textbf{Delivery Rate (\%)} \\
+\midrule
+1  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+5  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+10 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+25 & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experiment 5: NLP Pipeline Evaluation}
+
+\begin{table}[h]
+\caption{NLP Pipeline Performance (5-Fold Cross-Validation)}
+\label{tab:nlp_results}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Task} & \textbf{Model} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} \\
+\midrule
+Flood Classification & Logistic Regression  & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Severity Assessment  & Random Forest        & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Location NER         & spaCy Custom NER     & \textit{$<$insert$>$} & \textit{$<$insert$>$} & \textit{$<$insert$>$} \\
+Geocoding            & Fuzzy Matching       & \multicolumn{3}{c}{\textit{$<$insert accuracy \%$>$}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ============================================================================
+\section{Discussion}
+%% ============================================================================
+
+\subsection{Comparative Analysis}
+
+\textit{$<$Insert comparative analysis once results are available. Compare against: (1) Dawson et al.~\cite{dawson2011} agent-based flood routing, (2) Chan et al.~\cite{chan2021} multi-criteria evacuation routing, (3) Liu et al.~\cite{liu2020} dynamic multi-objective evacuation. Discuss how MAS-FRO's Virtual Meters approach compares to additive risk weighting in prior work.$>$}
+
+The Virtual Meters formulation (Equation~\ref{eq:virtual_meters}) represents a conceptual advancement over the additive risk weighting ($c = d + \alpha r$) used in prior work \cite{liu2020}. By making the risk penalty proportional to physical distance, the approach maintains dimensional consistency and heuristic admissibility, enabling efficient A* search without degradation to exhaustive Dijkstra-like exploration. This property is particularly important for real-time applications where route computation must complete within user-perceptible latencies.
+
+\subsection{Practical Implications}
+
+The multi-agent architecture provides operational advantages for the Marikina City Disaster Risk Reduction and Management Office (CDRRMO). The system's 5-minute data collection cycle enables near real-time situational awareness, while the three routing modes (SAFEST, BALANCED, FASTEST) allow CDRRMO operators to adapt evacuation strategies based on flood severity and urgency.
+
+The integration of crowdsourced data through the ScoutAgent addresses a critical gap in official sensor coverage. PAGASA maintains only five river monitoring stations along the Marikina River, leaving significant portions of the 21.5~km\textsuperscript{2} urban area without direct flood depth measurements. Social media reports, despite lower individual reliability, provide complementary spatial coverage when processed through the confidence-weighted fusion framework (Equation~\ref{eq:fusion}).
+
+\subsection{Threats to Validity}
+
+\subsubsection{Internal Validity}
+The use of GeoTIFF flood maps as both simulation input and ground truth for data fusion evaluation (Experiment~3) introduces circularity. Mitigation: GeoTIFF maps are derived from independent hydrological modeling (DOST-NOAH), not from MAS-FRO's own risk calculations. Additionally, the synthetic scout data used in simulation mode may not fully capture the noise characteristics of real social media posts.
+
+\subsubsection{External Validity}
+Results are specific to the Marikina City road network and may not generalize to cities with different topography, drainage infrastructure, or road network density. The system's reliance on Philippine government data sources (PAGASA, DOST-NOAH) limits direct applicability to other countries without adaptation.
+
+\subsubsection{Construct Validity}
+The composite risk score (Equation~\ref{eq:fusion}) uses fixed weights (0.5/0.3/0.2) determined through domain expert consultation rather than empirical optimization. Different weight configurations may yield different routing outcomes. Future work should explore weight sensitivity analysis and adaptive weight learning.
+
+\subsection{Limitations}
+
+\begin{enumerate}
+    \item \textbf{Static Flow Assumption:} The current implementation assumes hydrostatic conditions ($v \approx 0$), simplifying the Energy Head equation to $E = h$. This may underestimate risk in flash flood corridors and near river overbanks where flow velocity is significant. Integration of velocity vectors from hydraulic models (e.g., HEC-RAS) would enable full hydrodynamic risk assessment.
+
+    \item \textbf{Sensor Sparsity:} PAGASA river monitoring stations provide point measurements that require spatial interpolation. The 800m propagation radius (Equation~\ref{eq:spatial_decay}) is an approximation; actual flood extent depends on local elevation and drainage.
+
+    \item \textbf{Traffic Integration:} The system does not incorporate real-time traffic data. During evacuations, road congestion may render mathematically optimal routes impractical due to vehicle queuing.
+
+    \item \textbf{Temporal Resolution:} GeoTIFF flood scenarios represent hourly snapshots. Sub-hourly flood dynamics (e.g., flash flooding) may not be captured accurately.
+
+    \item \textbf{NLP Language Coverage:} The ScoutAgent's NLP pipeline is trained on Filipino-English code-switched text. Performance on purely Filipino (Tagalog) posts or posts in other Philippine languages (Cebuano, Ilocano) has not been evaluated.
+\end{enumerate}
+
+%% ============================================================================
+\section{Conclusion and Future Work}
+%% ============================================================================
+
+This paper presented MAS-FRO, a multi-agent system for flood-aware evacuation routing in Marikina City, Philippines. The system makes three primary contributions to the field of disaster-responsive navigation:
+
+First, the \textit{Virtual Meters} heuristic (Equation~\ref{eq:virtual_meters}) resolves the heuristic domination problem in risk-aware A* by converting risk scores to distance-equivalent units, maintaining both dimensional consistency and heuristic admissibility. This enables efficient pathfinding with configurable safety-efficiency trade-offs through a single, interpretable parameter $\lambda$.
+
+Second, the multi-source data fusion framework (Equation~\ref{eq:fusion}) integrates official government sensor data, NLP-processed crowdsourced reports, and GeoTIFF-based flood simulations with source-specific exponential temporal decay (Equation~\ref{eq:decay}). The five-agent architecture---FloodAgent, ScoutAgent, HazardAgent, RoutingAgent, and EvacuationManagerAgent---communicates via FIPA-ACL compliant messaging \cite{fipa2002spec}, enabling autonomous data collection and risk assessment with graceful degradation when individual components fail.
+
+Third, the client-side GeoTIFF processing pipeline enables real-time browser-based flood visualization of 72 raster maps without server-side rendering bottlenecks.
+
+\textit{$<$Insert 1-2 paragraphs summarizing key experimental findings once results from Section~7 are available. Highlight: routing performance metrics, risk reduction percentages, data fusion improvements, and system latency figures.$>$}
+
+\subsection{Future Work}
+
+Future research directions are organized by priority:
+
+\begin{enumerate}
+    \item \textbf{Hydrodynamic Risk Assessment:} Integrate flow velocity data from hydraulic models (HEC-RAS, SWMM) to fully satisfy the Energy Head equation ($E = h + v^2/2g$), enabling accurate risk scoring in high-velocity flood corridors.
+
+    \item \textbf{Predictive Flood Modeling:} Replace historical GeoTIFF scenarios with machine learning-based nowcasting models that predict flood evolution 1--6 hours ahead, enabling proactive rather than reactive routing.
+
+    \item \textbf{Real-Time Traffic Integration:} Incorporate live traffic data to account for evacuation congestion, enabling multi-objective optimization over safety, distance, and travel time.
+
+    \item \textbf{Multi-Vehicle Coordination:} Extend the RoutingAgent to coordinate simultaneous evacuation requests, distributing vehicles across evacuation centers to prevent overcrowding and route bottlenecks.
+
+    \item \textbf{Mobile Deployment and Field Validation:} Develop a React Native mobile interface and conduct field testing with Marikina CDRRMO during actual flood events to validate system effectiveness under real-world conditions.
+
+    \item \textbf{Geographic Expansion:} Extend coverage to other flood-prone areas in Metro Manila (Quezon City, Pasig, Cainta) and adapt the data fusion framework to support additional national weather services.
+\end{enumerate}
+
+%% ============================================================================
+%% Acknowledgments
+%% ============================================================================
+\begin{acks}
+The authors would like to acknowledge the support of the Department of Software Technology at De La Salle University.
+
+We express our deepest gratitude to our thesis adviser, Ms. Jazzie Jao, for her unwavering guidance, patience, and invaluable mentorship throughout this research. Her insightful feedback, technical expertise, and constant encouragement were instrumental in shaping the direction of this study and motivating us to overcome the challenges encountered during development.
+
+We also extend our sincere appreciation to our esteemed panelists, Dr. Ibrahim Abdelhameed and Dr. Edgar Vallar. Their constructive criticism, rigorous review, and detailed suggestions helped us dearly in refining our methodology and significantly improved the quality of this thesis.
+
+Finally, we thank PAGASA for providing access to essential river monitoring data and the OpenStreetMap community for the road network data used in this simulation.
+\end{acks}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

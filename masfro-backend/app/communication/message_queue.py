@@ -77,15 +77,12 @@ class MessageQueue:
             del self.queues[agent_id]
             logger.info(f"Agent {agent_id} unregistered from message queue")
 
-    def send_message(self, message: ACLMessage) -> bool:
+    def send_message(self, message: ACLMessage) -> None:
         """
         Send a message to the receiver agent's queue.
 
         Args:
             message: ACLMessage to be sent
-
-        Returns:
-            True if message was successfully queued, False otherwise
 
         Raises:
             ValueError: If receiver agent is not registered
@@ -103,7 +100,6 @@ class MessageQueue:
                 f"Message sent from {message.sender} to {receiver} "
                 f"(performative: {message.performative})"
             )
-            return True
 
     def receive_message(
         self,
@@ -125,11 +121,13 @@ class MessageQueue:
         Raises:
             ValueError: If agent is not registered
         """
-        if agent_id not in self.queues:
-            raise ValueError(f"Agent {agent_id} is not registered")
+        with self.lock:
+            if agent_id not in self.queues:
+                raise ValueError(f"Agent {agent_id} is not registered")
+            agent_queue = self.queues[agent_id]
 
         try:
-            message = self.queues[agent_id].get(block=block, timeout=timeout)
+            message = agent_queue.get(block=block, timeout=timeout)
             logger.debug(
                 f"Message received by {agent_id} from {message.sender} "
                 f"(performative: {message.performative})"
@@ -151,76 +149,8 @@ class MessageQueue:
         Raises:
             ValueError: If agent is not registered
         """
-        if agent_id not in self.queues:
-            raise ValueError(f"Agent {agent_id} is not registered")
-        return self.queues[agent_id].qsize()
-
-    def clear_queue(self, agent_id: str) -> int:
-        """
-        Clear all messages from an agent's queue.
-
-        Args:
-            agent_id: ID of the agent
-
-        Returns:
-            Number of messages cleared
-
-        Raises:
-            ValueError: If agent is not registered
-        """
-        if agent_id not in self.queues:
-            raise ValueError(f"Agent {agent_id} is not registered")
-
-        count = 0
         with self.lock:
-            while not self.queues[agent_id].empty():
-                try:
-                    self.queues[agent_id].get_nowait()
-                    count += 1
-                except Empty:
-                    break
+            if agent_id not in self.queues:
+                raise ValueError(f"Agent {agent_id} is not registered")
+            return self.queues[agent_id].qsize()
 
-        logger.info(f"Cleared {count} messages from {agent_id}'s queue")
-        return count
-
-    def broadcast_message(
-        self,
-        message: ACLMessage,
-        exclude_sender: bool = True
-    ) -> int:
-        """
-        Broadcast a message to all registered agents.
-
-        Args:
-            message: ACLMessage to broadcast
-            exclude_sender: Whether to exclude sender from broadcast
-
-        Returns:
-            Number of agents the message was sent to
-        """
-        count = 0
-        with self.lock:
-            for agent_id in self.queues.keys():
-                if exclude_sender and agent_id == message.sender:
-                    continue
-                # Create a copy of message with updated receiver
-                broadcast_msg = ACLMessage(
-                    performative=message.performative,
-                    sender=message.sender,
-                    receiver=agent_id,
-                    content=message.content,
-                    language=message.language,
-                    ontology=message.ontology,
-                    conversation_id=message.conversation_id,
-                    reply_with=message.reply_with,
-                    in_reply_to=message.in_reply_to,
-                    timestamp=message.timestamp
-                )
-                self.queues[agent_id].put(broadcast_msg)
-                count += 1
-
-        logger.info(
-            f"Broadcast message from {message.sender} to {count} agents "
-            f"(performative: {message.performative})"
-        )
-        return count

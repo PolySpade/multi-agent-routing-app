@@ -1,38 +1,48 @@
-# filename: masfro-backend/main.py
+# filename: masfro-backend-v2/main.py
 
 """
-FastAPI Backend for Multi-Agent System for Flood Route Optimization (MAS-FRO)
+FastAPI Backend for Multi-Agent System for Flood Route Optimization (MAS-FRO) v2
 
 This is the main entry point for the MAS-FRO backend API. It initializes all
 agents in the multi-agent system and provides REST API endpoints for route
 requests and system monitoring.
 
+v2 Enhancements:
+- Qwen 3 LLM integration for enhanced text understanding
+- Qwen 3-VL vision model for flood image analysis
+- /api/llm/health endpoint for LLM status monitoring
+- Visual Override logic in HazardAgent
+
 Author: MAS-FRO Development Team
-Date: November 2025
+Date: February 2026
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Body
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Tuple, Optional, Dict, Any, Set
-from fastapi import BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import logging
 import asyncio
 import json
+import math
+import os
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from pathlib import Path
 import pandas as pd
 
 # Agent imports
 from app.environment.graph_manager import DynamicGraphEnvironment
+from app.core.sim_clock import sim_clock
 from app.agents.flood_agent import FloodAgent
 from app.agents.scout_agent import ScoutAgent
 from app.agents.hazard_agent import HazardAgent
 from app.agents.evacuation_manager_agent import EvacuationManagerAgent
 from app.agents.routing_agent import RoutingAgent
+from app.agents.orchestrator_agent import OrchestratorAgent
 
 # No direct algorithm imports needed - RoutingAgent handles all pathfinding
 
@@ -46,14 +56,34 @@ from app.services.flood_data_scheduler import FloodDataScheduler, set_scheduler,
 # Simulation Manager imports
 from app.services.simulation_manager import get_simulation_manager, SimulationManager
 
+# Agent Lifecycle Manager imports
+from app.services.agent_lifecycle_manager import (
+    AgentLifecycleManager,
+    set_lifecycle_manager,
+    get_lifecycle_manager
+)
+
+# LLM Service
+from app.services.llm_service import LLMService, get_llm_service
+from app.services.evacuation_service import get_evacuation_service
+
 # Database imports
 from app.database import get_db, FloodDataRepository, check_connection, init_db
 
-# Logging configuration
+# Logging and configuration
 from app.core.logging_config import setup_logging, get_logger
+from app.core.config import settings
+from app.core.auth import verify_api_key
+
+# Agent Viewer Service
+from app.services.agent_viewer_service import get_agent_viewer_service
+from app.api.agent_viewer_endpoints import router as agent_viewer_router
 
 # API Routes
+# API Routes
 from app.api import graph_router, set_graph_environment, evacuation_router
+from app.models.requests import RouteRequest, FeedbackRequest
+from app.models.responses import RouteResponse
 
 # Initialize structured logging (will be called again in startup event for safety)
 setup_logging()
@@ -61,6 +91,17 @@ logger = get_logger(__name__)
 
 
 # --- Utility Functions ---
+
+def _sanitize(obj):
+    """Recursively replace NaN/Inf floats with None for JSON compliance."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
 
 class DateTimeEncoder(json.JSONEncoder):
     """
@@ -341,213 +382,284 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 # --- 1. Data Models (using Pydantic) ---
+# Models are imported from app.models.requests and app.models.responses
+# See imports at top of file
 
-class RouteRequest(BaseModel):
-    """Request model for route calculation."""
-    start_location: Tuple[float, float]  # (latitude, longitude)
-    end_location: Tuple[float, float]
-    preferences: Optional[Dict[str, Any]] = None
-
-class RouteResponse(BaseModel):
-    """Response model for route results."""
-    route_id: str
-    status: str
-    path: List[Tuple[float, float]]
-    distance: Optional[float] = None
-    estimated_time: Optional[float] = None
-    risk_level: Optional[float] = None
-    warnings: List[str] = []
-    message: Optional[str] = None
-
-class FeedbackRequest(BaseModel):
-    """Request model for user feedback."""
-    route_id: str
-    feedback_type: str  # "clear", "blocked", "flooded", "traffic"
-    location: Optional[Tuple[float, float]] = None
-    severity: Optional[float] = None
-    description: Optional[str] = None
 
 # --- 2. FastAPI Application Setup ---
 
 app = FastAPI(
     title="MAS-FRO API",
     description="Multi-Agent System for Flood Route Optimization API",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# CORS configuration - Allow all origins for development
-# TODO: Restrict origins in production
+# CORS configuration - Explicit whitelist only
+origins = settings.ALLOWED_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins temporarily for debugging
-    allow_credentials=False,  # Must be False when using wildcard origins
+    allow_origins=origins,  # Explicit whitelist only
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    max_age=3600
 )
 
-# Serve static files (flood maps, data)
-app.mount("/data", StaticFiles(directory="app/data"), name="data")
+# Serve static files (flood maps, data) — use absolute paths for CWD independence
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_data_dir = os.path.join(_base_dir, "data")
+_static_dir = os.path.join(_base_dir, "static")
+os.makedirs(_data_dir, exist_ok=True)
+app.mount("/data", StaticFiles(directory=_data_dir), name="data")
+# Mount Agent Viewer Dashboard
+os.makedirs(os.path.join(_static_dir, "agent_viewer"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 # Include API routers
 app.include_router(graph_router)
 app.include_router(evacuation_router)
+app.include_router(agent_viewer_router, prefix="/api/v1")
 
-# --- 3. Initialize Multi-Agent System ---
+# --- 3. Multi-Agent System (initialized in startup_event) ---
 
-logger.info("Initializing MAS-FRO Multi-Agent System...")
+# Module-level references set by _init_agents() during startup.
+# These are None until startup_event() runs — no requests are served until then.
+environment = None
+message_queue = None
+hazard_agent = None
+flood_agent = None
+routing_agent = None
+evacuation_manager = None
+scout_agent = None
+orchestrator_agent = None
+flood_scheduler = None
+simulation_manager = None
+agent_lifecycle_manager = None
 
-# Initialize environment
-environment = DynamicGraphEnvironment()
 
-# Set environment for graph API routes
-set_graph_environment(environment)
+def _init_agents() -> None:
+    """Initialize all MAS-FRO agents, schedulers, and lifecycle manager.
 
-# Initialize message queue for agent communication
-message_queue = MessageQueue()
+    Called from startup_event() so that agent constructors (which may do I/O,
+    network calls, and LLM health checks) run inside FastAPI's error handling
+    rather than at module import time.
+    """
+    global environment, message_queue
+    global hazard_agent, flood_agent, routing_agent, evacuation_manager
+    global scout_agent, orchestrator_agent
+    global flood_scheduler, simulation_manager, agent_lifecycle_manager
 
-# Initialize agents with MessageQueue for MAS communication
-hazard_agent = HazardAgent(
-    "hazard_agent_001",
-    environment,
-    message_queue=message_queue,  # MAS communication
-    enable_geotiff=True
-)
+    logger.info("Initializing MAS-FRO Multi-Agent System...")
 
-# FloodAgent with REAL API integration and MAS communication
-flood_agent = FloodAgent(
-    "flood_agent_001",
-    environment,
-    message_queue=message_queue,  # MAS communication
-    use_simulated=False,  # Disable simulated data
-    use_real_apis=True,   # Enable PAGASA + OpenWeatherMap
-    hazard_agent_id="hazard_agent_001"  # Target agent for messages
-)
+    # Initialize environment
+    environment = DynamicGraphEnvironment()
 
-routing_agent = RoutingAgent("routing_agent_001", environment)
-evacuation_manager = EvacuationManagerAgent("evac_manager_001", environment)
+    # Set environment for graph API routes
+    set_graph_environment(environment)
 
-# ScoutAgent in simulation mode with MAS communication
-# For simulation: uses synthetic data with ML processing enabled
-scout_agent = ScoutAgent(
-    "scout_agent_001",
-    environment,
-    message_queue=message_queue,    # MAS communication
-    hazard_agent_id="hazard_agent_001",  # Target agent for messages
-    simulation_mode=True,          # Use synthetic data
-    simulation_scenario=1,          # Light scenario
-    use_ml_in_simulation=True       # Enable ML models for prediction
-)
+    # Initialize message queue for agent communication
+    message_queue = MessageQueue()
 
-# NOTE: FloodAgent, HazardAgent, and ScoutAgent now communicate via MessageQueue (MAS architecture)
-# Old direct linking methods (set_hazard_agent) removed for these agents
-# EvacuationManager still uses direct references (to be refactored later)
-evacuation_manager.set_hazard_agent(hazard_agent)
-evacuation_manager.set_routing_agent(routing_agent)
+    # Initialize agents with MessageQueue for MAS communication
+    hazard_agent = HazardAgent(
+        "hazard_agent_001",
+        environment,
+        message_queue=message_queue,
+    )
 
-# Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
-# NOTE: FloodAgent now sends data to HazardAgent via MessageQueue (MAS architecture)
-flood_scheduler = FloodDataScheduler(
-    flood_agent,
-    interval_seconds=300,
-    ws_manager=ws_manager,
-    hazard_agent=None  # FloodAgent handles HazardAgent communication via MessageQueue
-)
-set_scheduler(flood_scheduler)
+    # FloodAgent with REAL API integration and MAS communication
+    flood_agent = FloodAgent(
+        "flood_agent_001",
+        environment,
+        message_queue=message_queue,  # MAS communication
+        use_simulated=False,  # Disable simulated data
+        use_real_apis=True,   # Enable PAGASA + OpenWeatherMap
+        hazard_agent_id="hazard_agent_001"  # Target agent for messages
+    )
 
-# Initialize Simulation Manager
-simulation_manager = get_simulation_manager()
-simulation_manager.set_agents(
-    flood_agent=flood_agent,
-    scout_agent=scout_agent,
-    hazard_agent=hazard_agent,
-    routing_agent=routing_agent,
-    evacuation_manager=evacuation_manager,
-    environment=environment,
-    ws_manager=ws_manager
-)
+    routing_agent = RoutingAgent(
+        "routing_agent_001",
+        environment,
+        message_queue=message_queue,
+        llm_service=get_llm_service(),
+        evacuation_service=get_evacuation_service()
+    )
+    evacuation_manager = EvacuationManagerAgent(
+        "evac_manager_001",
+        environment,
+        message_queue=message_queue,
+        hazard_agent_id="hazard_agent_001",
+        llm_service=get_llm_service()
+    )
 
-logger.info("MAS-FRO system initialized successfully")
+    # Load mock sources config and scout config from YAML
+    try:
+        from app.core.agent_config import AgentConfigLoader as _acl
+        _acl_instance = _acl()
+        _mock_cfg = _acl_instance.get_mock_sources_config()
+        _scout_cfg = _acl_instance.get_scout_config()
+        _scout_use_scraper = _mock_cfg.enabled
+        _scout_scraper_url = _mock_cfg.base_url
+        _scout_scenario = _scout_cfg.default_scenario
+    except Exception:
+        _scout_use_scraper = False
+        _scout_scraper_url = "http://localhost:8081"
+        _scout_scenario = 1
+
+    # ScoutAgent in simulation mode with MAS communication
+    # For simulation: uses synthetic data with ML processing enabled
+    # When mock_sources.enabled=true, switches to live scraper mode
+    scout_agent = ScoutAgent(
+        "scout_agent_001",
+        environment,
+        message_queue=message_queue,    # MAS communication
+        hazard_agent_id="hazard_agent_001",  # Target agent for messages
+        simulation_scenario=_scout_scenario,
+        use_ml_in_simulation=True,      # Enable ML models for prediction
+        use_scraper=_scout_use_scraper,
+        scraper_base_url=_scout_scraper_url
+    )
+
+    # Load simulation data (synthetic tweets) so step() has data to process
+    scout_agent.setup()
+
+    # EvacuationManager → RoutingAgent: direct reference (routing is synchronous)
+    evacuation_manager.set_routing_agent(routing_agent)
+
+    # Initialize FloodAgent scheduler (5-minute intervals) with WebSocket broadcasting
+    flood_scheduler = FloodDataScheduler(
+        flood_agent,
+        interval_seconds=300,
+        ws_manager=ws_manager
+    )
+    set_scheduler(flood_scheduler)
+
+    # Initialize Simulation Manager
+    simulation_manager = get_simulation_manager()
+    simulation_manager.set_agents(
+        flood_agent=flood_agent,
+        scout_agent=scout_agent,
+        hazard_agent=hazard_agent,
+        routing_agent=routing_agent,
+        evacuation_manager=evacuation_manager,
+        environment=environment,
+        ws_manager=ws_manager
+    )
+
+    # --- Initialize ORCHESTRATOR (The Boss) ---
+    sub_agents = {
+        'scout': scout_agent,
+        'flood': flood_agent,
+        'routing': routing_agent,
+        'evacuation': evacuation_manager,
+        'hazard': hazard_agent
+    }
+    orchestrator_agent = OrchestratorAgent(
+        "orchestrator_main", environment, message_queue, sub_agents,
+        llm_service=get_llm_service()
+    )
+    logger.info("Orchestrator Agent initialized with MQ support, LLM brain, and all sub-agents")
+
+    # Register agents with the viewer service
+    viewer_agents = {**sub_agents, 'orchestrator': orchestrator_agent}
+    get_agent_viewer_service().register_agents(viewer_agents)
+
+    # --- Initialize Agent Lifecycle Manager ---
+    agent_lifecycle_manager = AgentLifecycleManager(
+        tick_interval_seconds=1.0,  # 1 Hz - call step() every second
+        simulation_manager=simulation_manager
+    )
+    agent_lifecycle_manager.register_agent(orchestrator_agent, priority=0)
+    agent_lifecycle_manager.register_agent(hazard_agent, priority=1)
+    agent_lifecycle_manager.register_agent(scout_agent, priority=2)
+    agent_lifecycle_manager.register_agent(flood_agent, priority=3)
+    agent_lifecycle_manager.register_agent(routing_agent, priority=4)
+    agent_lifecycle_manager.register_agent(evacuation_manager, priority=5)
+    set_lifecycle_manager(agent_lifecycle_manager)
+    logger.info("AgentLifecycleManager initialized with all 6 agents")
+
+    logger.info("MAS-FRO system initialized successfully")
 
 # --- 3.5. Startup and Shutdown Events ---
 
 @app.on_event("startup")
 async def startup_event():
-    """Start background tasks on application startup."""
-    # Initialize logging system (ensure logs directory exists)
-    setup_logging()
+    """Initialize agents and start background tasks on application startup."""
+    # Re-attach Agent Viewer Logging Handler (must be AFTER setup_logging
+    # because dictConfig replaces handlers)
+    get_agent_viewer_service().setup_logging()
+
     logger.info("="*60)
     logger.info("MAS-FRO Backend Starting Up")
     logger.info("="*60)
     logger.info("Structured logging initialized - logs written to logs/masfro.log")
+
+    # Initialize all agents (moved from module-level to avoid import-time side effects)
+    _init_agents()
     
-    # Check database connection
+    # Check database connection (optional - app works without it)
     logger.info("Checking database connection...")
-    if check_connection():
-        logger.info("Database connection successful")
-        # Initialize database tables (if not exist)
-        init_db()
-    else:
-        logger.error("Database connection failed - historical data storage disabled")
-
-    # Load initial flood data to populate risk scores
-    logger.info("Loading initial flood risk data...")
     try:
-        # Load default GeoTIFF data (light scenario, time step 1)
-        from pathlib import Path
-        geotiff_path = Path(__file__).parent / "data" / "geotiff_data" / "rr01" / "rr01_step_01.tif"
+        if check_connection():
+            logger.info("Database connection successful")
+            # Initialize database tables (if not exist)
+            init_db()
 
-        if geotiff_path.exists() and hazard_agent:
-            logger.info(f"Loading initial risk data from {geotiff_path}")
-
-            # Process GeoTIFF to get flood data
-            import rasterio
-            with rasterio.open(geotiff_path) as src:
-                flood_array = src.read(1)
-                transform = src.transform
-
-            # Convert to edge risk scores (simplified version)
-            edge_updates = {}
-            for u, v, key, data in environment.graph.edges(keys=True, data=True):
-                # Get edge midpoint coordinates
-                u_coords = environment.graph.nodes[u]
-                v_coords = environment.graph.nodes[v]
-                mid_lat = (u_coords['y'] + v_coords['y']) / 2
-                mid_lon = (u_coords['x'] + v_coords['x']) / 2
-
-                # Sample flood depth at edge location
-                row, col = ~transform * (mid_lon, mid_lat)
-                row, col = int(row), int(col)
-
-                if 0 <= row < flood_array.shape[0] and 0 <= col < flood_array.shape[1]:
-                    flood_depth = float(flood_array[row, col])
-                    # Convert depth to risk score (0-1)
-                    if flood_depth < 0.1:
-                        risk_score = 0.0
-                    elif flood_depth < 0.5:
-                        risk_score = 0.3
-                    elif flood_depth < 1.0:
-                        risk_score = 0.6
-                    elif flood_depth < 2.0:
-                        risk_score = 0.8
+            # Seed evacuation centers from CSV if table is empty
+            try:
+                csv_path = Path(__file__).parent / "data" / "evacuation_centers.csv"
+                if csv_path.exists():
+                    evac_svc = get_evacuation_service()
+                    seeded = evac_svc.seed_from_csv(csv_path)
+                    if seeded:
+                        logger.info(f"Seeded {seeded} evacuation centers from CSV")
                     else:
-                        risk_score = 0.95  # Near impassable
-
-                    edge_updates[(u, v, key)] = risk_score
-
-            # Apply updates to graph
-            environment.update_edge_risks(edge_updates)
-            logger.info(f"Initial flood data loaded: Updated {len(edge_updates)} edges with risk scores")
-
-            # Log sample of high-risk edges
-            high_risk_count = sum(1 for risk in edge_updates.values() if risk >= 0.7)
-            logger.info(f"High-risk edges (>= 70%): {high_risk_count}")
-
+                        logger.info("Evacuation centers table already populated")
+                else:
+                    logger.warning(f"Evacuation CSV not found at {csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to seed evacuation centers: {e}")
         else:
-            logger.warning(f"GeoTIFF data not found at {geotiff_path} - graph will start with zero risk")
-
+            logger.warning("Database connection failed - historical data storage disabled")
     except Exception as e:
-        logger.error(f"Failed to load initial flood data: {e}")
-        logger.warning("Continuing with zero risk scores - all roads passable")
+        logger.warning(f"Database unavailable: {e} - continuing without database")
+
+    # Precompute DEM node elevations (terrain-based risk prior)
+    if hazard_agent.dem_enabled:
+        logger.info("Precomputing DEM node elevations...")
+        try:
+            dem_count = hazard_agent.precompute_node_elevations()
+            logger.info(f"DEM precomputation complete: {dem_count} nodes with valid elevation")
+        except Exception as e:
+            logger.error(f"Failed to precompute DEM elevations: {e}")
+            logger.warning("Continuing without DEM terrain risk")
+    else:
+        logger.info("DEM integration disabled - skipping terrain precomputation")
+
+    # Precompute river proximity distances (waterway-distance risk prior)
+    if hazard_agent.river_enabled:
+        logger.info("Precomputing river proximity distances...")
+        try:
+            river_count = hazard_agent.precompute_river_proximity()
+            logger.info(
+                f"River proximity precomputation complete: {river_count} nodes processed"
+            )
+        except Exception as e:
+            logger.error(f"Failed to precompute river proximity: {e}")
+            logger.warning("Continuing without river proximity risk")
+    else:
+        logger.info("River proximity disabled - skipping waterway precomputation")
+
+    # Seed graph edges with static terrain/river risk priors
+    # This ensures non-zero risk appears near waterways and low-lying areas
+    # immediately at startup, before any flood/scout data arrives.
+    if hazard_agent.dem_enabled or hazard_agent.river_enabled:
+        logger.info("Seeding graph edges with initial risk priors...")
+        try:
+            seeded = hazard_agent.seed_initial_risk_priors()
+            logger.info(f"Initial risk seeding complete: {seeded} edges with non-zero prior")
+        except Exception as e:
+            logger.error(f"Failed to seed initial risk priors: {e}")
 
     # Start scheduler
     logger.info("Starting background scheduler...")
@@ -558,6 +670,15 @@ async def startup_event():
     else:
         logger.warning("Scheduler not initialized")
 
+    # Start agent lifecycle manager
+    logger.info("Starting agent lifecycle manager...")
+    lifecycle_manager = get_lifecycle_manager()
+    if lifecycle_manager:
+        await lifecycle_manager.start()
+        logger.info("Agent lifecycle manager started (1 Hz tick rate)")
+    else:
+        logger.warning("Agent lifecycle manager not initialized")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -565,11 +686,21 @@ async def shutdown_event():
     logger.info("="*60)
     logger.info("MAS-FRO Backend Shutting Down")
     logger.info("="*60)
+
+    # Stop agent lifecycle manager first (so it doesn't process during shutdown)
+    logger.info("Stopping agent lifecycle manager...")
+    lifecycle_manager = get_lifecycle_manager()
+    if lifecycle_manager:
+        await lifecycle_manager.stop()
+        logger.info("Agent lifecycle manager stopped gracefully")
+
+    # Stop scheduler
     logger.info("Stopping background scheduler...")
     scheduler = get_scheduler()
     if scheduler:
         await scheduler.stop()
         logger.info("Scheduler stopped gracefully")
+
     logger.info("MAS-FRO backend shutdown complete")
 
 
@@ -580,7 +711,7 @@ async def read_root():
     """Health check endpoint."""
     return {
         "message": "Welcome to MAS-FRO Backend API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "operational"
     }
 
@@ -589,9 +720,19 @@ async def health_check():
     """System health check."""
     graph_status = "loaded" if environment.graph else "not_loaded"
 
+    # v2: Include LLM status
+    llm_status = "unknown"
+    try:
+        llm_service = get_llm_service()
+        llm_status = "available" if llm_service.is_available() else "unavailable"
+    except Exception:
+        llm_status = "not_configured"
+
     return {
         "status": "healthy",
+        "version": "2.0.0",
         "graph_status": graph_status,
+        "llm_status": llm_status,
         "agents": {
             "flood_agent": "active" if flood_agent else "inactive",
             "hazard_agent": "active" if hazard_agent else "inactive",
@@ -599,6 +740,33 @@ async def health_check():
             "evacuation_manager": "active" if evacuation_manager else "inactive"
         }
     }
+
+
+@app.get("/api/llm/health", tags=["LLM"])
+async def llm_health_check():
+    """
+    LLM Service health check endpoint.
+
+    Returns detailed information about the Qwen 3 LLM integration status,
+    including model availability and cache statistics.
+
+    Returns:
+        Dict with LLM health information
+    """
+    try:
+        llm_service = get_llm_service()
+        return llm_service.get_health()
+    except ImportError:
+        return {
+            "available": False,
+            "error": "LLM service module not found",
+            "ollama_installed": False
+        }
+    except Exception as e:
+        return {
+            "available": False,
+            "error": str(e)
+        }
 
 @app.post("/api/route", tags=["Routing"], response_model=RouteResponse)
 async def get_route(request: RouteRequest):
@@ -618,11 +786,25 @@ async def get_route(request: RouteRequest):
                 detail="Road network not loaded. Please contact administrator."
             )
 
+        # Merged preferences logic
+        final_preferences = request.preferences or {}
+        
+        # 1. Smart Parsing: If query is present, extract preferences
+        if request.query:
+            try:
+                smart_prefs = routing_agent.parse_routing_request(request.query)
+                if smart_prefs:
+                    logger.info(f"Smart preferences parsed from query '{request.query}': {smart_prefs}")
+                    # Merge smart prefs (user explicit prefs override smart prefs if conflict)
+                    final_preferences = {**smart_prefs, **final_preferences}
+            except Exception as e:
+                logger.warning(f"Failed to parse smart routing request: {e}")
+
         # Use RoutingAgent to calculate route
         route_result = routing_agent.calculate_route(
             start=request.start_location,
             end=request.end_location,
-            preferences=request.preferences
+            preferences=final_preferences
         )
 
         if not route_result.get("path"):
@@ -631,9 +813,27 @@ async def get_route(request: RouteRequest):
                 detail="No safe route found between these locations."
             )
 
+        # 2. Smart Explanation: Generate explanation if LLM is available
+        explanation = None
+        if request.query or final_preferences:
+            try:
+                explanation = routing_agent.explain_route(route_result)
+            except Exception as e:
+                logger.warning(f"Failed to generate route explanation: {e}")
+
         # Generate route ID
-        import uuid
         route_id = str(uuid.uuid4())
+
+        # Serialize warnings: convert RouteWarning objects to dicts
+        raw_warnings = route_result.get("warnings", [])
+        serialized_warnings = []
+        for w in raw_warnings:
+            if hasattr(w, 'to_dict'):
+                serialized_warnings.append(w.to_dict())
+            elif hasattr(w, 'to_legacy_string'):
+                serialized_warnings.append(w.to_legacy_string())
+            else:
+                serialized_warnings.append(str(w))
 
         return RouteResponse(
             route_id=route_id,
@@ -642,7 +842,10 @@ async def get_route(request: RouteRequest):
             distance=route_result.get("distance"),
             estimated_time=route_result.get("estimated_time"),
             risk_level=route_result.get("risk_level"),
-            warnings=route_result.get("warnings", [])
+            max_risk=route_result.get("max_risk"),
+            num_segments=route_result.get("num_segments"),
+            warnings=serialized_warnings,
+            explanation=explanation
         )
 
     except HTTPException:
@@ -703,15 +906,17 @@ async def submit_feedback(feedback: FeedbackRequest):
             detail=f"Error processing feedback: {str(e)}"
         )
 
+class EvacuationCenterRequest(BaseModel):
+    location: List[float]
+
 @app.post("/api/evacuation-center", tags=["Routing"])
-async def get_nearest_evacuation_center(
-    location: Tuple[float, float]
-):
+async def get_nearest_evacuation_center(request: EvacuationCenterRequest):
     """
     Find nearest evacuation center and calculate route.
 
     Returns the closest safe evacuation center with route information.
     """
+    location = tuple(request.location)
     logger.info(f"Evacuation center request from {location}")
 
     try:
@@ -729,7 +934,7 @@ async def get_nearest_evacuation_center(
                 detail="No evacuation centers found or accessible."
             )
 
-        return {
+        return _sanitize({
             "status": "success",
             "evacuation_center": result["center"],
             "route": {
@@ -739,7 +944,7 @@ async def get_nearest_evacuation_center(
                 "risk_level": result["metrics"]["average_risk"]
             },
             "alternatives": result.get("alternatives", [])
-        }
+        })
 
     except HTTPException:
         raise
@@ -750,7 +955,178 @@ async def get_nearest_evacuation_center(
             detail=f"Error finding evacuation center: {str(e)}"
         )
 
-@app.post("/api/admin/collect-flood-data", tags=["Admin"])
+# --- ORCHESTRATOR API ---
+
+class MissionRequest(BaseModel):
+    mission_type: str
+    params: Dict[str, Any]
+
+@app.post("/api/orchestrator/mission", tags=["Orchestrator"])
+async def create_orchestrator_mission(request: MissionRequest):
+    """
+    Start a new orchestrator mission via MQ-based coordination.
+
+    Creates a mission with a state machine that coordinates sub-agents
+    via MessageQueue. Returns a mission_id for status polling.
+
+    Mission types:
+    - assess_risk: Scout -> Flood -> Hazard pipeline
+    - coordinated_evacuation: Evacuation Manager handles distress call
+    - route_calculation: Routing Agent calculates a route
+    - cascade_risk_update: Flood -> Hazard data refresh
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        result = orchestrator_agent.start_mission(
+            request.mission_type,
+            request.params
+        )
+
+        # Broadcast WebSocket events for evacuation missions
+        if request.mission_type == "coordinated_evacuation":
+            try:
+                await ws_manager.broadcast({
+                    "type": "distress_alert",
+                    "mission_id": result.get("mission_id"),
+                    "mission_type": request.mission_type,
+                    "params": request.params,
+                    "status": "started",
+                })
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast distress alert: {ws_err}")
+
+        return result
+    except Exception as e:
+        logger.error(f"Orchestrator mission creation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/orchestrator/command", tags=["Orchestrator"])
+async def send_orchestrator_command(request: MissionRequest):
+    """
+    Start a mission (legacy endpoint, redirects to /api/orchestrator/mission).
+    """
+    return await create_orchestrator_mission(request)
+
+@app.get("/api/orchestrator/mission/{mission_id}", tags=["Orchestrator"])
+async def get_orchestrator_mission_status(mission_id: str):
+    """
+    Check the status of an orchestrator mission.
+
+    Poll this endpoint after creating a mission to track progress.
+    Missions transition through states like AWAITING_SCOUT -> AWAITING_FLOOD -> COMPLETED.
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    status = orchestrator_agent.get_mission_status(mission_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Mission {mission_id} not found")
+
+    # Broadcast evacuation update when a coordinated_evacuation mission completes
+    if (status.get("mission_type") == "coordinated_evacuation"
+            and status.get("state") in ("COMPLETED", "completed")):
+        try:
+            await ws_manager.broadcast({
+                "type": "evacuation_update",
+                "mission_id": mission_id,
+                "mission_type": "coordinated_evacuation",
+                "state": status.get("state"),
+                "results": status.get("results"),
+            })
+        except Exception as ws_err:
+            logger.warning(f"Failed to broadcast evacuation update: {ws_err}")
+
+    return status
+
+@app.get("/api/orchestrator/missions", tags=["Orchestrator"])
+async def list_orchestrator_missions():
+    """List all orchestrator missions (active and recently completed)."""
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    active = orchestrator_agent.get_active_missions()
+    completed = [
+        orchestrator_agent._mission_to_dict(m)
+        for m in orchestrator_agent._completed_missions
+    ]
+    return {"active": active, "completed": completed}
+
+
+class UserLocation(BaseModel):
+    """Validated user location with bounded coordinates."""
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+class ChatRequest(BaseModel):
+    message: str
+    user_location: Optional[UserLocation] = None
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Message must not be empty")
+        return v.strip()
+
+@app.post("/api/orchestrator/chat", tags=["Orchestrator"])
+async def orchestrator_chat(request: ChatRequest):
+    """
+    Natural language interface to the orchestrator.
+
+    Send a message in plain language and the LLM will interpret it,
+    create the appropriate mission, and return tracking info.
+
+    Examples:
+    - "Is it safe to travel from Tumana to Concepcion?"
+    - "Check the flood risk in Barangay Nangka"
+    - "I need to evacuate from Malanday, the water is rising!"
+    - "Update the flood data"
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        # Convert Pydantic model to dict for orchestrator compatibility
+        user_loc = request.user_location.model_dump() if request.user_location else None
+        result = await asyncio.to_thread(
+            orchestrator_agent.chat_and_execute,
+            request.message,
+            user_location=user_loc,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Orchestrator chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orchestrator/chat/clear", tags=["Orchestrator"])
+async def clear_orchestrator_chat_history():
+    """Clear the orchestrator's conversation history."""
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+    orchestrator_agent.clear_chat_history()
+    return {"status": "ok", "message": "Chat history cleared"}
+
+
+@app.get("/api/orchestrator/mission/{mission_id}/summary", tags=["Orchestrator"])
+async def get_mission_summary(mission_id: str):
+    """
+    Get an LLM-generated human-readable summary of a mission's results.
+    """
+    if not orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    result = await asyncio.to_thread(
+        orchestrator_agent.summarize_mission, mission_id
+    )
+    if result.get("status") == "error" and "not found" in result.get("message", ""):
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
+
+@app.post("/api/admin/collect-flood-data", tags=["Admin"], dependencies=[Depends(verify_api_key)])
 async def trigger_flood_data_collection():
     """
     Manually trigger flood data collection from FloodAgent.
@@ -762,12 +1138,14 @@ async def trigger_flood_data_collection():
 
     try:
         # Trigger FloodAgent to collect and forward data
-        data = flood_agent.collect_and_forward_data()
+        data = flood_agent.collect_flood_data()
+        if data:
+            flood_agent.send_flood_data_via_message(data)
 
         return {
             "status": "success",
             "message": "Flood data collection completed",
-            "locations_updated": len(data),
+            "locations_updated": len(data) if data else 0,
             "data_summary": list(data.keys()) if data else []
         }
 
@@ -778,150 +1156,174 @@ async def trigger_flood_data_collection():
             detail=f"Error collecting flood data: {str(e)}"
         )
 
-@app.post("/api/admin/geotiff/enable", tags=["Admin"])
-async def enable_geotiff_simulation():
-    """
-    Enable GeoTIFF flood simulation in HazardAgent.
+# ── Config hot-reload endpoints ──
 
-    When enabled, risk calculations will include spatial flood depth data
-    from GeoTIFF files (50% weight).
-    """
-    logger.info("GeoTIFF simulation enable request received")
+_ALL_AGENTS = lambda: [
+    hazard_agent, routing_agent, flood_agent,
+    scout_agent, orchestrator_agent, evacuation_manager,
+]
+_SECTION_AGENT_MAP = {
+    "hazard_agent": lambda: hazard_agent,
+    "routing_agent": lambda: routing_agent,
+    "flood_agent": lambda: flood_agent,
+    "scout_agent": lambda: scout_agent,
+    "orchestrator_agent": lambda: orchestrator_agent,
+    "evacuation_manager_agent": lambda: evacuation_manager,
+}
 
+
+@app.get("/api/admin/config", tags=["Admin"])
+async def get_config_endpoint():
+    """Return the full agents.yaml config as JSON."""
+    from app.core.agent_config import get_config as _gc
+    return _gc().get_raw_config()
+
+
+@app.patch("/api/admin/config/{section}", tags=["Admin"])
+async def update_config_section(section: str, updates: dict = Body(...)):
+    """
+    Merge *updates* into one section of the in-memory config and push
+    the new values to the corresponding agent.
+    """
+    from app.core.agent_config import get_config as _gc
+    loader = _gc()
+    loader.update_section(section, updates)
+    # Push to the right agent
+    getter = _SECTION_AGENT_MAP.get(section)
+    if getter:
+        agent = getter()
+        if hasattr(agent, "reload_config"):
+            agent.reload_config()
+    return {"status": "success", "section": section}
+
+
+@app.post("/api/admin/config/reload", tags=["Admin"])
+async def reload_config_from_file():
+    """Re-read agents.yaml from disk and push to all agents."""
+    from app.core.agent_config import get_config as _gc
+    _gc().reload()
+    for agent in _ALL_AGENTS():
+        if hasattr(agent, "reload_config"):
+            agent.reload_config()
+    return {"status": "success", "message": "Reloaded from disk"}
+
+
+@app.post("/api/admin/config/save", tags=["Admin"])
+async def save_config_to_file():
+    """Write the current in-memory config back to agents.yaml."""
+    from app.core.agent_config import get_config as _gc
+    _gc().save_to_file()
+    return {"status": "success", "message": "Saved to agents.yaml"}
+
+
+@app.get("/api/admin/dem/status", tags=["Admin"])
+async def get_dem_status():
+    """Get current DEM (Digital Elevation Model) status and configuration."""
     try:
-        hazard_agent.enable_geotiff()
-
+        bounds = None
+        if hazard_agent.dem_service:
+            bounds = hazard_agent.dem_service.get_bounds()
         return {
             "status": "success",
-            "message": "GeoTIFF flood simulation enabled",
-            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
-            "return_period": hazard_agent.return_period,
-            "time_step": hazard_agent.time_step
+            "dem_enabled": hazard_agent.dem_enabled,
+            "dem_service_available": hazard_agent.dem_service is not None,
+            "nodes_with_elevation": len(hazard_agent._node_elevations),
+            "dem_weight": hazard_agent._config.dem_weight_terrain_risk,
+            "flood_depth_estimation": hazard_agent._config.dem_enable_flood_depth_estimation,
+            "coverage_bounds_wgs84": bounds,
         }
-
     except Exception as e:
-        logger.error(f"Error enabling GeoTIFF: {e}")
+        logger.error(f"Error getting DEM status: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error enabling GeoTIFF simulation: {str(e)}"
+            detail=f"Error getting DEM status: {str(e)}"
         )
 
-@app.post("/api/admin/geotiff/disable", tags=["Admin"])
-async def disable_geotiff_simulation():
-    """
-    Disable GeoTIFF flood simulation in HazardAgent.
 
-    When disabled, risk calculations will only use FloodAgent (PAGASA + OpenWeatherMap)
-    and ScoutAgent data (50% environmental weight).
-    """
-    logger.info("GeoTIFF simulation disable request received")
-
+@app.get("/api/admin/river-proximity/status", tags=["Admin"])
+async def get_river_proximity_status():
+    """Get current river proximity service status and node statistics."""
     try:
-        hazard_agent.disable_geotiff()
-
+        stats = {}
+        if hazard_agent.river_service:
+            stats = hazard_agent.river_service.get_stats()
         return {
             "status": "success",
-            "message": "GeoTIFF flood simulation disabled",
-            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
-            "note": "Risk calculation now uses only FloodAgent and ScoutAgent data"
+            "river_proximity_enabled": hazard_agent.river_enabled,
+            "river_service_available": hazard_agent.river_service is not None,
+            "river_weight": hazard_agent._config.river_weight,
+            "decay_distance_m": hazard_agent._config.river_decay_distance_m,
+            **stats,
         }
-
     except Exception as e:
-        logger.error(f"Error disabling GeoTIFF: {e}")
+        logger.error(f"Error getting river proximity status: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error disabling GeoTIFF simulation: {str(e)}"
+            detail=f"Error getting river proximity status: {str(e)}"
         )
 
-@app.get("/api/admin/geotiff/status", tags=["Admin"])
-async def get_geotiff_status():
-    """
-    Get current GeoTIFF simulation status and configuration.
 
-    Returns information about whether GeoTIFF is enabled, current scenario,
-    and flood prediction parameters.
+
+# ============================================================================
+# Simulated Time Clock Endpoints (Admin)
+# ============================================================================
+
+@app.get("/api/admin/time/status", tags=["Admin"])
+async def get_time_status():
+    """Return current simulated clock state: sim time, wall time, offset, speedup factor."""
+    return sim_clock.get_status()
+
+
+@app.post("/api/admin/time/advance", tags=["Admin"])
+async def advance_time(body: dict = Body(...)):
     """
+    Advance the simulated clock by N minutes.
+
+    Body: {"minutes": 30}
+
+    Useful for fast-forwarding flood decay without waiting for wall-clock time.
+    """
+    minutes = body.get("minutes")
+    if minutes is None:
+        raise HTTPException(status_code=422, detail="Body must contain 'minutes'")
     try:
-        return {
-            "status": "success",
-            "geotiff_enabled": hazard_agent.is_geotiff_enabled(),
-            "geotiff_service_available": hazard_agent.geotiff_service is not None,
-            "current_scenario": {
-                "return_period": hazard_agent.return_period,
-                "time_step": hazard_agent.time_step,
-                "description": {
-                    "rr01": "2-year flood",
-                    "rr02": "5-year flood",
-                    "rr03": "10-year flood",
-                    "rr04": "25-year flood"
-                }.get(hazard_agent.return_period, "unknown")
-            },
-            "risk_weights": hazard_agent.risk_weights
-        }
+        minutes = float(minutes)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="'minutes' must be a number")
+    sim_clock.advance(minutes)
+    return {"status": "ok", **sim_clock.get_status()}
 
-    except Exception as e:
-        logger.error(f"Error getting GeoTIFF status: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting GeoTIFF status: {str(e)}"
-        )
 
-@app.post("/api/admin/geotiff/set-scenario", tags=["Admin"])
-async def set_flood_scenario(
-    return_period: str,
-    time_step: int
-):
+@app.post("/api/admin/time/speedup", tags=["Admin"])
+async def set_time_speedup(body: dict = Body(...)):
     """
-    Set the flood scenario for GeoTIFF simulation.
+    Set the simulated clock speedup multiplier.
 
-    Args:
-        return_period: Return period (rr01, rr02, rr03, rr04)
-            - rr01: 2-year flood
-            - rr02: 5-year flood
-            - rr03: 10-year flood
-            - rr04: 25-year flood
-        time_step: Time step in hours (1-18)
+    Body: {"factor": 60.0}
 
-    Example:
-        POST /api/admin/geotiff/set-scenario?return_period=rr04&time_step=18
+    factor=1.0  → real-time (default)
+    factor=60.0 → 1 real second = 60 simulated seconds
+    factor=0.0  → pause simulated time
     """
-    logger.info(f"Flood scenario change request: {return_period}, step {time_step}")
-
+    factor = body.get("factor")
+    if factor is None:
+        raise HTTPException(status_code=422, detail="Body must contain 'factor'")
     try:
-        # Set the scenario
-        hazard_agent.set_flood_scenario(return_period, time_step)
-
-        # Trigger immediate update to apply new scenario
-        data = flood_agent.collect_and_forward_data()
-
-        return {
-            "status": "success",
-            "message": f"Flood scenario updated to {return_period} step {time_step}",
-            "scenario": {
-                "return_period": hazard_agent.return_period,
-                "time_step": hazard_agent.time_step,
-                "description": {
-                    "rr01": "2-year flood",
-                    "rr02": "5-year flood",
-                    "rr03": "10-year flood",
-                    "rr04": "25-year flood"
-                }.get(return_period, "unknown")
-            },
-            "update_triggered": True,
-            "locations_updated": len(data) if data else 0
-        }
-
+        factor = float(factor)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="'factor' must be a number")
+    try:
+        sim_clock.set_speedup(factor)
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error setting flood scenario: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error setting flood scenario: {str(e)}"
-        )
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"status": "ok", **sim_clock.get_status()}
+
+
+@app.post("/api/admin/time/reset", tags=["Admin"])
+async def reset_time():
+    """Reset the simulated clock to real wall-clock time (offset=0, factor=1)."""
+    sim_clock.reset()
+    return {"status": "ok", **sim_clock.get_status()}
 
 
 # ============================================================================
@@ -1088,6 +1490,35 @@ async def reset_simulation():
             status_code=500,
             detail=f"Error resetting simulation: {str(e)}"
         )
+
+
+@app.post("/api/graph/reset", tags=["Graph"])
+async def reset_graph():
+    """
+    Reset the graph by reloading from the original GraphML file.
+
+    This endpoint:
+    - Deletes saved graph state (risk scores from previous sessions)
+    - Reloads the graph fresh from the GraphML file
+    - Sets all edge risk scores to 0.0
+
+    Returns:
+        Graph reset result with edge count
+
+    Example:
+        POST /api/graph/reset
+    """
+    logger.info("Graph reset request received")
+    result = await asyncio.to_thread(environment.reset_graph)
+
+    if result["status"] == "success":
+        await ws_manager.broadcast({
+            "type": "graph_reset",
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    return result
 
 
 @app.get("/api/simulation/status", tags=["Simulation"])
@@ -1362,6 +1793,43 @@ async def trigger_scheduler_manual_collection():
         )
 
 
+# --- Agent Lifecycle Manager Endpoints ---
+
+@app.get("/api/lifecycle/status", tags=["Lifecycle"])
+async def get_lifecycle_status():
+    """
+    Get agent lifecycle manager status.
+
+    Returns current lifecycle manager status including:
+    - Running state
+    - Tick interval configuration
+    - Registered agents
+    - Tick statistics
+    """
+    try:
+        lifecycle_manager = get_lifecycle_manager()
+        if not lifecycle_manager:
+            raise HTTPException(
+                status_code=503,
+                detail="Agent lifecycle manager not initialized"
+            )
+
+        status = lifecycle_manager.get_status()
+        return {
+            "status": "healthy" if status["is_running"] else "stopped",
+            **status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lifecycle status error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving lifecycle status: {str(e)}"
+        )
+
+
 # --- 5. Historical Flood Data Endpoints ---
 
 @app.get("/api/flood-data/latest", tags=["Flood Data History"])
@@ -1421,6 +1889,8 @@ async def get_latest_flood_data(db: Session = Depends(get_db)):
 
 @app.get("/api/flood-data/history", tags=["Flood Data History"])
 async def get_flood_data_history(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     hours: int = 24,
     success_only: bool = True,
     db: Session = Depends(get_db)
@@ -1429,11 +1899,13 @@ async def get_flood_data_history(
     Get historical flood data collections within a time range.
 
     Args:
+        page: Page number (1-indexed)
+        page_size: Number of collections per page (1-100)
         hours: Number of hours of history (default: 24)
         success_only: Only return successful collections (default: True)
 
     Returns:
-        List of flood data collections
+        Paginated list of flood data collections
     """
     try:
         repo = FloodDataRepository(db)
@@ -1446,25 +1918,35 @@ async def get_flood_data_history(
             success_only=success_only
         )
 
+        # Convert to list of dicts for pagination
+        collections_list = [
+            {
+                "collection_id": str(c.id),
+                "collected_at": c.collected_at.isoformat(),
+                "success": c.success,
+                "duration_seconds": c.duration_seconds,
+                "river_stations_count": c.river_stations_count,
+                "weather_data_available": c.weather_data_available,
+                "error_message": c.error_message if not c.success else None
+            }
+            for c in collections
+        ]
+
+        # Apply pagination
+        from app.core.pagination import paginate
+        paginated = paginate(collections_list, page=page, page_size=page_size)
+
         return {
             "time_range": {
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat(),
                 "hours": hours
             },
-            "total_collections": len(collections),
-            "collections": [
-                {
-                    "collection_id": str(c.id),
-                    "collected_at": c.collected_at.isoformat(),
-                    "success": c.success,
-                    "duration_seconds": c.duration_seconds,
-                    "river_stations_count": c.river_stations_count,
-                    "weather_data_available": c.weather_data_available,
-                    "error_message": c.error_message if not c.success else None
-                }
-                for c in collections
-            ]
+            "items": paginated.items,
+            "total": paginated.total,
+            "page": paginated.page,
+            "page_size": paginated.page_size,
+            "total_pages": paginated.total_pages
         }
 
     except Exception as e:
@@ -1605,16 +2087,13 @@ async def get_database_statistics(
 
 
 # ============================================================================
-# GeoTIFF Flood Map Endpoints
-# ============================================================================
-
-# ============================================================================
 # Agent Data Endpoints - For Frontend Display
 # ============================================================================
 
 @app.get("/api/agents/scout/reports", tags=["Agent Data"])
 async def get_scout_reports(
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of reports"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """
@@ -1624,11 +2103,12 @@ async def get_scout_reports(
     that have been processed and validated by the NLP system.
 
     Args:
-        limit: Maximum number of reports to return (1-200)
+        page: Page number (1-indexed)
+        page_size: Number of reports per page (1-100)
         hours: Number of hours of history to include (1-168)
 
     Returns:
-        List of validated flood reports with location, severity, and timestamp
+        Paginated list of validated flood reports with location, severity, and timestamp
     """
     try:
         if not hazard_agent:
@@ -1641,32 +2121,55 @@ async def get_scout_reports(
         all_reports = hazard_agent.scout_data_cache or []
 
         # Filter by time if timestamps available
-        from datetime import datetime, timedelta
         cutoff_time = datetime.now() - timedelta(hours=hours)
 
         filtered_reports = []
         for report in all_reports:
             # Check if report has timestamp and is within time range
-            if "timestamp" in report:
+            ts = report.get("timestamp") if isinstance(report, dict) else None
+            if ts is not None:
                 try:
-                    report_time = datetime.fromisoformat(report["timestamp"].replace("Z", "+00:00"))
+                    if isinstance(ts, datetime):
+                        report_time = ts
+                    else:
+                        report_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                    # Strip timezone for comparison if cutoff is naive
+                    if report_time.tzinfo and not cutoff_time.tzinfo:
+                        report_time = report_time.replace(tzinfo=None)
                     if report_time >= cutoff_time:
                         filtered_reports.append(report)
-                except (ValueError, AttributeError):
-                    # Include reports with invalid timestamps
+                except (ValueError, TypeError):
+                    # Include reports with unparseable timestamps
                     filtered_reports.append(report)
             else:
                 # Include reports without timestamps
                 filtered_reports.append(report)
 
-        # Apply limit
-        limited_reports = filtered_reports[:limit]
+        # Serialize datetime objects for JSON response
+        def _serialize_report(report):
+            out = {}
+            for k, v in report.items():
+                if isinstance(v, datetime):
+                    out[k] = v.isoformat()
+                else:
+                    out[k] = v
+            return out
+
+        serialized_reports = [_serialize_report(r) for r in filtered_reports]
+
+        # Apply pagination
+        from app.core.pagination import paginate
+        paginated = paginate(serialized_reports, page=page, page_size=page_size)
 
         return {
             "status": "success",
-            "total_reports": len(limited_reports),
             "time_range_hours": hours,
-            "reports": limited_reports,
+            "reports": paginated.items,
+            "items": paginated.items,
+            "total": paginated.total,
+            "page": paginated.page,
+            "page_size": paginated.page_size,
+            "total_pages": paginated.total_pages,
             "scout_agent_active": scout_agent is not None,
             "note": "Reports are from crowdsourced social media data processed by NLP"
         }
@@ -1814,27 +2317,42 @@ async def get_evacuation_centers():
         if hasattr(routing_agent, 'evacuation_centers') and not routing_agent.evacuation_centers.empty:
             # Convert DataFrame to list of dicts
             for _, row in routing_agent.evacuation_centers.iterrows():
+                lat = row.get("latitude")
+                lon = row.get("longitude")
+                # Skip rows with NaN coordinates
+                if pd.isna(lat) or pd.isna(lon):
+                    continue
+                def _safe_str(val, default=""):
+                    return str(val) if pd.notna(val) else default
+
+                def _safe_int(val, default=0):
+                    try:
+                        return int(val) if pd.notna(val) else default
+                    except (ValueError, TypeError, OverflowError):
+                        return default
+
                 centers.append({
-                    "name": row.get("name", "Unknown"),
-                    "location": row.get("address", ""),
-                    "barangay": row.get("barangay", ""),
+                    "name": _safe_str(row.get("name"), "Unknown"),
+                    "location": _safe_str(row.get("address")),
+                    "barangay": _safe_str(row.get("barangay")),
                     "coordinates": {
-                        "lat": row.get("latitude"),
-                        "lon": row.get("longitude")
+                        "lat": float(lat),
+                        "lon": float(lon)
                     },
-                    "capacity": int(row.get("capacity", 0)) if not pd.isna(row.get("capacity")) else 0,
-                    "type": row.get("type", ""),
-                    "facilities": row.get("facilities", "").split(", ") if pd.notna(row.get("facilities")) else [],
-                    "contact": row.get("contact", ""),
+                    "capacity": _safe_int(row.get("capacity")),
+                    "type": _safe_str(row.get("type")),
+                    "facilities": _safe_str(row.get("facilities")).split(", ") if pd.notna(row.get("facilities")) else [],
+                    "contact": _safe_str(row.get("contact")),
                     "is_active": True
                 })
 
-        return {
+        result = {
             "status": "success",
             "total_centers": len(centers),
-            "centers": centers,
+            "centers": _sanitize(centers),
             "note": "Official evacuation centers from Marikina City database"
         }
+        return result
 
     except HTTPException:
         raise
@@ -1854,7 +2372,7 @@ async def get_all_agents_status():
     Returns real-time status information about all agents including:
     - ScoutAgent: Active reports, simulation mode
     - FloodAgent: Data sources, last update
-    - HazardAgent: Cached data counts, GeoTIFF status
+    - HazardAgent: Cached data counts
     - RoutingAgent: Routes calculated, performance metrics
     - EvacuationManagerAgent: Active evacuations, statistics
 
@@ -1877,11 +2395,6 @@ async def get_all_agents_status():
             },
             "hazard_agent": {
                 "active": hazard_agent is not None,
-                "geotiff_enabled": hazard_agent.is_geotiff_enabled() if hazard_agent else False,
-                "current_scenario": {
-                    "return_period": hazard_agent.return_period if hazard_agent else None,
-                    "time_step": hazard_agent.time_step if hazard_agent else None
-                } if hazard_agent else None,
                 "total_cached_data": (
                     len(hazard_agent.flood_data_cache) + len(hazard_agent.scout_data_cache)
                 ) if hazard_agent else 0,
@@ -1899,6 +2412,10 @@ async def get_all_agents_status():
                     else 0
                 ),
                 "status": "active" if evacuation_manager else "inactive"
+            },
+            "orchestrator_main": {
+                "active": orchestrator_agent is not None,
+                "status": "active" if orchestrator_agent else "inactive"
             },
             "system": {
                 "graph_loaded": environment.graph is not None,
@@ -1919,176 +2436,6 @@ async def get_all_agents_status():
             status_code=500,
             detail=f"Error retrieving agents status: {str(e)}"
         )
-
-
-@app.get("/api/geotiff/available-maps")
-async def get_available_flood_maps():
-    """
-    Get list of all available GeoTIFF flood maps.
-
-    Returns list of available return periods and time steps.
-    """
-    try:
-        from app.services.geotiff_service import get_geotiff_service
-
-        service = get_geotiff_service()
-        maps = service.get_available_maps()
-
-        return {
-            "status": "success",
-            "total_maps": len(maps),
-            "maps": maps,
-            "return_periods": service.return_periods,
-            "time_steps": service.time_steps
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting available maps: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving available maps: {str(e)}"
-        )
-
-
-@app.get("/api/geotiff/flood-map")
-async def get_flood_map(
-    return_period: str = Query(
-        "rr01",
-        description="Return period (rr01, rr02, rr03, rr04)"
-    ),
-    time_step: int = Query(
-        1,
-        ge=1,
-        le=18,
-        description="Time step (1-18 hours)"
-    )
-):
-    """
-    Get flood map metadata for specific return period and time step.
-
-    Returns bounds, statistics, and metadata but not the full raster data.
-    Use /api/geotiff/tiff endpoint to get the actual TIFF file.
-    """
-    try:
-        from app.services.geotiff_service import get_geotiff_service
-
-        service = get_geotiff_service()
-        data, metadata = service.load_flood_map(return_period, time_step)
-
-        return {
-            "status": "success",
-            "metadata": metadata,
-            "note": "Use /api/geotiff/tiff endpoint to download the actual TIFF file"
-        }
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error getting flood map: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving flood map: {str(e)}"
-        )
-
-
-@app.get("/api/geotiff/flood-depth")
-async def get_flood_depth_at_point(
-    lon: float = Query(..., description="Longitude (WGS84)"),
-    lat: float = Query(..., description="Latitude (WGS84)"),
-    return_period: str = Query(
-        "rr01",
-        description="Return period (rr01, rr02, rr03, rr04)"
-    ),
-    time_step: int = Query(
-        1,
-        ge=1,
-        le=18,
-        description="Time step (1-18 hours)"
-    )
-):
-    """
-    Get flood depth at a specific coordinate.
-
-    Useful for checking flood depth at a specific location without
-    downloading the entire TIFF file.
-    """
-    try:
-        from app.services.geotiff_service import get_geotiff_service
-
-        service = get_geotiff_service()
-        depth = service.get_flood_depth_at_point(
-            lon, lat, return_period, time_step
-        )
-
-        if depth is None:
-            return {
-                "status": "success",
-                "lon": lon,
-                "lat": lat,
-                "return_period": return_period,
-                "time_step": time_step,
-                "flood_depth": None,
-                "message": "No flood depth data at this location (out of bounds or no data)"
-            }
-
-        return {
-            "status": "success",
-            "lon": lon,
-            "lat": lat,
-            "return_period": return_period,
-            "time_step": time_step,
-            "flood_depth": depth,
-            "flood_depth_cm": round(depth * 100, 2),
-            "is_flooded": depth > 0.01  # >1cm threshold
-        }
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error querying flood depth: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error querying flood depth: {str(e)}"
-        )
-
-
-@app.get("/data/timed_floodmaps/{return_period}/{filename}")
-async def serve_geotiff_file(return_period: str, filename: str):
-    """
-    Serve GeoTIFF files directly for frontend visualization.
-
-    Example: /data/timed_floodmaps/rr01/rr01-1.tif
-    """
-    from fastapi.responses import FileResponse
-    from pathlib import Path
-
-    # Validate return period
-    valid_periods = ["rr01", "rr02", "rr03", "rr04"]
-    if return_period not in valid_periods:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid return period. Valid: {valid_periods}"
-        )
-
-    # Validate filename pattern
-    if not filename.endswith(".tif") or not filename.startswith(return_period):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid filename format"
-        )
-
-    file_path = Path(f"app/data/timed_floodmaps/{return_period}/{filename}")
-
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-
-    return FileResponse(
-        path=file_path,
-        media_type="image/tiff",
-        filename=filename
-    )
 
 
 @app.get("/api/debug/hazard-cache", tags=["Debug"])

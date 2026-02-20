@@ -1,0 +1,439 @@
+# MAS-FRO Agent Configuration
+# Multi-Agent System for Flood Route Optimization
+#
+# This file contains all configurable parameters for the agent system.
+# Modify values here instead of hardcoding in agent files.
+
+# ==========================================
+# ROUTING AGENT CONFIGURATION
+# ==========================================
+routing_agent:
+  # Risk penalty system (Length-Proportional approach)
+  # edge_cost = length * (1 + risk_score * risk_weight)
+  # The risk_weight acts as a cost multiplier on flooded edges
+  risk_penalties:
+    safest_mode: 100.0 # risk=0.8 -> 81x edge length (avoids all risk)
+    balanced_mode: 3.0 # risk=0.8 -> 3.4x edge length (reasonable trade-off)
+    fastest_mode: 0.0 # No penalty: ignore risk completely (dangerous!)
+
+  # Node search configuration
+  search:
+    max_node_distance_m: 500 # Maximum distance to find nearest road node
+    cache_enabled: true # Enable coordinate-to-node caching
+    cache_ttl_seconds: 3600 # Cache expiry (1 hour)
+    cache_max_entries: 10000 # Maximum cached lookups
+
+  # Route warnings
+  warnings:
+    long_route_threshold_m: 10000 # Warn if route > 10km
+    high_risk_threshold: 0.7 # Risk >= 70% triggers warning
+    critical_risk_threshold: 0.9 # Risk >= 90% triggers critical warning
+    moderate_risk_threshold: 0.5 # Risk >= 50% triggers caution
+    fastest_mode_avg_risk_threshold: 0.3 # avg_risk above this triggers fastest-mode warning
+
+  # Evacuation centers
+  evacuation:
+    max_centers_to_evaluate: 5 # Evaluate top N nearest centers
+    prefer_capacity_over_distance: false # Prioritize large shelters?
+
+# ==========================================
+# HAZARD AGENT CONFIGURATION
+# ==========================================
+hazard_agent:
+  # Cache management
+  caches:
+    max_flood_entries: 100 # Maximum flood data cache size
+    max_scout_entries: 1000 # Maximum scout report cache size
+    cleanup_interval_sec: 300 # Run cache cleanup every 5 minutes
+    use_deque: true # Use deque for automatic eviction (recommended)
+    max_risk_history: 20 # Maximum risk history entries per location
+
+  # Risk calculation weights
+  # Must sum to 1.0 for proper normalization
+  risk_weights:
+    flood_depth: 0.5 # Official flood depth data (50%)
+    crowdsourced: 0.3 # Scout crowdsourced reports (30%)
+    historical: 0.2 # Historical flood patterns (20%)
+    infra_risk_weight: 0.1 # Road-type vulnerability (additive, independent of the above sum)
+    infra_depth_multiplier: 0.5 # Flood depth factor for road vulnerability scaling
+
+  # Time-based risk decay
+  # Models how flood risk decreases over time
+  risk_decay:
+    enable: true
+
+    # Decay rates (fraction per minute)
+    # Formula: risk(t) = risk(0) * exp(-rate * minutes)
+    scout_fast_rate: 0.10 # 10%/min - Rain-based flooding (drains quickly)
+    scout_slow_rate: 0.03 # 3%/min - River/dam flooding (slow recession)
+    flood_rate: 0.05 # 5%/min - Official data decay
+
+    # Time-to-live (minutes before expiry)
+    ttl_minutes:
+      scout_reports: 45 # Scout reports expire after 45 minutes
+      flood_data: 90 # Flood agency data expires after 90 minutes
+
+    # Risk thresholds
+    risk_floor: 0.15 # Minimum risk until scout validates "clear"
+    min_threshold: 0.01 # Risk below this is considered "clear"
+
+  # Spatial risk propagation
+  spatial:
+    enable_filtering: true # Apply risk only within radius of report
+    risk_radius_m: 800 # Apply environmental risk within 800m
+    use_spatial_index: true # Enable grid-based spatial indexing
+    grid_size_degrees: 0.01 # ~1.1km grid cells for indexing
+    decay_function: "linear" # Options: "linear", "exponential", "gaussian"
+
+  # Visual override thresholds (ScoutAgent visual evidence -> HazardAgent override)
+  visual_override:
+    risk_threshold: 0.7 # Minimum risk score to trigger override
+    confidence_threshold: 0.75 # Minimum confidence to trigger override
+
+  # Dam threat modifier (city-wide flood risk from upstream dams)
+  # Upstream dams can't be geocoded to local edges, so their risk is applied city-wide.
+  # Formula: final_risk = min(1.0, existing + additive + existing * multiplicative)
+  dam_threat_modifier:
+    enable: true
+    # Dams with hydrological relevance to Marikina (used for city-wide threat modifier):
+    # ANGAT/IPO/LA MESA = regional extreme-weather proxies (same storm system)
+    # CALIRAYA = raises Laguna de Bay levels, can reduce Manggahan Floodway capacity
+    relevant_dams: ["ANGAT", "IPO", "LA MESA", "CALIRAYA"]
+    # All PAGASA-monitored dam names (used to skip geocoding — no dam maps to local edges)
+    all_dam_names:
+      [
+        "ANGAT",
+        "IPO",
+        "LA MESA",
+        "CALIRAYA",
+        "AMBUKLAO",
+        "BINGA",
+        "MAGAT DAM",
+        "PANTABANGAN",
+        "SAN ROQUE",
+      ]
+    additive_weight: 0.05 # Baseline risk added to all edges (max 0.2)
+    multiplicative_weight: 0.3 # Amplifies existing risk proportionally (max 1.0)
+    threat_decay_minutes: 120.0 # Dam data older than this is ignored
+    # Threat scores per dam status (used by _calculate_dam_threat_level)
+    alert_threat: 0.3   # Status "alert" -> threat score
+    alarm_threat: 0.6   # Status "alarm" -> threat score
+
+  # DEM (Digital Elevation Model) terrain-based risk
+  # Adds a terrain "prior" so low-lying areas have non-zero risk even without flood data
+  dem:
+    enable: true
+    file_path: "app/data/marikina_dem.tif"
+    weight_terrain_risk: 0.15 # Additive weight for terrain risk (on top of existing 1.0)
+    neighborhood_radius_pixels: 5 # Window for relative elevation calc (~155m)
+    low_elevation_threshold: -2.0 # Meters below neighborhood mean -> 50% terrain risk
+    slope_drain_threshold: 5.0 # Degrees for full drainage discount
+    enable_flood_depth_estimation: true # Use DEM + water levels for depth estimation
+    river_station_interpolation_radius_m: 2000.0 # IDW interpolation radius
+    regional_radius_pixels: 65 # Regional window for multi-scale elevation (~2km)
+    barrier_check_enabled: true # Prevent IDW flooding across ridges/levees
+    barrier_sample_points: 5 # Interior sample points for line-of-sight check
+    velocity_penalty_enabled: true # Slope velocity penalty during active flooding
+    wet_slope_depth_threshold: 0.1 # Flood depth (m) threshold for wet-slope branch
+    velocity_constant: 0.5 # Multiplier for slope velocity penalty
+    prior_fade_enabled: false # Terrain prior fades when real data confirms dry
+    # Water level interpretation for WSE calculation:
+    #   true  = water_level_m is depth above ground (WSE = DEM_ground + level)
+    #   false = water_level_m is already water surface elevation (WSE = level)
+    # Set to false if your gauge data is referenced to a geodetic datum (e.g. MSL).
+    water_level_is_depth: true
+
+  # River proximity risk prior
+  # Roads near waterways inherit baseline flood risk even before sensor data arrives.
+  # Risk formula: type_weight * exp(-distance_m / decay_distance_m)
+  #   river=1.0, stream=0.7, canal/drain=0.4 — 0m=1.0, 200m~=0.37, 600m~=0.05
+  river_proximity:
+    enable: true
+    # Local GeoJSON cache; fetched from OSMnx on first startup if absent
+    cache_file: "app/data/marikina_waterways.geojson"
+    # Additive weight applied on top of existing risk sources (same pattern as DEM)
+    # 0.20 ensures edges within ~150m of a waterway start at >= 0.10 initial risk
+    weight: 0.20
+    # e-folding decay distance in metres (risk drops to ~37% at this distance)
+    decay_distance_m: 200.0
+    # Place name passed to osmnx.features_from_place() for the initial fetch
+    fetch_place: "Marikina, Metro Manila, Philippines"
+
+  # Risk classification thresholds (used by get_area_risk_assessment)
+  risk_classification:
+    critical: 0.9   # max_risk >= this -> "critical"
+    high: 0.7       # max_risk >= this -> "high"
+    moderate: 0.4   # avg_risk >= this -> "moderate"
+    low: 0.1        # avg_risk >= this -> "low"
+
+  # Data fusion parameters
+  data_fusion:
+    flood_data_confidence: 0.8        # confidence boost for official flood data
+    scout_confidence_weight: 0.6      # multiplier: scout weighted sums -> confidence contribution
+    scout_confidence_boost_cap: 0.2   # max confidence boost from multiple sources
+    scout_confidence_boost_per_source: 0.05  # per-source confidence boost increment
+    geocoding_fuzzy_threshold: 0.6    # minimum fuzzy match ratio for geocoder
+    report_default_confidence: 0.5    # default confidence for reports without explicit value
+
+  # Risk calculation formulas
+  formulas:
+    # Flood depth to risk conversion
+    depth_to_risk:
+      method: "sigmoid" # Options: "linear", "sigmoid", "exponential"
+      sigmoid_steepness: 8.0 # k parameter in sigmoid curve (steep = clear transition)
+      sigmoid_inflection: 0.3 # x0 parameter (FEMA standard: 50% risk at 0.3m / 1ft)
+      max_depth_m: 2.0 # Depth >= this is 100% risk
+      # Kreibich et al. (2009) energy head: E = depth + v²/(2g)
+      # Fast-moving shallow water is treated as more dangerous than slow deep water.
+      flow_velocity_mps: 0.5 # Assumed urban flood flow velocity (m/s)
+      # Flood depth tier floors (meters) — calibrated to sigmoid (k=8, x0=0.3)
+      # alert -> 0.15m (~27% risk), alarm -> 0.30m (50%), critical -> 0.60m (~92%)
+      tier_floor_critical: 0.6
+      tier_floor_alarm: 0.3
+      tier_floor_alert: 0.15
+
+    # Rainfall intensity thresholds (mm/hr)
+    rainfall_thresholds_mm:
+      light: 2.5
+      moderate: 7.5
+      heavy: 15.0
+      extreme: 30.0
+
+    # Rainfall risk scores (score assigned at each intensity tier)
+    rainfall_risk_scores:
+      extreme: 0.8   # Torrential rain
+      heavy: 0.6     # Heavy rain
+      moderate: 0.4  # Light rain
+      light: 0.2     # Drizzle
+      weight: 0.5    # Rainfall contribution weight vs depth-based risk
+
+# ==========================================
+# FLOOD AGENT CONFIGURATION
+# ==========================================
+flood_agent:
+  # Data collection frequency
+  update_interval_sec: 300 # Fetch data every 5 minutes
+
+  # API configuration
+  apis:
+    enable_real_apis: true
+    enable_simulated_fallback: true
+
+    timeouts_sec:
+      scraper_timeout: 30
+      api_timeout: 10
+
+  # Passability thresholds (SAFETY CRITICAL)
+  # Based on FEMA flood safety guidelines
+  passability:
+    method: "velocity_depth_product" # Recommended method
+    max_safe_depth_m: 0.3 # 1 ft = maximum safe depth for cars
+    flow_velocity_mps: 0.5 # Static assumption for urban flooding
+    danger_threshold: 0.6 # depth * velocity > 0.6 is dangerous
+
+    # Alternative: simple depth threshold (less accurate)
+    # method: "depth_only"
+    # max_safe_depth_m: 0.3
+
+  # Risk scoring thresholds
+  risk_thresholds:
+    # Rainfall intensity (mm/hour)
+    rainfall_mm:
+      light: 2.5 # Drizzle
+      moderate: 7.5 # Light rain
+      heavy: 15.0 # Heavy rain
+      extreme: 30.0 # Torrential rain (PAGASA standards)
+
+    # Water level deviations from normal (meters)
+    water_level_deviations_m:
+      alert: 0.5 # Watch: water rising
+      alarm: 1.0 # Warning: prepare to evacuate
+      critical: 2.0 # Danger: evacuate immediately
+
+    # Dam water levels (meters above normal)
+    dam_levels_m:
+      alert: 0.5
+      alarm: 1.0
+      critical: 2.0
+
+    # Risk scores assigned per status level
+    risk_scores:
+      water_level_critical: 1.0  # Critical water level -> full risk
+      water_level_alarm: 0.8     # Alarm water level -> high risk
+      water_level_alert: 0.5     # Alert water level -> medium risk
+      water_level_normal: 0.2    # Normal but monitored -> low baseline risk
+      dam_critical: 1.0
+      dam_alarm: 0.8
+      dam_alert: 0.5
+      dam_watch: 0.3
+      dam_normal: 0.1
+
+# ==========================================
+# SCOUT AGENT CONFIGURATION
+# ==========================================
+scout_agent:
+  # Batch processing
+  batch_size: 10 # Process N tweets per step
+  max_queue_size: 1000 # Maximum queued reports
+
+  # Simulation mode (for testing)
+  simulation:
+    default_scenario: 1 # 1=light, 2=moderate, 3=severe
+    use_ml_prediction: true # Use ML models vs. ground truth
+
+  # NLP processing
+  nlp:
+    min_confidence: 0.6 # Minimum confidence for flood classification
+    extract_severity: true # Extract severity from text
+    extract_location: true # Extract location from text
+
+  # Temporal deduplication
+  deduplication:
+    temporal_window_minutes: 10.0 # Skip duplicate location reports within this window
+
+  # Scraper throttle
+  scraper_throttle_interval_seconds: 15.0 # Minimum seconds between scrape calls
+
+  # Default confidence for reports without explicit confidence
+  default_confidence: 0.5
+
+# ==========================================
+# EVACUATION MANAGER AGENT CONFIGURATION
+# ==========================================
+evacuation_manager_agent:
+  # History tracking
+  history:
+    max_route_history: 1000 # Maximum routes to remember
+    max_feedback_history: 1000 # Maximum user feedback entries
+    use_deque: true # Use deque for automatic eviction
+
+  # User feedback
+  feedback:
+    default_confidence: 0.7 # Confidence for user-reported conditions
+    weight_recent_feedback: 0.8 # Weight recent feedback higher
+    feedback_ttl_hours: 24 # Feedback expires after 24 hours
+    blocked_with_photo_confidence: 0.9   # "blocked" report with photo evidence
+    blocked_no_photo_confidence: 0.8     # "blocked" report without photo
+    traffic_confidence: 0.5              # "traffic" report confidence
+
+  # Evacuation routing
+  evacuation:
+    always_use_safest_mode: true # Force safest routing for evacuations
+    check_center_capacity: false # Verify shelter capacity before routing
+    warn_if_far: true # Warn if nearest shelter > 10km
+
+# ==========================================
+# ORCHESTRATOR AGENT CONFIGURATION
+# ==========================================
+orchestrator_agent:
+  # Mission timeouts (seconds)
+  # Each mission type can have its own timeout
+  timeouts:
+    default: 60.0 # Fallback for unknown mission types
+    assess_risk: 120.0 # Scout -> Flood -> Hazard pipeline
+    coordinated_evacuation: 60.0 # Single-agent delegation
+    route_calculation: 30.0 # Direct routing computation
+    cascade_risk_update: 120.0 # Flood -> Hazard refresh pipeline
+    multi_step: 180.0 # Multi-step missions (max 3 sequential sub-missions)
+
+  # Concurrency limits
+  max_concurrent_missions: 10 # Maximum simultaneous missions
+  max_completed_history: 100 # Completed missions to keep for polling
+  max_chat_turns: 20 # Maximum conversation history turns for chat
+
+  # Retry policy (for future use)
+  retry:
+    max_retries: 2 # Max retries per failed step
+    retry_delay_seconds: 5.0 # Delay between retries
+
+  # Location matching (barangay name lookup)
+  location_match_threshold: 0.5 # minimum substring overlap score for barangay match
+
+# ==========================================
+# GLOBAL AGENT SETTINGS
+# ==========================================
+global:
+  # Logging
+  logging:
+    level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    log_agent_steps: false # Log every agent step (verbose)
+    log_message_queue: true # Log MAS message passing
+
+  # Message Queue (MAS Communication)
+  message_queue:
+    max_queue_size: 10000 # Maximum messages in queue
+    message_ttl_seconds: 300 # Messages expire after 5 minutes
+    enable_dead_letter: true # Keep failed messages for debugging
+    max_dead_letters: 100 # Maximum failed messages to keep
+
+  # Performance monitoring
+  performance:
+    enable_profiling: false # Enable performance profiling
+    profile_slow_operations: true # Log operations > 100ms
+    slow_operation_threshold_ms: 100
+
+# ==========================================
+# VALIDATION RULES
+# ==========================================
+validation:
+  # Coordinate bounds (Philippines region)
+  coordinates:
+    min_latitude: 4.0
+    max_latitude: 21.0
+    min_longitude: 116.0
+    max_longitude: 127.0
+
+# ==========================================
+# LLM SERVICE CONFIGURATION (v2)
+# ==========================================
+llm_service:
+  # Enable/disable LLM integration
+  enable: true
+
+  # Ollama configuration
+  ollama:
+    base_url: "http://localhost:11434"
+    text_model: "qwen3:4b" # Qwen 3 4B for text analysis (best speed/quality balance)
+    vision_model: "qwen3-vl" # Qwen 3-VL for image analysis
+    timeout_seconds: 120
+
+  # Response caching
+  cache:
+    enable: true
+    max_entries: 100 # Maximum cached LLM responses
+    ttl_seconds: 300 # Cache TTL (5 minutes)
+
+  # Health check
+  health_check:
+    cache_seconds: 60 # Cache health check result for 1 minute
+    retry_on_failure: true
+
+  # Fallback behavior
+  fallback:
+    enable: true # Fall back to NLP when LLM unavailable
+    log_fallbacks: true # Log when fallback is used
+
+  # Visual Override configuration (HazardAgent)
+  visual_override:
+    enable: true
+    min_risk_threshold: 0.8 # Minimum risk score to trigger override
+    min_confidence_threshold: 0.8 # Minimum confidence to trigger override
+    log_overrides: true # Log when visual override is triggered
+
+# ==========================================
+# MOCK DATA SOURCES
+# ==========================================
+# When enabled, scrapers connect to a local mock server instead of real sites.
+# Start mock server: python -m mock_server.run
+# Override with env vars: USE_MOCK_SOURCES=true MOCK_SERVER_URL=http://localhost:8081
+mock_sources:
+  enabled: true
+  base_url: "http://localhost:8081"
+  urls:
+    river_scraper: "http://localhost:8081/pagasa/water/map.do"
+    dam_scraper: "http://localhost:8081/pagasa/flood"
+    weather_api: "http://localhost:8081/weather"
+    advisory_pagasa: "http://localhost:8081/pagasa/flood"
+    advisory_rss: "http://localhost:8081/news/rss"
+    social_feed: "http://localhost:8081/social/feed"
+    social_api: "http://localhost:8081/social/api/tweets"

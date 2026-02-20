@@ -5,35 +5,122 @@ Routing Agent for Multi-Agent System for Flood Route Optimization (MAS-FRO)
 
 Updated version integrated with risk-aware A* algorithm and ACL communication.
 
-VIRTUAL METERS APPROACH:
-This implementation uses a "Risk Penalty" system instead of traditional 0-1 weights
-to fix Heuristic Domination in A* search. Risk scores (0-1) are converted to
-"Virtual Meters" so they operate in the same units as distance:
+LENGTH-PROPORTIONAL RISK PENALTY - SCIENTIFIC JUSTIFICATION (Issue #14)
+========================================================================
 
-  - Safest Mode: risk_penalty = 100,000 (adds 100km per risk unit - prioritize safety)
-  - Balanced Mode: risk_penalty = 2,000 (adds 2km per risk unit - balance safety/speed)
-  - Fastest Mode: risk_penalty = 0 (ignores risk completely - pure shortest path)
+Problem: Heuristic Domination in Multi-Objective A*
+---------------------------------------------------
+Traditional weighted A* with risk uses: f(n) = g(n) + h(n)
+where g(n) = distance + risk_weight * risk
 
-Note: All modes still block truly impassable roads (risk >= 0.9) automatically.
+When risk_weight is small (0.0-1.0), the distance component dominates because:
+- Typical edge distance: 50-500 meters
+- Risk score: 0.0-1.0
+- Result: Risk contribution is negligible compared to distance
 
-This prevents the A* heuristic (pure distance in meters) from dominating the
-risk component and producing dangerous "shortest" routes.
+This causes A* to find the shortest path, ignoring flood risk entirely.
+
+Solution: Length-Proportional Risk Penalty
+------------------------------------------
+Scale risk cost by edge length so longer flooded roads are penalized more:
+
+    edge_cost = length * distance_weight + length * risk_score * risk_weight
+             = length * (1 + risk_score * risk_weight)
+
+The risk_weight acts as a cost MULTIPLIER: a risk_weight of 3.0 means a fully
+flooded edge (risk=1.0) costs 4x its physical length (1 + 1.0 * 3.0).
+
+This is physically correct: 500m of flood water is more dangerous than 50m.
+The heuristic (Haversine distance) remains admissible since edge_cost >= length.
+
+Derivation of Penalty Values
+----------------------------
+For Marikina City road network:
+- Average edge length: ~150m
+- Typical route: 20-50 edges
+- Total route distance: 3,000 - 7,500m (3-7.5 km)
+
+The cost multiplier for a given risk r is: (1 + r * risk_weight)
+
+1. SAFEST MODE (risk_weight = 100.0)
+   - High-risk edge (0.8): multiplier = 1 + 0.8*100 = 81x edge length
+   - 150m edge at risk 0.8: costs 12,150 effective meters
+   - Effect: Will take ANY detour to avoid flooded roads
+   - Use case: Emergency evacuation, vulnerable users
+
+2. BALANCED MODE (risk_weight = 3.0)
+   - High-risk edge (0.8): multiplier = 1 + 0.8*3 = 3.4x edge length
+   - 150m edge at risk 0.8: costs 510 effective meters (+360m penalty)
+   - Effect: Prefers safer routes but accepts minor risk for efficiency
+   - Use case: General navigation, most users
+   - Verified: 5km route at risk=0.8 vs 10km at risk=0.1 -> prefers safe route
+
+3. FASTEST MODE (risk_weight = 0.0)
+   - Effect: Pure shortest path, ignores risk completely
+   - Use case: Emergency responders who must reach destination
+   - Note: Still blocks truly impassable roads (risk >= 0.9)
+
+Calibration Methodology
+-----------------------
+Values were calibrated by comparing route trade-offs on Marikina City's network:
+  Balanced (3.0): Takes 2x longer route to avoid risk=0.8 roads, but accepts
+                   minor risk (0.1-0.2) for shorter paths. Reasonable for most users.
+  Safest (100.0): Avoids even minor risk (0.1) at the cost of significant detours.
+                   Suitable for evacuation of vulnerable populations.
+
+References
+----------
+- Dijkstra, E.W. (1959). "A Note on Two Problems in Connexion with Graphs"
+- Hart, P.E., Nilsson, N.J., Raphael, B. (1968). "A* Algorithm"
+- MAS-FRO Technical Documentation: AGENTS_DETAILED_REVIEW.md Section 2.2
 
 Author: MAS-FRO Development Team
-Date: November 2025
+Date: November 2025 (Updated January 2026)
 """
 
 from .base_agent import BaseAgent
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
+from enum import Enum
+from dataclasses import dataclass, field
 import logging
+import time
 import pandas as pd
-import os
 from pathlib import Path
+
+from ..communication.acl_protocol import Performative
+from ..core.agent_config import get_config, RoutingConfig
 
 if TYPE_CHECKING:
     from ..environment.graph_manager import DynamicGraphEnvironment
 
 logger = logging.getLogger(__name__)
+
+
+class WarningSeverity(Enum):
+    """Warning severity levels for route safety."""
+    INFO = "info"           # FYI - informational
+    CAUTION = "caution"     # Be aware - minor concerns
+    WARNING = "warning"     # Dangerous - significant risk
+    CRITICAL = "critical"   # Life-threatening - do not proceed
+
+
+@dataclass
+class RouteWarning:
+    """Structured warning with severity and actionable recommendations."""
+    severity: WarningSeverity
+    message: str
+    details: str
+    recommended_actions: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API response."""
+        return {
+            'severity': self.severity.value,
+            'message': self.message,
+            'details': self.details,
+            'recommended_actions': self.recommended_actions
+        }
+
 
 
 class RoutingAgent(BaseAgent):
@@ -44,20 +131,20 @@ class RoutingAgent(BaseAgent):
     integrated with real-time flood risk data from HazardAgent. It can calculate
     routes to specific destinations or to nearest evacuation centers.
 
-    Uses "Virtual Meters" approach to prevent Heuristic Domination:
-    Risk penalties are expressed in virtual meters (not 0-1 weights), ensuring
-    the A* heuristic and risk penalties operate in compatible units.
+    Uses length-proportional risk penalty to prevent Heuristic Domination:
+    Edge cost = length * (1 + risk_score * risk_weight), ensuring risk scales
+    with road length and the A* heuristic remains admissible.
 
     Attributes:
         agent_id: Unique identifier for this agent
         environment: Reference to DynamicGraphEnvironment
         evacuation_centers: DataFrame of evacuation center locations
-        risk_penalty: Virtual meters added per risk unit (e.g., 2000.0 for balanced)
+        risk_penalty: Risk cost multiplier (e.g., 3.0 for balanced)
         distance_weight: Weight for distance component (always 1.0 for A* consistency)
 
     Example:
         >>> env = DynamicGraphEnvironment()
-        >>> agent = RoutingAgent("routing_001", env, risk_penalty=2000.0)
+        >>> agent = RoutingAgent("routing_001", env, risk_penalty=3.0)
         >>> route = agent.calculate_route((14.65, 121.10), (14.66, 121.11))
     """
 
@@ -65,49 +152,167 @@ class RoutingAgent(BaseAgent):
         self,
         agent_id: str,
         environment: "DynamicGraphEnvironment",
-        risk_penalty: float = 2000.0,  # BALANCED MODE: 2000 virtual meters per risk unit
-        distance_weight: float = 1.0   # Always 1.0 to preserve A* heuristic consistency
+        risk_penalty: Optional[float] = None,  # BALANCED MODE: defaults to config balanced_risk_penalty
+        distance_weight: float = 1.0,   # Always 1.0 to preserve A* heuristic consistency
+        llm_service: Optional[Any] = None,
+        message_queue: Optional[Any] = None,
+        evacuation_service: Optional[Any] = None
     ) -> None:
         """
         Initialize the RoutingAgent.
 
-        Virtual Meters Approach:
-        Instead of 0-1 weights, we use a "Risk Penalty" system that converts risk
-        into "Virtual Meters" to fix Heuristic Domination in A* search. This ensures
-        the distance heuristic and risk penalties work in the same units.
+        Length-Proportional Risk Penalty:
+        Risk cost is scaled by edge length: cost = length * (1 + risk * risk_penalty).
+        This ensures longer flooded roads are penalized more, and the A* heuristic
+        (Haversine distance) remains admissible.
 
         Args:
             agent_id: Unique identifier for this agent
             environment: DynamicGraphEnvironment instance
-            risk_penalty: Virtual meters per risk unit (default: 2000.0 for balanced)
-                - Safest mode: 100000.0 (extreme penalty, prioritize safety)
-                - Balanced mode: 2000.0 (moderate penalty, balance safety/speed)
+            risk_penalty: Risk cost multiplier (default: 3.0 for balanced)
+                - Safest mode: 100.0 (extreme multiplier, prioritize safety)
+                - Balanced mode: 3.0 (moderate multiplier, balance safety/speed)
                 - Fastest mode: 0.0 (no penalty, ignore risk completely)
             distance_weight: Weight for distance (always 1.0 for A* consistency)
+            llm_service: Optional LLMService instance for smart routing features
+            message_queue: Optional MessageQueue for MAS communication
+            evacuation_service: Optional EvacuationCenterService for DB-backed centers
         """
-        super().__init__(agent_id, environment)
+        super().__init__(agent_id, environment, message_queue=message_queue)
 
-        # Pathfinding configuration using Virtual Meters approach
-        self.risk_penalty = risk_penalty
+        # Load config from YAML (with fallback to defaults)
+        try:
+            self._config = get_config().get_routing_config()
+        except Exception:
+            logger.warning(f"{agent_id}: failed to load RoutingConfig, using defaults")
+            self._config = RoutingConfig()
+
+        # Pathfinding configuration using length-proportional risk penalty
+        # Use config default if caller didn't override the default parameter value
+        self.risk_penalty = risk_penalty if risk_penalty is not None else self._config.balanced_risk_penalty
         self.distance_weight = distance_weight
+        self.llm_service = llm_service
 
-        # Load evacuation centers
+        # Node lookup cache for O(1) repeated lookups (Issue #6 fix)
+        # Cache key: (rounded_lat, rounded_lon) -> (node_id, timestamp)
+        self._node_cache: Dict[Tuple[float, float], Tuple[Any, float]] = {}
+        self._cache_precision = 4  # Decimal places (~11m precision)
+        self._cache_ttl_seconds = self._config.cache_ttl_seconds
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._max_cache_size = self._config.cache_max_entries
+
+        # Load evacuation centers from DB service or fall back to CSV
+        self._evacuation_service = evacuation_service
         self.evacuation_centers = self._load_evacuation_centers()
 
-        logger.info(
-            f"{self.agent_id} initialized with "
-            f"risk_penalty={risk_penalty}, distance_weight={distance_weight}, "
-            f"evacuation_centers={len(self.evacuation_centers)}"
-        )
+    def _apply_config(self) -> None:
+        """Apply mutable config-derived attributes from self._config."""
+        self.risk_penalty = self._config.balanced_risk_penalty
+        self._cache_ttl_seconds = self._config.cache_ttl_seconds
+        self._max_cache_size = self._config.cache_max_entries
+
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            self._config = get_config().get_routing_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload routing config: {e}")
+            return
+        self._apply_config()
+        logger.info(f"{self.agent_id} configuration reloaded")
 
     def step(self):
         """
         Perform one step of agent's operation.
 
-        In this implementation, the RoutingAgent is stateless and responds
-        to route requests on-demand rather than running a continuous loop.
+        Processes any pending MQ requests from orchestrator.
+        The RoutingAgent is otherwise stateless and responds
+        to route requests on-demand.
         """
-        pass
+        self._process_mq_requests()
+
+    def _process_mq_requests(self) -> None:
+        """Process incoming REQUEST messages from orchestrator via MQ."""
+        self._drain_mq_requests({
+            "calculate_route": self._handle_route_request,
+            "find_evacuation_center": self._handle_evac_center_request,
+        })
+
+    def _handle_route_request(self, msg, data: dict) -> None:
+        """Handle calculate_route REQUEST from orchestrator."""
+        from app.communication.acl_protocol import create_inform_message
+
+        start = data.get("start")
+        end = data.get("end")
+        prefs = data.get("preferences", {})
+        result = {"status": "unknown"}
+
+        try:
+            if not start or not end:
+                result["status"] = "error"
+                result["error"] = "Missing start or end coordinates"
+            else:
+                route = self.calculate_route(start, end, prefs)
+                result["status"] = "success"
+                result["route"] = route
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(f"{self.agent_id}: calculate_route -> {result['status']}")
+
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="route_calculation_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
+
+    def _handle_evac_center_request(self, msg, data: dict) -> None:
+        """Handle find_evacuation_center REQUEST from orchestrator."""
+        from app.communication.acl_protocol import create_inform_message
+
+        location = data.get("location")
+        query = data.get("query")
+        prefs = data.get("preferences", {})
+        max_centers = data.get("max_centers", 5)
+        result = {"status": "unknown"}
+
+        try:
+            if not location:
+                result["status"] = "error"
+                result["error"] = "Missing location"
+            else:
+                evac_result = self.find_nearest_evacuation_center(
+                    location, max_centers, query, prefs
+                )
+                result["status"] = "success"
+                result["evacuation_result"] = evac_result
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+
+        logger.info(f"{self.agent_id}: find_evacuation_center -> {result['status']}")
+
+        reply = create_inform_message(
+            sender=self.agent_id,
+            receiver=msg.sender,
+            info_type="evacuation_center_result",
+            data=result,
+            conversation_id=msg.conversation_id,
+            in_reply_to=msg.reply_with,
+        )
+        try:
+            self.message_queue.send_message(reply)
+        except Exception as e:
+            logger.error(f"{self.agent_id}: failed to reply to {msg.sender}: {e}")
 
     def calculate_route(
         self,
@@ -163,31 +368,38 @@ class RoutingAgent(BaseAgent):
         if not start_node or not end_node:
             raise ValueError("Could not map coordinates to road network")
 
-        # Apply preferences using Virtual Meters approach
-        # Risk penalties convert risk (0-1) into "Virtual Meters" to match distance units
-        # This prevents the A* heuristic (pure distance) from dominating risk scores
+        # Apply preferences using length-proportional risk penalty
+        # cost = length * (1 + risk * risk_penalty)
+        # Higher risk_penalty = stronger flood avoidance
         risk_penalty = self.risk_penalty
         distance_weight = self.distance_weight  # Always 1.0
 
         if preferences:
-            if preferences.get("avoid_floods"):
-                # SAFEST MODE: Massive penalty makes risk dominate routing decisions
-                # 100,000 virtual meters = prefer 100km detour over 1.0 risk road
-                risk_penalty = 100000.0
+            # Resolve mode from either explicit flags or LLM-parsed 'mode' field
+            mode = preferences.get("mode", "balanced")
+            if preferences.get("avoid_floods") or mode == "safest":
+                # SAFEST MODE: High multiplier makes risk dominate routing decisions
+                # risk=0.8 edge costs 81x its length (1 + 0.8*100)
+                risk_penalty = self._config.safest_risk_penalty
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
                 logger.info(
                     f"SAFEST MODE: risk_penalty={risk_penalty}, "
                     f"distance_weight={distance_weight}"
                 )
-            elif preferences.get("fastest"):
-                # FASTEST MODE: Ignore all risk, traverse any road
-                # risk_penalty = 0.0 means pure distance-based routing
+            elif preferences.get("fastest") or mode == "fastest":
+                # FASTEST MODE: Ignore all risk, pure shortest path
+                # risk_weight = 0 means cost = length only
                 # Note: Roads with risk >= 0.9 (impassable) are still blocked by A*
-                risk_penalty = 0.0
+                risk_penalty = self._config.fastest_risk_penalty
                 distance_weight = 1.0  # Must stay 1.0 to preserve A* heuristic
                 logger.info(
                     f"FASTEST MODE: risk_penalty={risk_penalty}, "
                     f"distance_weight={distance_weight} (ignoring risk, blocking impassable only)"
+                )
+            else:
+                logger.info(
+                    f"BALANCED MODE: risk_penalty={risk_penalty}, "
+                    f"distance_weight={distance_weight}"
                 )
         else:
             logger.info(
@@ -197,11 +409,11 @@ class RoutingAgent(BaseAgent):
 
         # Calculate route using risk-aware A*
         # Note: risk_penalty is passed as risk_weight to maintain API compatibility
-        path_nodes = risk_aware_astar(
+        path_nodes, edge_keys = risk_aware_astar(
             self.environment.graph,
             start_node,
             end_node,
-            risk_weight=risk_penalty,  # Virtual meters per risk unit
+            risk_weight=risk_penalty,  # Length-proportional risk multiplier
             distance_weight=distance_weight  # Always 1.0
         )
 
@@ -234,8 +446,8 @@ class RoutingAgent(BaseAgent):
         # Convert to coordinates
         path_coords = get_path_coordinates(self.environment.graph, path_nodes)
 
-        # Calculate metrics
-        metrics = calculate_path_metrics(self.environment.graph, path_nodes)
+        # Calculate metrics using the CORRECT edge keys selected by A*
+        metrics = calculate_path_metrics(self.environment.graph, path_nodes, edge_keys)
 
         # Generate warnings (pass preferences to customize warnings by mode)
         warnings = self._generate_warnings(metrics, preferences)
@@ -249,10 +461,10 @@ class RoutingAgent(BaseAgent):
         return {
             "status": "success",
             "path": path_coords,
-            "distance": metrics["total_distance"],
-            "estimated_time": metrics["estimated_time"],
-            "risk_level": metrics["average_risk"],
-            "max_risk": metrics["max_risk"],
+            "distance": round(metrics["total_distance"], 1),
+            "estimated_time": round(metrics["estimated_time"], 1),
+            "risk_level": round(metrics["average_risk"], 2),
+            "max_risk": round(metrics["max_risk"], 2),
             "num_segments": metrics["num_segments"],
             "warnings": warnings
         }
@@ -260,19 +472,24 @@ class RoutingAgent(BaseAgent):
     def find_nearest_evacuation_center(
         self,
         location: Tuple[float, float],
-        max_centers: int = 5
+        max_centers: int = 5,
+        query: Optional[str] = None,
+        preferences: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Find nearest evacuation center and calculate route.
+        Find nearest evacuation center and calculate route with NLP support.
 
         Args:
             location: Current location (latitude, longitude)
             max_centers: Maximum number of centers to evaluate
+            query: Natural language distress call/query
+            preferences: Structured preferences override
 
         Returns:
             Dict with evacuation center info and route, or None if not found
         """
         from ..algorithms.path_optimizer import optimize_evacuation_route
+        from ..algorithms.risk_aware_astar import get_path_coordinates, calculate_path_metrics, risk_aware_astar
 
         logger.info(f"{self.agent_id} finding nearest evacuation center from {location}")
 
@@ -280,9 +497,28 @@ class RoutingAgent(BaseAgent):
             logger.warning("No evacuation centers loaded")
             return None
 
-        # Prepare evacuation center data
+        # 1. Parse Query into Preferences
+        final_preferences = preferences or {}
+        if query:
+            try:
+                smart_prefs = self.parse_routing_request(query)
+                if smart_prefs:
+                    logger.info(f"Evacuation query parsed: {smart_prefs}")
+                    final_preferences = {**smart_prefs, **final_preferences}
+            except Exception as e:
+                logger.warning(f"Failed to parse evacuation query: {e}")
+
+        # Prepare evacuation center data — sort by straight-line distance first
+        from ..algorithms.risk_aware_astar import haversine_distance as _haversine
+
+        ec = self.evacuation_centers.copy()
+        ec['_dist'] = ec.apply(
+            lambda r: _haversine(location, (r['latitude'], r['longitude'])), axis=1
+        )
+        ec = ec.sort_values('_dist').head(max_centers)
+
         centers = []
-        for _, row in self.evacuation_centers.head(max_centers).iterrows():
+        for _, row in ec.iterrows():
             center_location = (row['latitude'], row['longitude'])
             center_node = self._find_nearest_node(center_location)
 
@@ -298,21 +534,61 @@ class RoutingAgent(BaseAgent):
         if not centers:
             return None
 
-        # Use path optimizer to find best evacuation route
-        result = optimize_evacuation_route(
-            self.environment.graph,
-            location,
-            centers,
-            max_centers=max_centers
-        )
+        # Note: optimize_evacuation_route currently doesn't support preferences directly
+        # So we manually iterate to apply risk penalties correctly
+        # This overrides the batch optimizer for NLP-aware routing
+        
+        start_node = self._find_nearest_node(location)
+        if not start_node:
+            return None
 
-        if result:
-            # Convert path to coordinates
-            from ..algorithms.risk_aware_astar import get_path_coordinates
-            path_coords = get_path_coordinates(self.environment.graph, result["path"])
-            result["path"] = path_coords
+        # Apply risk penalty from preferences
+        risk_penalty = self.risk_penalty
+        if final_preferences.get("mode") == "safest":
+            risk_penalty = self._config.safest_risk_penalty
+        elif final_preferences.get("mode") == "fastest":
+            risk_penalty = self._config.fastest_risk_penalty
 
-        return result
+        candidates = []
+        for center in centers:
+            # Calculate route with custom risk penalty
+            path_nodes, edge_keys = risk_aware_astar(
+                self.environment.graph,
+                start_node,
+                center["node_id"],
+                risk_weight=risk_penalty,
+                distance_weight=self.distance_weight
+            )
+
+            if path_nodes:
+                metrics = calculate_path_metrics(self.environment.graph, path_nodes, edge_keys)
+                path_coords = get_path_coordinates(self.environment.graph, path_nodes)
+                candidates.append({
+                    "center": center,
+                    "metrics": metrics,
+                    "path": path_coords,
+                    "risk_penalty_used": risk_penalty
+                })
+
+        if not candidates:
+            return None
+
+        # Select best based on risk and time
+        # Prioritize lowest risk, then time
+        best_result = sorted(candidates, key=lambda x: (x["metrics"]["average_risk"], x["metrics"]["estimated_time"]))[0]
+
+        # Generate explanation if query present
+        if query and self.llm_service:
+            explanation = self.explain_route({
+                "distance": best_result["metrics"]["total_distance"],
+                "estimated_time": best_result["metrics"]["estimated_time"],
+                "risk_level": best_result["metrics"]["average_risk"],
+                "max_risk": best_result["metrics"]["max_risk"],
+                "warnings": []
+            })
+            best_result["explanation"] = explanation
+
+        return best_result
 
     def calculate_alternative_routes(
         self,
@@ -347,8 +623,6 @@ class RoutingAgent(BaseAgent):
             start_node,
             end_node,
             k=k,
-            risk_weight=self.risk_penalty,  # Virtual meters per risk unit
-            distance_weight=self.distance_weight  # Always 1.0
         )
 
         # Convert paths to coordinates and add warnings
@@ -360,10 +634,10 @@ class RoutingAgent(BaseAgent):
             result.append({
                 "rank": alt["rank"],
                 "path": path_coords,
-                "distance": alt["metrics"]["total_distance"],
-                "estimated_time": alt["metrics"]["estimated_time"],
-                "risk_level": alt["metrics"]["average_risk"],
-                "max_risk": alt["metrics"]["max_risk"],
+                "distance": round(alt["metrics"]["total_distance"], 1),
+                "estimated_time": round(alt["metrics"]["estimated_time"], 1),
+                "risk_level": round(alt["metrics"]["average_risk"], 2),
+                "max_risk": round(alt["metrics"]["max_risk"], 2),
                 "warnings": warnings
             })
 
@@ -372,7 +646,7 @@ class RoutingAgent(BaseAgent):
     def _find_nearest_node(
         self,
         coords: Tuple[float, float],
-        max_distance: float = 500.0
+        max_distance: Optional[float] = None
     ) -> Optional[Any]:
         """
         Find nearest graph node to given coordinates using osmnx.
@@ -381,15 +655,36 @@ class RoutingAgent(BaseAgent):
 
         Args:
             coords: Target coordinates (latitude, longitude)
-            max_distance: Maximum search distance in meters
+            max_distance: Maximum search distance in meters (defaults to config)
 
         Returns:
             Nearest node ID or None if not found
         """
+        if max_distance is None:
+            max_distance = self._config.max_node_distance_m
+
         if not self.environment or not self.environment.graph:
             return None
 
         target_lat, target_lon = coords
+
+        # Check cache first (O(1) lookup)
+        cache_key = (
+            round(target_lat, self._cache_precision),
+            round(target_lon, self._cache_precision)
+        )
+
+        if cache_key in self._node_cache:
+            cached_node, cached_time = self._node_cache[cache_key]
+            if time.time() - cached_time < self._cache_ttl_seconds:
+                self._cache_hits += 1
+                logger.debug(f"Node cache hit for {cache_key} (hits: {self._cache_hits})")
+                return cached_node
+            else:
+                # Cache expired, remove it
+                del self._node_cache[cache_key]
+
+        self._cache_misses += 1
 
         try:
             # Use osmnx for efficient nearest node lookup (O(log N) via spatial index)
@@ -418,6 +713,9 @@ class RoutingAgent(BaseAgent):
                 )
                 return None
 
+            # Cache the result
+            self._node_cache[cache_key] = (nearest_node, time.time())
+            self._evict_cache_if_needed()
             return nearest_node
 
         except Exception as e:
@@ -450,13 +748,35 @@ class RoutingAgent(BaseAgent):
                 )
                 return None
 
+            # Cache the result (even from fallback)
+            if nearest_node is not None:
+                self._node_cache[cache_key] = (nearest_node, time.time())
+                self._evict_cache_if_needed()
+
             return nearest_node
+
+    def _evict_cache_if_needed(self) -> None:
+        """Evict old entries if node cache exceeds max size."""
+        if len(self._node_cache) <= self._max_cache_size:
+            return
+        # First pass: evict expired entries
+        now = time.time()
+        expired = [k for k, (_, ts) in self._node_cache.items()
+                   if now - ts >= self._cache_ttl_seconds]
+        for k in expired:
+            del self._node_cache[k]
+        # If still over, evict oldest 25%
+        if len(self._node_cache) > self._max_cache_size:
+            by_age = sorted(self._node_cache.items(), key=lambda x: x[1][1])
+            to_evict = len(self._node_cache) // 4
+            for k, _ in by_age[:to_evict]:
+                del self._node_cache[k]
 
     def _generate_warnings(
         self,
         metrics: Dict[str, float],
-        preferences: Optional[Dict[str, Any]] = None
-    ) -> List[str]:
+        preferences: Optional[Dict[str, Any]] = None,
+    ) -> List[RouteWarning]:
         """
         Generate warning messages based on route metrics.
 
@@ -465,109 +785,125 @@ class RoutingAgent(BaseAgent):
             preferences: Optional routing preferences (to customize warnings by mode)
 
         Returns:
-            List of warning messages
+            List of RouteWarning objects
         """
-        warnings = []
+        warnings: List[RouteWarning] = []
 
         avg_risk = metrics.get("average_risk", 0)
         max_risk = metrics.get("max_risk", 0)
         is_fastest_mode = preferences and preferences.get("fastest")
 
         # Special warning for fastest mode with high risk
-        if is_fastest_mode and (max_risk >= 0.5 or avg_risk >= 0.3):
-            warnings.append(
-                "FASTEST MODE ACTIVE: This route ignores flood risk. "
-                f"Max risk: {max_risk:.1%}, Avg risk: {avg_risk:.1%}. "
-                "Expect flooded roads and hazardous conditions."
-            )
+        if is_fastest_mode and (max_risk >= self._config.moderate_risk_threshold or avg_risk >= self._config.fastest_mode_avg_risk_threshold):
+            warnings.append(RouteWarning(
+                severity=WarningSeverity.WARNING,
+                message="Fastest mode ignores flood risk",
+                details=f"Maximum flood risk: {max_risk:.0%}, Average risk: {avg_risk:.0%}. "
+                        "This route may pass through flooded roads.",
+                recommended_actions=[
+                    "Switch to 'Balanced' or 'Safest' mode for safer routing",
+                    "If proceeding, drive slowly through any standing water",
+                    "Turn around if water depth exceeds vehicle bumper height",
+                    "Monitor weather conditions throughout your journey"
+                ]
+            ))
 
-        # Standard risk warnings (apply to all modes)
-        if max_risk >= 0.9:
-            warnings.append(
-                "CRITICAL: Route contains impassable or extremely dangerous roads. "
-                "Consider alternative route or evacuation."
-            )
-        elif max_risk >= 0.7:
-            warnings.append(
-                "WARNING: Route contains high-risk flood areas. "
-                "Exercise extreme caution and monitor conditions."
-            )
-        elif avg_risk >= 0.5 and not is_fastest_mode:
-            # Don't duplicate warning in fastest mode (already warned above)
-            warnings.append(
-                "CAUTION: Moderate flood risk on this route. "
-                "Drive slowly and be prepared for water on roads."
-            )
+        # CRITICAL: Impassable roads
+        if max_risk >= self._config.critical_risk_threshold:
+            warnings.append(RouteWarning(
+                severity=WarningSeverity.CRITICAL,
+                message="Route contains impassable roads",
+                details=f"Maximum flood risk: {max_risk:.0%}. Water depths exceed 60cm, "
+                        "which is impassable for most vehicles and life-threatening.",
+                recommended_actions=[
+                    "DO NOT attempt this route",
+                    "Consider evacuation to a nearby shelter",
+                    "Wait for flood conditions to improve",
+                    "Check alternative routes using 'Safest' mode",
+                    "Call emergency services if stranded"
+                ]
+            ))
+        # WARNING: High risk
+        elif max_risk >= self._config.high_risk_threshold:
+            warnings.append(RouteWarning(
+                severity=WarningSeverity.WARNING,
+                message="Route contains high-risk flood areas",
+                details=f"Maximum flood risk: {max_risk:.0%}. Water depths 30-60cm "
+                        "may stall vehicles and make roads dangerous.",
+                recommended_actions=[
+                    "Only proceed if absolutely necessary",
+                    "Use a high-clearance vehicle (SUV/truck) if possible",
+                    "Drive very slowly through flooded sections",
+                    "Turn around immediately if water exceeds tire height",
+                    "Keep windows partially open in case of emergency exit"
+                ]
+            ))
+        # CAUTION: Moderate risk
+        elif avg_risk >= self._config.moderate_risk_threshold and not is_fastest_mode:
+            warnings.append(RouteWarning(
+                severity=WarningSeverity.CAUTION,
+                message="Moderate flood risk on this route",
+                details=f"Average flood risk: {avg_risk:.0%}. Some roads may have "
+                        "standing water up to 30cm deep.",
+                recommended_actions=[
+                    "Drive slowly and maintain safe following distance",
+                    "Be prepared for water on roads",
+                    "Avoid driving through water if you cannot see the road",
+                    "Turn on headlights for visibility"
+                ]
+            ))
 
-        if metrics.get("total_distance", 0) > 10000:
-            warnings.append(
-                "This is a long route. Consider fuel and time requirements."
-            )
+        # INFO: Long route
+        if metrics.get("total_distance", 0) > self._config.long_route_threshold_m:
+            distance_km = metrics.get("total_distance", 0) / 1000
+            warnings.append(RouteWarning(
+                severity=WarningSeverity.INFO,
+                message="This is a long route",
+                details=f"Total distance: {distance_km:.1f} km. Plan accordingly.",
+                recommended_actions=[
+                    "Ensure you have sufficient fuel",
+                    "Consider rest stops for long journeys",
+                    "Check weather conditions along the entire route"
+                ]
+            ))
 
         return warnings
 
     def _load_evacuation_centers(self) -> pd.DataFrame:
         """
-        Load evacuation center data from CSV file.
+        Load evacuation center data from the DB-backed EvacuationCenterService.
+
+        Falls back to CSV if no service is provided (e.g., during tests).
 
         Returns:
             DataFrame with evacuation center information
         """
+        # Prefer DB-backed service
+        if self._evacuation_service is not None:
+            try:
+                df = self._evacuation_service.get_centers_as_dataframe()
+                if not df.empty:
+                    logger.info(f"Loaded {len(df)} evacuation centers from DB")
+                    return df
+            except Exception as e:
+                logger.warning(f"Failed to load centers from DB, falling back to CSV: {e}")
+
+        # Fallback: load directly from CSV
         try:
-            # Try multiple possible paths
             possible_paths = [
                 Path(__file__).parent.parent / "data" / "evacuation_centers.csv",
                 Path(__file__).parent.parent.parent / "data" / "evacuation_centers.csv",
             ]
-
             for csv_path in possible_paths:
                 if csv_path.exists():
                     df = pd.read_csv(csv_path)
                     logger.info(f"Loaded {len(df)} evacuation centers from {csv_path}")
                     return df
-
-            # If no file found, create sample data
-            logger.warning("Evacuation centers file not found, creating sample data")
-            return self._create_sample_evacuation_centers()
-
         except Exception as e:
-            logger.error(f"Failed to load evacuation centers: {e}")
-            return pd.DataFrame(
-                columns=['name', 'latitude', 'longitude', 'capacity', 'type']
-            )
+            logger.error(f"Failed to load evacuation centers from CSV: {e}")
 
-    def _create_sample_evacuation_centers(self) -> pd.DataFrame:
-        """
-        Create sample evacuation center data for testing.
-
-        Returns:
-            DataFrame with sample evacuation centers
-        """
-        sample_data = [
-            {
-                "name": "Marikina Elementary School",
-                "latitude": 14.6507,
-                "longitude": 121.1029,
-                "capacity": 200,
-                "type": "school"
-            },
-            {
-                "name": "Marikina Sports Center",
-                "latitude": 14.6545,
-                "longitude": 121.1089,
-                "capacity": 500,
-                "type": "gymnasium"
-            },
-            {
-                "name": "Barangay Concepcion Covered Court",
-                "latitude": 14.6480,
-                "longitude": 121.0980,
-                "capacity": 150,
-                "type": "covered_court"
-            },
-        ]
-
-        return pd.DataFrame(sample_data)
+        logger.warning("No evacuation centers available")
+        return pd.DataFrame(columns=["name", "latitude", "longitude", "capacity", "type"])
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -578,8 +914,116 @@ class RoutingAgent(BaseAgent):
         """
         return {
             "agent_id": self.agent_id,
-            "risk_penalty": self.risk_penalty,  # Virtual meters per risk unit
+            "risk_penalty": self.risk_penalty,  # Risk cost multiplier
             "distance_weight": self.distance_weight,
             "evacuation_centers": len(self.evacuation_centers),
-            "graph_loaded": bool(self.environment and self.environment.graph)
+            "graph_loaded": bool(self.environment and self.environment.graph),
+            "llm_enabled": bool(self.llm_service)
         }
+
+    def parse_routing_request(self, user_query: str) -> Dict[str, Any]:
+        """
+        Parse natural language routing request into structured preferences.
+
+        Args:
+            user_query: User's request string (e.g., "I'm driving a 4x4 truck")
+
+        Returns:
+            Dict with structured preferences:
+            {
+                "vehicle_type": "car/suv/truck/motorcycle",
+                "risk_tolerance": "low/medium/high",
+                "mode": "safest/balanced/fastest",
+                "avoid_floods": bool
+            }
+        """
+        if not self.llm_service or not self.llm_service.is_available():
+            logger.warning("LLM service unavailable, using default routing preferences")
+            return {}
+
+        prompt = f"""You are a Routing Assistant for Marikina City during a flood event.
+
+User Request: "{user_query}"
+
+TASK: Extract routing preferences.
+- Vehicle Type: Determine if user has a standard car, SUV, truck, or motorcycle.
+- Urgency: Is this an emergency? (implies 'fastest' mode)
+- Risk Tolerance:
+  - 'safest': Avoid all water (default for cars/motorcycles)
+  - 'balanced': Accept minor water if route is much faster (SUVs)
+  - 'fastest': Accept high risk (Emergency/Trucks only)
+
+OUTPUT JSON:
+{{
+    "vehicle_type": "car/suv/truck/motorcycle",
+    "mode": "safest/balanced/fastest",
+    "avoid_floods": boolean (true if safest mode)
+}}
+
+Return ONLY valid JSON."""
+
+        try:
+            import json
+            content = self.llm_service.text_chat(prompt)
+            if not content:
+                return {}
+
+            # Parse JSON from response
+            content = content.replace("```json", "").replace("```", "").strip()
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start >= 0 and end > start:
+                return json.loads(content[start:end])
+
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to parse routing request: {e}")
+            return {}
+
+    def explain_route(self, route_result: Dict[str, Any]) -> str:
+        """
+        Generate a natural language explanation for the calculated route.
+
+        Args:
+            route_result: Output from calculate_route()
+
+        Returns:
+            String explanation of the route choice and risks.
+        """
+        if not self.llm_service or not self.llm_service.is_available():
+            return "Route calculated based on current flood risks and distance."
+
+        metrics = {
+            "distance": f"{route_result['distance']:.0f}m",
+            "time": f"{route_result['estimated_time']:.1f} min",
+            "risk": f"{route_result['risk_level']:.2f}",
+            "max_risk": f"{route_result['max_risk']:.2f}",
+            "warnings_count": len(route_result.get('warnings', []))
+        }
+
+        prompt = f"""You are an Intelligent Navigation Assistant for flood-prone Marikina City.
+
+Explain this calculated route to the user:
+METRICS:
+- Total Distance: {metrics['distance']}
+- Estimated Time: {metrics['time']}
+- Average Flood Risk: {metrics['risk']} (0.0-1.0)
+- Max Risk Encountered: {metrics['max_risk']}
+
+WARNINGS GENERATED:
+{chr(10).join(str(w) for w in route_result.get('warnings', []))}
+
+TASK:
+Write a concise (1-2 sentences) explanation of why this route was chosen and what to watch out for.
+- If risk is low, emphasize safety.
+- If risk is high, explain why (e.g. "Shortest path but dangerous").
+- Mention specific blocked areas if implied by warnings.
+
+Output plain text only."""
+
+        try:
+            result = self.llm_service.text_chat(prompt)
+            return result if result else "Route calculation complete (LLM explanation unavailable)."
+        except Exception as e:
+            logger.error(f"Failed to generate route explanation: {e}")
+            return "Route calculation complete (LLM explanation unavailable)."

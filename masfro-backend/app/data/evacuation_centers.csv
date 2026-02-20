@@ -1,37 +1,116 @@
-name,latitude,longitude,capacity,type,address,barangay,contact,facilities
-Marikina Sports Center,14.638056,121.099722,1000,sports_complex,"Shoe Avenue corner Sumulong Highway, Sto. Niño",Sto. Niño,+63-2-8682-2116,"Covered court, Restrooms, Medical station"
-Marikina Elementary School,14.650500,121.104100,500,school,"JP Rizal St., Sta. Elena",Sta. Elena,+63-2-8941-2211,"Classrooms, Covered court, Water supply"
-Sta. Elena High School,14.651200,121.105300,450,school,"Katipunan St., Sta. Elena",Sta. Elena,+63-2-8941-5544,"Classrooms, Multi-purpose hall, Canteen"
-Parang Elementary School,14.645800,121.096200,400,school,"Gen. Ordoñez St., Parang",Parang,+63-2-8646-1234,"Covered court, Classrooms, Kitchen"
-Malanday Elementary School,14.663200,121.113400,350,school,"De Castro St., Malanday",Malanday,+63-2-8942-3456,"Classrooms, Covered court, Water supply"
-Nangka Elementary School,14.656700,121.106800,350,school,"Nangka-Marikina Road, Nangka",Nangka,+63-2-8941-2345,"Covered court, Classrooms, Restrooms"
-H. Bautista Elementary School,14.653800,121.109200,400,school,"Bayan-Bayanan Ave., H. Bautista",H. Bautista,+63-2-8646-5678,"Multi-purpose hall, Classrooms, Kitchen"
-Concepcion Integrated School,14.641800,121.100500,600,school,"Marcos Highway, Concepcion Uno",Concepcion Uno,+63-2-8682-7890,"Covered court, Classrooms, Medical room"
-Barangka Elementary School,14.648200,121.108900,300,school,"Barangka Drive, Barangka",Barangka,+63-2-8646-3210,"Classrooms, Covered court, Water supply"
-San Roque Elementary School,14.644500,121.111200,300,school,"IVC Road, San Roque",San Roque,+63-2-8942-6543,"Covered court, Classrooms, Restrooms"
-Tumana Elementary School,14.660800,121.099600,280,school,"Tumana Road, Tumana",Tumana,+63-2-8941-4321,"Classrooms, Open court, Water supply"
-Jesus Dela Peña Elementary School,14.659200,121.108700,320,school,"Jesus Dela Peña St., Jesus Dela Peña",Jesus Dela Peña,+63-2-8646-7654,"Covered court, Classrooms, Kitchen"
-Kalumpang Elementary School,14.649800,121.115800,250,school,"Kalumpang Road, Kalumpang",Kalumpang,+63-2-8942-8765,"Classrooms, Covered court, Water supply"
-Industrial Valley Covered Court,14.642300,121.103800,200,covered_court,"IVC Complex, Industrial Valley",Industrial Valley Complex,+63-2-8682-9876,"Covered court, Restrooms, First aid station"
-Fortune Elementary School,14.657800,121.103200,280,school,"Fortune St., Fortune",Fortune,+63-2-8941-5432,"Classrooms, Covered court, Canteen"
-Sto. Niño Elementary School,14.639500,121.098900,350,school,"Sto. Niño Road, Sto. Niño",Sto. Niño,+63-2-8682-6543,"Covered court, Classrooms, Water supply"
-Tañong Covered Court,14.643800,121.097200,150,covered_court,"Tañong St., Tañong",Tañong,+63-2-8682-3456,"Covered court, Restrooms"
-Concepcion Dos Covered Court,14.639200,121.104600,180,covered_court,"Concepcion Road, Concepcion Dos",Concepcion Dos,+63-2-8682-2345,"Covered court, Water supply, First aid"
-Marikina Heights Covered Court,14.665400,121.105200,200,covered_court,"Marikina Heights, Marikina Heights",Marikina Heights,+63-2-8942-4567,"Covered court, Restrooms, Lighting"
-Barangay Hall Parang,14.646500,121.095800,120,barangay_hall,"Gen. Ordoñez St., Parang",Parang,+63-2-8646-1111,"Hall, Office space, Kitchen"
-Barangay Hall Nangka,14.657200,121.107300,130,barangay_hall,"Nangka Road, Nangka",Nangka,+63-2-8941-2222,"Hall, Meeting room, Restrooms"
-Barangay Hall Sta. Elena,14.651800,121.104800,140,barangay_hall,"Katipunan St., Sta. Elena",Sta. Elena,+63-2-8941-3333,"Hall, Office, Kitchen, Water supply"
-Barangay Hall Malanday,14.664200,121.114200,110,barangay_hall,"De Castro St., Malanday",Malanday,+63-2-8942-4444,"Hall, Meeting room, Restrooms"
-Barangay Hall San Roque,14.645000,121.111800,100,barangay_hall,"IVC Road, San Roque",San Roque,+63-2-8942-5555,"Hall, Office space, First aid"
-Barangay Hall Concepcion Uno,14.642300,121.101200,120,barangay_hall,"Marcos Highway, Concepcion Uno",Concepcion Uno,+63-2-8682-6666,"Hall, Kitchen, Meeting room"
-Barangay Hall Barangka,14.648800,121.109500,90,barangay_hall,"Barangka Drive, Barangka",Barangka,+63-2-8646-7777,"Hall, Office, Restrooms"
-Marikina City Hall Complex,14.650700,121.102900,300,government_building,"Shoe Avenue, Sto. Niño",Sto. Niño,+63-2-8646-1600,"Multi-purpose hall, Medical clinic, Canteen"
-Marikina Multi-Purpose Hall,14.649900,121.103800,400,multi_purpose,"JP Rizal St., Sta. Elena",Sta. Elena,+63-2-8941-8888,"Large hall, Kitchen, Restrooms, Medical room"
-Riverbanks Center,14.653600,121.103200,250,commercial_complex,"A. Bonifacio Avenue, Barangka",Barangka,+63-2-8584-1234,"Event space, Restrooms, Food area"
-SSS Village Covered Court,14.661800,121.111800,180,covered_court,"SSS Village, Concepcion Uno",Concepcion Uno,+63-2-8942-9999,"Covered court, Lighting, Water supply"
-Marikina West Covered Court,14.648300,121.100200,160,covered_court,"West Valley, Marikina West",Marikina West,+63-2-8646-8888,"Covered court, Restrooms, First aid"
-Lamuan Covered Court,14.644200,121.094800,140,covered_court,"Lamuan Road, Parang",Parang,+63-2-8646-9999,"Covered court, Water supply, Lighting"
-Marikina Valley Sports Complex,14.655200,121.108900,500,sports_complex,"Valley St., Nangka",Nangka,+63-2-8941-7777,"Covered courts, Gym, Medical station, Canteen"
-Greenheights Covered Court,14.661200,121.107600,170,covered_court,"Greenheights Subdivision, Concepcion Uno",Concepcion Uno,+63-2-8942-6666,"Covered court, Restrooms, Lighting"
-Olandes Covered Court,14.657600,121.110200,150,covered_court,"Olandes St., Malanday",Malanday,+63-2-8942-7777,"Covered court, Water supply, First aid"
-Provident Village Covered Court,14.646800,121.113600,160,covered_court,"Provident Village, Kalumpang",Kalumpang,+63-2-8942-8888,"Covered court, Restrooms, Lighting"
+name,latitude,longitude,capacity,type,status,suitability,barangay,operator
+Barangka Elementary School,14.633452,121.081943,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District I Marikina City Schools Division, DepEd"
+Bulelak Covered court,14.650978,121.095981,,covered_court,OFFICIAL,Tagged as emergency shelter,,
+Concepcion Elementary School,14.64787,121.103794,,school,OFFICIAL,Tagged as emergency shelter,,"District II Marikina City Schools Division, DepEd"
+Concepcion Integrated School,14.650567,121.101937,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District II Marikina City Schools Division, DepEd"
+Fairlane Gym,14.664064,121.104665,,evacuation_center,OFFICIAL,Tagged as evacuation_center=yes,,
+Felicidad Village Basketball Court,14.677958,121.11044,,community_centre,OFFICIAL,Tagged as emergency shelter,,
+Filipinas Gym,14.650165,121.094805,,evacuation_center,OFFICIAL,Tagged as evacuation_center=yes,,
+Greenland Phase 1 Covered Court,14.670664,121.105221,,evacuation_center,OFFICIAL,Tagged as evacuation_center=yes,,
+Hermogenes Bautista Elementary School,14.657959,121.104187,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District II Marikina City Schools Division, DepEd"
+JEM Subdivision Gym,14.660107,121.108302,,sports_complex,OFFICIAL,Tagged as emergency shelter,,
+Kalumpang Elementary School,14.622426,121.090033,,school,OFFICIAL,Tagged as evacuation_center=yes,,District I
+Kapitan Moy Elementary School,14.649095,121.118601,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District II Marikina City Schools Division, DepEd"
+Malanday Elementary School,14.650283,121.094408,,school,OFFICIAL,Tagged as emergency shelter,,"District I Marikina City Schools Division, DepEd"
+Malanday National High School,14.646729,121.090384,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District I Marikina City Schools Division, DepEd"
+Marikina Elementary School,14.631281,121.097529,,school,OFFICIAL,Tagged as emergency shelter,,District I
+Marikina High School,14.647116,121.103426,,school,OFFICIAL,Tagged as emergency shelter,,"District II Marikina City Schools Division, DepEd"
+Nangka Elementary School,14.67299,121.10844,,school,OFFICIAL,Tagged as emergency shelter,,"District II Marikina City Schools Division, DepEd"
+Nangka Gym,14.672471,121.108408,,sports_complex,OFFICIAL,Tagged as emergency shelter,,
+Parang Elementary School,14.657372,121.111698,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District II Marikina City Schools Division, DepEd"
+Parang Gym,14.659222,121.11169,,sports_complex,OFFICIAL,Tagged as evacuation_center=yes,,
+Parang High School,14.663497,121.112364,,school,OFFICIAL,Tagged as emergency shelter,,"District II Marikina City Schools Division, DepEd"
+Parokya ng La Purisima Concepcion,14.648214,121.092818,,facility,OFFICIAL,Tagged as emergency shelter,,
+Sampaguita Gym,14.648986,121.093754,,evacuation_center,OFFICIAL,Tagged as evacuation_center=yes,,
+Santo Niño Elementary School,14.638271,121.096354,,school,OFFICIAL,Tagged as evacuation_center=yes,,District I
+Tañong High School,14.634176,121.085331,,school,OFFICIAL,Tagged as evacuation_center=yes,,"District I Marikina City Schools Division, DepEd"
+Ynares Basketball Court,14.67614,121.109565,,covered_court,OFFICIAL,Tagged as emergency shelter,,
+Ynarez Covered Court,14.676524,121.115822,,covered_court,OFFICIAL,Tagged as emergency shelter,,
+A1 Driving,14.621262,121.103073,,school,POTENTIAL,School - commonly used as evacuation center,,
+APEC Schools,14.649066,121.112255,,school,POTENTIAL,School - commonly used as evacuation center,,
+Asian Institute of Computer Studies,14.635183,121.097186,,school,POTENTIAL,School - commonly used as evacuation center,,
+BCI-CCS Marikina,14.649073,121.111921,,school,POTENTIAL,School - commonly used as evacuation center,,
+Bartville Multi-Purpose Hall,14.611217,121.093638,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Bricks Gym,14.633013,121.080877,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Calumpang Gym,14.624765,121.093727,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Camacho Civic Center,14.671789,121.103921,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Center for Positive Futures,14.675712,121.110676,,school,POTENTIAL,School - commonly used as evacuation center,,
+Charis School,14.643793,121.113936,,school,POTENTIAL,School - commonly used as evacuation center,,
+Charles Science Integrated School,14.675229,121.109295,,school,POTENTIAL,School - commonly used as evacuation center,,
+Christine Village Multi-Purpose Hall,14.61509,121.096943,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Covenant Children Academy,14.645507,121.118793,,school,POTENTIAL,School - commonly used as evacuation center,,
+DC Integrated School for Early Achievers,14.658414,121.114384,,school,POTENTIAL,School - commonly used as evacuation center,,
+Dee Hwa Liong Academy,14.620904,121.088989,,school,POTENTIAL,School - commonly used as evacuation center,,
+Dela Costa Covered Court,14.634229,121.08197,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Dela Pena Senior Citizen Center,14.636401,121.092387,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+"Drawline Wisdom Learning Center, Inc.",14.643942,121.099988,,school,POTENTIAL,School - commonly used as evacuation center,,
+Dreamhomes Multi Purpose Center,14.614896,121.095077,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Dunwoody Academy,14.615477,121.092619,,school,POTENTIAL,School - commonly used as evacuation center,,
+EIQ Child Development Center,14.643426,121.092894,,school,POTENTIAL,School - commonly used as evacuation center,,
+Greenpark Montessori Learning Center,14.615128,121.105338,,school,POTENTIAL,School - commonly used as evacuation center,,
+Greenpark Multi-Purpose Hall,14.613319,121.099954,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Ilaya Multi Purpose Hall,14.616607,121.081619,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Industrial Valley Elementary School,14.621749,121.080383,,school,POTENTIAL,School - commonly used as evacuation center,,District I
+Infant Jesus Academy,14.643269,121.11757,,school,POTENTIAL,School - commonly used as evacuation center,,
+Infant Jesus Academy,14.644912,121.117381,,school,POTENTIAL,School - commonly used as evacuation center,,
+Informatics Computer Institute,14.677751,121.111039,,school,POTENTIAL,School - commonly used as evacuation center,,
+Integrated School for Young Children,14.641862,121.104414,,school,POTENTIAL,School - commonly used as evacuation center,,
+Irvinghall School,14.650003,121.101719,,school,POTENTIAL,School - commonly used as evacuation center,,
+JCLAM Christian School,14.644827,121.095988,,school,POTENTIAL,School - commonly used as evacuation center,,
+Jehoshua Academy,14.645939,121.115846,,school,POTENTIAL,School - commonly used as evacuation center,,
+Jesus Dela Peña National High School,14.635197,121.090023,,school,POTENTIAL,School - commonly used as evacuation center,,
+Jesus Flock Academy School,14.623619,121.085381,,school,POTENTIAL,School - commonly used as evacuation center,,
+Joshua Caleb Christian School,14.654095,121.098142,,school,POTENTIAL,School - commonly used as evacuation center,,
+Karangalan Multi-Purpose Hall,14.610597,121.102361,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+King Shepherds Flock Christian Academy Inc.,14.671784,121.118372,,school,POTENTIAL,School - commonly used as evacuation center,,
+"Laro, Lapis at Libro, Inc.",14.632543,121.102967,,school,POTENTIAL,School - commonly used as evacuation center,,
+Leodegario Victorino Elementary School,14.635407,121.090214,,school,POTENTIAL,School - commonly used as evacuation center,,"District I Marikina City Schools Division, DepEd"
+Links School for Life,14.655614,121.093913,,school,POTENTIAL,School - commonly used as evacuation center,,
+Lord of the Nation,14.642602,121.099574,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Majestic Learning Center,14.662361,121.105065,,school,POTENTIAL,School - commonly used as evacuation center,,
+Malanday Multi-purpose Hall,14.651885,121.092046,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Mariam Claire Integrated Academy,14.615188,121.101629,,school,POTENTIAL,School - commonly used as evacuation center,,
+Marikina Catholic School,14.630554,121.096603,,school,POTENTIAL,School - commonly used as evacuation center,,
+Marikina Elementary School MRF,14.631193,121.097574,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Marikina Science High School,14.631636,121.099421,,school,POTENTIAL,School - commonly used as evacuation center,,"District I Marikina City Schools Division, DepEd"
+Marikina Sports Park,14.634611,121.098456,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Minds in Motion Learning Center,14.646612,121.11514,,school,POTENTIAL,School - commonly used as evacuation center,,
+Mirea Residences Clubhouse,14.614764,121.090507,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Morning Dew Montessori School,14.622564,121.104711,,school,POTENTIAL,School - commonly used as evacuation center,,
+Mother of Angels,14.633731,121.082796,,school,POTENTIAL,School - commonly used as evacuation center,,
+Mountain View Function Hall,14.675795,121.115247,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Nagkaisa sa Nangka HOA Multipurpose Hall,14.669096,121.101633,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Nangka High School,14.670545,121.101969,,school,POTENTIAL,School - commonly used as evacuation center,,"District II Marikina City Schools Division, DepEd"
+National Cottage Industry Technical Center,14.641861,121.118333,,school,POTENTIAL,School - commonly used as evacuation center,,
+National TVET Trainers Academy,14.632069,121.098993,,school,POTENTIAL,School - commonly used as evacuation center,,Technical Education and Skills Development Authority
+Octagon Multi-Purpose Hall,14.610544,121.09724,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Octagon Phase 3 Multi-Purpose Hall,14.612782,121.099683,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Our Lady of Perpetual Help School,14.61362,121.085499,,school,POTENTIAL,School - commonly used as evacuation center,,
+Padre Pio Learning Center,14.63452,121.094188,,school,POTENTIAL,School - commonly used as evacuation center,,
+Pathfinder,14.648399,121.114694,,school,POTENTIAL,School - commonly used as evacuation center,,
+Primemont Science School,14.664774,121.114866,,school,POTENTIAL,School - commonly used as evacuation center,,
+Providence Christian School,14.638303,121.084455,,school,POTENTIAL,School - commonly used as evacuation center,,
+Q Family Center,14.667922,121.101096,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Saint Mary Elementary School,14.668703,121.113483,,school,POTENTIAL,School - commonly used as evacuation center,,"District II Marikina City Schools Division, DepEd"
+Saint Nicholas High School,14.661852,121.101315,,school,POTENTIAL,School - commonly used as evacuation center,,
+Samahang Tanglaw Multi-Purpose Hall,14.641752,121.092412,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+San Lorenzo Ruiz de Manila School,14.67036,121.107586,,school,POTENTIAL,School - commonly used as evacuation center,,Diocese of Antipolo School System
+San Roque Barangay Multipurpose Hall,14.625828,121.10299,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Santa Elena High School,14.632361,121.09739,,school,POTENTIAL,School - commonly used as evacuation center,,District I
+Santo Niño Multi-purpose Hall,14.609181,121.102508,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Santo Niño National High School,14.639011,121.096252,,school,POTENTIAL,School - commonly used as evacuation center,,"District I Marikina City Schools Division, DepEd"
+Santolan High School,14.615572,121.083435,,school,POTENTIAL,School - commonly used as evacuation center,,District I
+Santolan Multi Purpose Hall,14.612125,121.086604,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+St Chamuel Institute of Technology,14.620843,121.103799,,school,POTENTIAL,School - commonly used as evacuation center,,
+St. Mary's Covered Court,14.668727,121.113278,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+St. Nicholas Elementary School,14.663632,121.103251,,school,POTENTIAL,School - commonly used as evacuation center,,
+St. Scholastica Academy,14.65237,121.117199,,school,POTENTIAL,School - commonly used as evacuation center,,
+Sta. Clara Academy,14.621822,121.094403,,school,POTENTIAL,School - commonly used as evacuation center,,
+Tambi Plaza,14.644166,121.091289,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Tañong Gymnasium,14.633819,121.084654,,sports_complex,POTENTIAL,Sports facility - large covered space,,
+Tañong Multipurpose Hall,14.632764,121.086609,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+Tañong Multipurpose Hall,14.632729,121.086428,,community_centre,POTENTIAL,Community centre - suitable for shelter,,
+The Children's House School,14.649931,121.118161,,school,POTENTIAL,School - commonly used as evacuation center,,
+Valeriano E. Fugoso Memorial Elementary School,14.666541,121.11854,,school,POTENTIAL,School - commonly used as evacuation center,,"Sampaloc V District of Manila Schools Division, DepEd"
+Valeriano E. Fugoso Memorial High School,14.665787,121.11763,,school,POTENTIAL,School - commonly used as evacuation center,Parang,"Sampaloc V District of Manila Schools Division, DepEd"
+Victoria School,14.651408,121.113434,,school,POTENTIAL,School - commonly used as evacuation center,,
