@@ -817,9 +817,33 @@ The composite risk score (Equation~\ref{eq:fusion}) uses fixed weights (0.5/0.3/
 \section{Conclusion and Future Work}
 %% ============================================================================
 
-This paper presented MAS-FRO, a multi-agent system for flood-aware evacuation routing in Marikina City. The system successfully integrates heterogeneous data sources: (1) official government sensors, (2) crowdsourced social media reports, and (3) GeoTIFF flood simulations---through a novel data fusion framework with temporal decay modeling. The Virtual Meters heuristic enables intuitive parameterization of safety-efficiency trade-offs in the Risk-Aware A* algorithm. Experimental results demonstrate computation times of 50--500ms, risk reductions of 47\% compared to shortest-path baselines, and real-time update latencies under 20ms.
+This paper presented MAS-FRO, a multi-agent system for flood-aware evacuation routing in Marikina City, Philippines. The system makes three primary contributions to the field of disaster-responsive navigation:
 
-Looking ahead, future work will focus on addressing current limitations and expanding the system's capabilities. Initially, this involves incorporating real-time traffic data from sources like the Google Maps API or simulation to accurately account for congestion and delays during evacuations. We also plan to enhance the RoutingAgent by introducing multi-vehicle coordination logic to handle simultaneous requests, which should mitigate potential conflicts or bottlenecks. From a data perspective, a critical step is moving toward predictive flood modeling, replacing the reliance on historical GeoTIFF scenarios with more dynamic machine learning-based flood forecasts. To facilitate real-world impact and validation, we intend to develop a mobile application using a React Native interface suitable for field testing with actual evacuees. Finally, we aim for extended coverage, expanding the system's operational area beyond Marikina to serve other flood-prone metropolitan areas in Metro Manila.
+First, the \textit{Virtual Meters} heuristic (Equation~\ref{eq:virtual_meters}) resolves the heuristic domination problem in risk-aware A* by converting risk scores to distance-equivalent units, maintaining both dimensional consistency and heuristic admissibility. This enables efficient pathfinding with configurable safety-efficiency trade-offs through a single, interpretable parameter $\lambda$.
+
+Second, the multi-source data fusion framework (Equation~\ref{eq:fusion}) integrates official government sensor data, NLP-processed crowdsourced reports, and GeoTIFF-based flood simulations with source-specific exponential temporal decay (Equation~\ref{eq:decay}). The five-agent architecture---FloodAgent, ScoutAgent, HazardAgent, RoutingAgent, and EvacuationManagerAgent---communicates via FIPA-ACL compliant messaging \cite{fipa2002spec}, enabling autonomous data collection and risk assessment with graceful degradation when individual components fail.
+
+Third, the client-side GeoTIFF processing pipeline enables real-time browser-based flood visualization of 72 raster maps without server-side rendering bottlenecks.
+
+\textit{$<$Insert 1-2 paragraphs summarizing key experimental findings once results from Section~7 are available. Highlight: routing performance metrics, risk reduction percentages, data fusion improvements, and system latency figures.$>$}
+
+\subsection{Future Work}
+
+Future research directions are organized by priority:
+
+\begin{enumerate}
+    \item \textbf{Hydrodynamic Risk Assessment:} Integrate flow velocity data from hydraulic models (HEC-RAS, SWMM) to fully satisfy the Energy Head equation ($E = h + v^2/2g$), enabling accurate risk scoring in high-velocity flood corridors.
+
+    \item \textbf{Predictive Flood Modeling:} Replace historical GeoTIFF scenarios with machine learning-based nowcasting models that predict flood evolution 1--6 hours ahead, enabling proactive rather than reactive routing.
+
+    \item \textbf{Real-Time Traffic Integration:} Incorporate live traffic data to account for evacuation congestion, enabling multi-objective optimization over safety, distance, and travel time.
+
+    \item \textbf{Multi-Vehicle Coordination:} Extend the RoutingAgent to coordinate simultaneous evacuation requests, distributing vehicles across evacuation centers to prevent overcrowding and route bottlenecks.
+
+    \item \textbf{Mobile Deployment and Field Validation:} Develop a React Native mobile interface and conduct field testing with Marikina CDRRMO during actual flood events to validate system effectiveness under real-world conditions.
+
+    \item \textbf{Geographic Expansion:} Extend coverage to other flood-prone areas in Metro Manila (Quezon City, Pasig, Cainta) and adapt the data fusion framework to support additional national weather services.
+\end{enumerate}
 
 %% ============================================================================
 %% Acknowledgments
