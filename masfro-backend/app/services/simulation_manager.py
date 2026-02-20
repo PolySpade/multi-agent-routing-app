@@ -17,7 +17,8 @@ Date: November 2025
 
 import json
 import asyncio
-from typing import Optional, Dict, Any, Literal, List, Tuple
+import collections
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
 import logging
@@ -81,7 +82,7 @@ class SimulationManager:
         
         # Scenario-based simulation attributes
         self._scenario_data: Optional[Dict[str, Any]] = None
-        self._event_queue: List[Dict[str, Any]] = []
+        self._event_queue: collections.deque = collections.deque()
         self._simulation_clock: float = 0.0
         self._last_tick_time: Optional[datetime] = None
         self._tick_loop_task: Optional[asyncio.Task] = None
@@ -89,14 +90,10 @@ class SimulationManager:
         # Tick-based simulation state
         self.current_time_step: int = 1  # GeoTIFF time step (1-18 hours)
         self.tick_count: int = 0
-        self.shared_data_bus: Dict[str, Any] = {
-            "flood_data": {},
-            "scout_data": [],
-            "graph_updated": False,
-            "pending_routes": []
-        }
+        self.shared_data_bus: Dict[str, Any] = self._make_empty_data_bus()
 
         # Agent references (set via dependency injection)
+        self.ws_manager = None
         self.flood_agent = None
         self.scout_agent = None
         self.hazard_agent = None
@@ -108,6 +105,16 @@ class SimulationManager:
         self._lock = Lock()
 
         logger.info("SimulationManager initialized (tick-based architecture)")
+
+    @staticmethod
+    def _make_empty_data_bus() -> Dict[str, Any]:
+        """Create a fresh shared data bus dict."""
+        return {
+            "flood_data": {},
+            "scout_data": [],
+            "graph_updated": False,
+            "pending_routes": []
+        }
 
     @property
     def state(self) -> SimulationState:
@@ -246,12 +253,7 @@ class SimulationManager:
         self._last_tick_time = datetime.now()
 
         # Reset shared data bus
-        self.shared_data_bus = {
-            "flood_data": {},
-            "scout_data": [],
-            "graph_updated": False,
-            "pending_routes": []
-        }
+        self.shared_data_bus = self._make_empty_data_bus()
 
         # Configure HazardAgent with GeoTIFF scenario based on mode
         if self.hazard_agent:
@@ -363,18 +365,13 @@ class SimulationManager:
         self._paused_at = None
         self._total_runtime_seconds = 0.0
         self._scenario_data = None
-        self._event_queue = []
+        self._event_queue = collections.deque()
         self._simulation_clock = 0.0
         self.tick_count = 0
         self.current_time_step = 1
 
         # Reset shared data bus
-        self.shared_data_bus = {
-            "flood_data": {},
-            "scout_data": [],
-            "graph_updated": False,
-            "pending_routes": []
-        }
+        self.shared_data_bus = self._make_empty_data_bus()
 
         # Clear HazardAgent caches (accumulated scout/flood data)
         if self.hazard_agent:
@@ -423,7 +420,7 @@ class SimulationManager:
         if not scenario_file.exists():
             logger.error(f"Scenario file not found: {scenario_file}")
             self._scenario_data = {"events": []}
-            self._event_queue = []
+            self._event_queue = collections.deque()
             return
 
         import csv
@@ -447,7 +444,7 @@ class SimulationManager:
         self._scenario_data = {"name": f"{mode.value.capitalize()} Flood Scenario (from CSV)", "events": events}
         
         # Sort events by time_offset and populate the event queue
-        self._event_queue = sorted(events, key=lambda e: e["time_offset"])
+        self._event_queue = collections.deque(sorted(events, key=lambda e: e["time_offset"]))
         logger.info(f"Loaded scenario '{self._scenario_data.get('name')}' with {len(self._event_queue)} events.")
 
     async def _simulation_loop(self):
@@ -581,7 +578,7 @@ class SimulationManager:
         # Process events from the queue
         events_processed_details = []
         while self._event_queue and self._event_queue[0]["time_offset"] <= self._simulation_clock:
-            event = self._event_queue.pop(0)
+            event = self._event_queue.popleft()
             phase_result["events_processed"] += 1
             agent = event.get("agent")
             payload = event.get("payload")
@@ -596,7 +593,7 @@ class SimulationManager:
             if agent == "flood_agent":
                 self.shared_data_bus["flood_data"] = payload
                 phase_result["flood_data_collected"] += 1
-                logger.info(f"✓ Flood data collected: {len(payload)} data points")
+                logger.info(f"[OK] Flood data collected: {len(payload)} data points")
                 events_processed_details.append(f"flood_agent@{time_offset}s")
 
             elif agent == "scout_agent":
@@ -640,7 +637,7 @@ class SimulationManager:
                 severity = payload.get("severity", 0)
                 has_coords = "coordinates" in payload and payload["coordinates"] is not None
                 logger.info(
-                    f"✓ Scout report collected: location='{location}', severity={severity:.2f}, has_coords={has_coords}"
+                    f"[OK] Scout report collected: location='{location}', severity={severity:.2f}, has_coords={has_coords}"
                 )
                 events_processed_details.append(f"scout_agent@{time_offset}s[{location}]")
 
@@ -870,6 +867,8 @@ class SimulationManager:
             "next_time_step": (self.current_time_step % 18) + 1,
             "next_tick": self.tick_count + 1
         }
+
+        self.current_time_step = phase_result["next_time_step"]
 
         logger.info(
             f"Time advancement complete. "

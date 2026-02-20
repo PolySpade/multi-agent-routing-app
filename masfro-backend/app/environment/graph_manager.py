@@ -1,6 +1,7 @@
 # filename: app/environment/graph_manager.py
-# osmnx imported lazily inside _load_graph_from_file to reduce startup memory
-import os
+import osmnx as ox
+import networkx as nx
+import os # Import the os module to check for file existence
 import pickle
 import time
 from pathlib import Path
@@ -32,7 +33,6 @@ class DynamicGraphEnvironment:
         data_dir = Path(self.filepath).parent
         self.state_file = data_dir / "graph_state.pkl"
 
-        # print(f"Graph file path set to: {self.filepath}")
         self.graph = None
 
         # Thread safety
@@ -42,30 +42,28 @@ class DynamicGraphEnvironment:
         # Snapshot tracking
         self._last_snapshot_time = time.time()
 
-        # Try to recover state first, otherwise load fresh graph
-        if self.state_file.exists():
-            self._recover_state()
-        else:
-            self._load_graph_from_file()
+        # Always start with a clean graph (0% risk on all edges).
+        # Risk scores are rebuilt each session from live data sources
+        # (FloodAgent, ScoutAgent, DEM). Old risk scores from previous
+        # sessions are not restored — they would be stale.
+        self._load_graph_from_file()
 
     def _load_graph_from_file(self):
         """
         Loads the graph from a local file and pre-processes it.
         """
-        import osmnx as ox
-        print(f"--- Attempting to load graph from local file: {self.filepath} ---")
+        logger.info(f"Attempting to load graph from local file: {self.filepath}")
         if not os.path.exists(self.filepath):
-            print(f"\n❌ FAILURE: Map file not found at '{self.filepath}'.")
-            print("   Please run the 'download_map.py' script first to download the map data.")
+            logger.error(f"Map file not found at '{self.filepath}'. Please run 'download_map.py' first.")
             return
 
         try:
             # Load the graph from the file
             self.graph = ox.load_graphml(self.filepath)
-            print("Graph loaded successfully from file.")
+            logger.info("Graph loaded successfully from file.")
 
             # --- Pre-processing Steps ---
-            print("Pre-processing graph (adding/resetting risk and weight attributes)...")
+            logger.info("Pre-processing graph (adding/resetting risk and weight attributes)...")
             for u, v, key in self.graph.edges(keys=True):
                 # Access edge data directly to ensure modifications persist
                 edge_data = self.graph[u][v][key]
@@ -84,12 +82,12 @@ class DynamicGraphEnvironment:
                     verified_count += 1
                 sample_count += 1
                 if sample_count <= 3:
-                    print(f"  Sample edge ({u},{v},{key}): risk_score={'YES' if has_risk else 'MISSING'}")
+                    logger.debug(f"  Sample edge ({u},{v},{key}): risk_score={'YES' if has_risk else 'MISSING'}")
 
-            print(f"Graph pre-processing complete. Verified {verified_count}/{sample_count} sample edges have risk_score.")
+            logger.info(f"Graph pre-processing complete. Verified {verified_count}/{sample_count} sample edges have risk_score.")
 
         except Exception as e:
-            print(f"\n❌ An error occurred while loading or processing the graph file: {e}")
+            logger.error(f"An error occurred while loading or processing the graph file: {e}")
             self.graph = None
 
     def _recover_state(self):
@@ -242,7 +240,44 @@ class DynamicGraphEnvironment:
         """
         return self._is_updating
 
-    def get_graph(self):
+    def reset_graph(self) -> dict:
+        """
+        Reset graph by reloading from the GraphML file.
+
+        Deletes saved state file and reloads the fresh graph with all
+        risk scores set to 0.0. Thread-safe.
+
+        Returns:
+            Dict with reset status info
+        """
+        with self._lock:
+            self._is_updating = True
+            try:
+                old_edges = self.graph.number_of_edges() if self.graph else 0
+
+                # Delete saved state so next startup is also fresh
+                if self.state_file.exists():
+                    self.state_file.unlink()
+                    logger.info(f"Deleted state file: {self.state_file}")
+
+                # Reload fresh graph from file
+                self._load_graph_from_file()
+
+                new_edges = self.graph.number_of_edges() if self.graph else 0
+                logger.info(f"Graph reset complete: {new_edges} edges (was {old_edges})")
+
+                return {
+                    "status": "success",
+                    "message": f"Graph reloaded from file with {new_edges} edges, all risk scores reset to 0.0",
+                    "edges": new_edges,
+                }
+            except Exception as e:
+                logger.error(f"Graph reset failed: {e}")
+                return {"status": "error", "message": str(e)}
+            finally:
+                self._is_updating = False
+
+    def get_graph(self) -> nx.MultiDiGraph:
         """
         Get the graph instance.
 

@@ -12,10 +12,11 @@ Date: November 2025
 """
 
 import requests
+import pandas as pd
 from bs4 import BeautifulSoup
 import json
+import numpy as np
 import logging
-# pandas imported lazily to reduce startup memory; numpy was unused and removed
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from io import StringIO
@@ -38,7 +39,6 @@ def convert_to_float(value):
         return None
 
 def process_dataframe_to_json(df):
-    import pandas as pd
     print("Processing the raw DataFrame...")
     
     df['Dam Name'] = df['Dam Name'].ffill()
@@ -106,7 +106,6 @@ def scrape_and_process(target_url: str = None):
     Args:
         target_url: Override URL to fetch. Defaults to module-level URL.
     """
-    import pandas as pd
     fetch_url = target_url or URL
     print(f"Fetching {fetch_url}...")
     try:

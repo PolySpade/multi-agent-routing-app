@@ -22,11 +22,13 @@ export default function AgentDataPanel() {
   const [systemData, setSystemData] = useState(null);
   const [criticalAlerts, setCriticalAlerts] = useState([]);
   const [agentsStatus, setAgentsStatus] = useState(null);
+  const [orchestratorData, setOrchestratorData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [graphResetting, setGraphResetting] = useState(false);
 
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
@@ -121,13 +123,58 @@ export default function AgentDataPanel() {
     }
   }, []);
 
+  const fetchOrchestratorData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [missionsRes, statusRes] = await Promise.all([
+        fetch(`${API_BASE}/api/orchestrator/missions`),
+        fetch(`${API_BASE}/api/lifecycle/status`),
+      ]);
+      const missionsJson = await missionsRes.json();
+      const statusJson = await statusRes.json();
+      const orchStats = statusJson?.statistics?.agent_step_counts?.orchestrator_main;
+      const orchErrors = statusJson?.statistics?.agent_step_errors?.orchestrator_main;
+      setOrchestratorData({
+        active: missionsJson.active || [],
+        completed: missionsJson.completed || [],
+        ticks: orchStats || 0,
+        errors: orchErrors || 0,
+      });
+    } catch (err) {
+      setError(err.message?.includes('fetch') ? 'Backend not responding' : err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleGraphReset = useCallback(async () => {
+    setGraphResetting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/graph/reset`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'success') {
+        alert(`Graph reset: ${data.message}`);
+        // Refresh system tab data
+        fetchSystemData();
+      } else {
+        alert(`Graph reset failed: ${data.message}`);
+      }
+    } catch (err) {
+      alert(`Graph reset error: ${err.message}`);
+    } finally {
+      setGraphResetting(false);
+    }
+  }, [fetchSystemData]);
+
   const fetchTabData = useCallback(() => {
     const tab = activeTabRef.current;
     if (tab === 'scout') fetchScoutReports();
     else if (tab === 'flood') fetchFloodData();
     else if (tab === 'hazard') fetchHazardData();
     else if (tab === 'system') fetchSystemData();
-  }, [fetchScoutReports, fetchFloodData, fetchHazardData, fetchSystemData]);
+    else if (tab === 'orchestrator') fetchOrchestratorData();
+  }, [fetchScoutReports, fetchFloodData, fetchHazardData, fetchSystemData, fetchOrchestratorData]);
 
   // --- Effects ---
 
@@ -195,6 +242,7 @@ export default function AgentDataPanel() {
     { key: 'hazard_agent', label: 'Hazard' },
     { key: 'routing_agent', label: 'Route' },
     { key: 'evacuation_manager', label: 'Evac' },
+    { key: 'orchestrator_main', label: 'Orch' },
   ];
 
   return (
@@ -558,6 +606,9 @@ export default function AgentDataPanel() {
             <button className={`tab ${activeTab === 'hazard' ? 'active' : ''}`} onClick={() => setActiveTab('hazard')}>
               Hazard
             </button>
+            <button className={`tab ${activeTab === 'orchestrator' ? 'active' : ''}`} onClick={() => setActiveTab('orchestrator')}>
+              Orch
+            </button>
             <button className={`tab ${activeTab === 'system' ? 'active' : ''}`} onClick={() => setActiveTab('system')}>
               System
             </button>
@@ -754,6 +805,102 @@ export default function AgentDataPanel() {
               </>
             )}
 
+            {/* === ORCHESTRATOR TAB === */}
+            {!loading && !error && activeTab === 'orchestrator' && (
+              <>
+                {orchestratorData ? (
+                  <>
+                    <div className="stat-grid">
+                      <div className="stat-card">
+                        <div className="stat-label">Active Missions</div>
+                        <div className="stat-value" style={{ color: orchestratorData.active.length > 0 ? '#f59e0b' : '#22c55e' }}>
+                          {orchestratorData.active.length}
+                        </div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-label">Completed</div>
+                        <div className="stat-value">{orchestratorData.completed.length}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-label">Ticks</div>
+                        <div className="stat-value small">{orchestratorData.ticks.toLocaleString()}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-label">Errors</div>
+                        <div className="stat-value small" style={{ color: orchestratorData.errors > 0 ? '#ef4444' : '#22c55e' }}>
+                          {orchestratorData.errors}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active missions */}
+                    {orchestratorData.active.length > 0 && (
+                      <>
+                        <div className="section-title">Active Missions</div>
+                        {orchestratorData.active.map((mission) => (
+                          <div key={mission.id} className="report-item" style={{ borderLeftColor: '#f59e0b' }}>
+                            <div className="report-header">
+                              <div className="report-location">{mission.type?.replace(/_/g, ' ')}</div>
+                              <div className="severity-badge" style={{ background: '#f59e0b' }}>
+                                {mission.state}
+                              </div>
+                            </div>
+                            <div className="report-meta">
+                              <span>{mission.id?.slice(0, 8)}...</span>
+                              <span>{mission.created_at ? new Date(mission.created_at).toLocaleTimeString() : ''}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Recent completed missions */}
+                    {orchestratorData.completed.length > 0 && (
+                      <>
+                        <div className="section-title">
+                          Recent Completed ({orchestratorData.completed.length})
+                        </div>
+                        {orchestratorData.completed.slice(0, 10).map((mission) => {
+                          const isSuccess = mission.state === 'COMPLETED' || mission.state === 'completed';
+                          return (
+                            <div key={mission.id} className="report-item" style={{ borderLeftColor: isSuccess ? '#22c55e' : '#ef4444' }}>
+                              <div className="report-header">
+                                <div className="report-location">{mission.type?.replace(/_/g, ' ')}</div>
+                                <div className="severity-badge" style={{ background: isSuccess ? '#22c55e' : '#ef4444' }}>
+                                  {mission.state}
+                                </div>
+                              </div>
+                              {mission.result?.summary && (
+                                <div className="report-text">{mission.result.summary}</div>
+                              )}
+                              <div className="report-meta">
+                                <span>{mission.id?.slice(0, 8)}...</span>
+                                <span>{mission.completed_at ? new Date(mission.completed_at).toLocaleTimeString() : ''}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+
+                    {orchestratorData.active.length === 0 && orchestratorData.completed.length === 0 && (
+                      <div className="empty-state" style={{ marginTop: '0.5rem' }}>
+                        <p>No missions recorded yet.</p>
+                        <p style={{ fontSize: '0.7rem', marginTop: '0.35rem' }}>
+                          Use the AI Chat or send orchestrator commands to create missions.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <p>No orchestrator data available.</p>
+                    <button className="refresh-btn" onClick={fetchOrchestratorData}>Refresh</button>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* === SYSTEM TAB === */}
             {!loading && !error && activeTab === 'system' && (
               <>
@@ -829,6 +976,28 @@ export default function AgentDataPanel() {
                     </div>
                   </>
                 )}
+
+                {/* Graph Reset */}
+                <div className="section-title">Actions</div>
+                <button
+                  className="refresh-btn"
+                  onClick={handleGraphReset}
+                  disabled={graphResetting}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#fca5a5',
+                    padding: '0.6rem 1rem',
+                    width: '100%',
+                    textAlign: 'center',
+                    fontWeight: 600,
+                  }}
+                >
+                  {graphResetting ? 'Resetting...' : 'Reset Graph (Reload from file)'}
+                </button>
+                <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', marginTop: '0.25rem' }}>
+                  Reloads graph from GraphML file, resets all risk scores to 0
+                </div>
 
                 {!systemData && (
                   <div className="empty-state">

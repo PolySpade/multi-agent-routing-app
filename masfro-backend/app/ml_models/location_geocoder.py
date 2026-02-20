@@ -42,13 +42,12 @@ class LocationGeocoder:
         csv_path: Path to location.csv file
     """
 
-    def __init__(self, csv_path: Optional[Path] = None, llm_service=None):
+    def __init__(self, csv_path: Optional[Path] = None):
         """
         Initialize geocoder by loading locations from CSV file.
 
         Args:
             csv_path: Optional path to location.csv. If None, uses default path.
-            llm_service: Optional LLMService instance for enhanced lookup.
         """
 
         # Determine CSV path
@@ -57,7 +56,6 @@ class LocationGeocoder:
             csv_path = Path(__file__).parent / "locations" / "location.csv"
 
         self.csv_path = csv_path
-        self.llm_service = llm_service
         self.location_coordinates: Dict[str, Tuple[float, float]] = {}
         self.location_names: List[str] = []
 
@@ -162,27 +160,32 @@ class LocationGeocoder:
                 logger.info(f"Fuzzy match: '{location_name}' -> '{best_match}' (confidence: {ratio:.2f})")
                 return self.location_coordinates[best_match]
 
-        # 4. LLM Fallback (New in v2.2)
-        if self.llm_service and self.llm_service.is_available():
-            logger.info(f"Trying LLM geocoding for: {location_name}")
-            return self._geocode_with_llm(location_name)
+        # 4. Google Maps Fallback
+        logger.info(f"Trying Google Maps geocoding for: {location_name}")
+        google_result = self._geocode_with_google(location_name)
+        if google_result:
+            return google_result
 
         logger.warning(f"No coordinates found for location: {location_name}")
         return None
 
-    def _geocode_with_llm(self, location_name: str) -> Optional[Tuple[float, float]]:
+    def _geocode_with_google(self, location_name: str) -> Optional[Tuple[float, float]]:
         """
-        Use LLM to semantically match location_name against the location database.
-        Instead of generating coordinates, the LLM searches the CSV for the best match.
+        Use Google Maps Geocoding API to resolve a location name to coordinates.
+        Results are biased toward Marikina City and validated against the city bounding box.
         """
-        import json
-        import ollama
-        
+        import requests
+        from app.core.config import settings
+
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            logger.warning("[MISS] Google Maps API key not configured")
+            return None
+
         try:
-            # 1. OPTIMIZATION: Strict keyword filtering
-            # If the query explicitly mentions another city, reject immediately without LLM.
+            # Reject queries that explicitly mention other cities
             excluded_keywords = [
-                "manila", "quezon city", "qc", "pasig", "antipolo", 
+                "manila", "quezon city", "qc", "pasig", "antipolo",
                 "cainta", "san mateo", "makati", "taguig"
             ]
             query_lower = location_name.lower()
@@ -190,139 +193,58 @@ class LocationGeocoder:
                 logger.warning(f"[MISS] Rejected out-of-bounds location query: '{location_name}'")
                 return None
 
-            # Sample a subset of locations for the prompt (to avoid token limits)
-            # Prioritize locations that might be relevant
-            sample_locations = self._get_relevant_location_sample(location_name, sample_size=50)
-            
-            if not sample_locations:
-                logger.warning("No location samples available for LLM matching")
-                return None
-            
-            prompt = f"""You are a Geospatial Validator for Marikina City.
+            # Marikina City bounding box (with small buffer)
+            MARIKINA_BOUNDS = {
+                "lat_min": 14.61, "lat_max": 14.68,
+                "lon_min": 121.08, "lon_max": 121.13,
+            }
 
-QUERY: "{location_name}"
+            params = {
+                "address": f"{location_name}, Marikina City, Philippines",
+                "key": api_key,
+                # Bias results toward Marikina City center
+                "bounds": "14.61,121.08|14.68,121.13",
+            }
 
-REFERENCE LIST (Authorized Locations):
-{chr(10).join(f"- {loc}" for loc in sample_locations)}
-
-INSTRUCTIONS:
-1. Search the Reference List for the location that best matches the Query.
-2. STRICTLY follow these rules:
-   - If the Query is for a non-Marikina city (Manila, Quezon City, etc.), return {{"match": null, "conf": 0.0}}.
-   - If the Query is generic (e.g. "Church") and ambiguous, return null.
-   - Do NOT map "Memorial Circle" (QC) to anything in Marikina.
-   
-OUTPUT:
-Return ONLY a valid JSON object in this format:
-{{"match": "Exact Name From List", "conf": 0.95}}
-
-If no match:
-{{"match": null, "conf": 0.0}}
-
-Do not add any explanation or markdown."""
-            
-            model = self.llm_service.text_model if self.llm_service else "llama3.2:latest"
-            
-            logger.info(f"Querying {model} to match '{location_name}' against {len(sample_locations)} locations...")
-            
-            response = ollama.chat(
-                model=model,
-                messages=[{'role': 'user', 'content': prompt}]
+            resp = requests.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params=params,
+                timeout=10,
             )
-            
-            content = response['message']['content']
-            logger.debug(f"LLM Raw Response: {content}")
-            
-            # Parse JSON response
-            content = content.replace("```json", "").replace("```", "").strip()
-            start_idx = content.find('{')
-            end_idx = content.rfind('}') + 1
-            
-            if start_idx >= 0 and end_idx > start_idx:
-                json_candidate = content[start_idx:end_idx]
-                
-                try:
-                    data = json.loads(json_candidate)
-                except json.JSONDecodeError:
-                    # Try fixing common mistakes
-                    try:
-                        fixed = json_candidate.replace("'", '"')
-                        data = json.loads(fixed)
-                    except Exception:
-                        logger.warning(f"[MISS] Failed to parse LLM response: {json_candidate[:100]}")
-                        return None
-                
-                matched_loc = data.get('match') or data.get('matched_location')  # Support both formats
-                confidence = float(data.get('conf') or data.get('confidence', 0.0))
-                
-                if matched_loc and confidence >= 0.75:
-                    # Look up the matched location in our database
-                    coords = self.location_coordinates.get(matched_loc)
-                    if coords:
-                        logger.info(
-                            f"[OK] LLM matched '{location_name}' -> '{matched_loc}' "
-                            f"(confidence: {confidence:.2f}) -> {coords}"
-                        )
-                        return coords
-                    else:
-                        logger.warning(f"[MISS] LLM returned location not in database: {matched_loc}")
-                else:
-                    logger.info(f"[MISS] No confident match found for '{location_name}' (confidence: {confidence:.2f})")
-            else:
-                logger.warning("[MISS] Could not find JSON in LLM response")
-            
-        except Exception as e:
-            logger.error(f"LLM semantic matching error: {e}")
-            
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("status") != "OK" or not data.get("results"):
+                logger.info(f"[MISS] Google geocode returned no results for '{location_name}' (status: {data.get('status')})")
+                return None
+
+            result = data["results"][0]
+            loc = result["geometry"]["location"]
+            lat, lon = loc["lat"], loc["lng"]
+
+            # Validate the result is within Marikina bounds
+            if not (MARIKINA_BOUNDS["lat_min"] <= lat <= MARIKINA_BOUNDS["lat_max"]
+                    and MARIKINA_BOUNDS["lon_min"] <= lon <= MARIKINA_BOUNDS["lon_max"]):
+                logger.info(
+                    f"[MISS] Google result for '{location_name}' is outside Marikina: "
+                    f"({lat:.5f}, {lon:.5f})"
+                )
+                return None
+
+            formatted_address = result.get("formatted_address", "")
+            logger.info(
+                f"[OK] Google geocoded '{location_name}' -> ({lat:.5f}, {lon:.5f}) "
+                f"[{formatted_address}]"
+            )
+            return (lat, lon)
+
+        except requests.RequestException as e:
+            logger.error(f"Google geocoding request error: {e}")
+        except (KeyError, ValueError) as e:
+            logger.error(f"Google geocoding parse error: {e}")
+
         return None
     
-    def _get_relevant_location_sample(self, query: str, sample_size: int = 50) -> List[str]:
-        """
-        Get a sample of locations most likely to be relevant to the query.
-        Uses basic string similarity to prioritize likely candidates.
-        """
-        query_lower = query.lower()
-        
-        # Score each location by simple relevance heuristics
-        scored_locations = []
-        for loc_name in self.location_names:
-            score = 0
-            loc_lower = loc_name.lower()
-            
-            # Exact match = highest priority
-            if loc_lower == query_lower:
-                score = 1000
-            # Starts with query
-            elif loc_lower.startswith(query_lower):
-                score = 100
-            # Contains query
-            elif query_lower in loc_lower:
-                score = 50
-            # Query contains location name
-            elif loc_lower in query_lower:
-                score = 30
-            # Word overlap
-            else:
-                query_words = set(query_lower.split())
-                loc_words = set(loc_lower.split())
-                overlap = len(query_words & loc_words)
-                score = overlap * 10
-            
-            scored_locations.append((score, loc_name))
-        
-        # Sort by score and take top N
-        scored_locations.sort(reverse=True, key=lambda x: x[0])
-        
-        # Take top sample_size, or all if we have fewer
-        top_locations = [name for score, name in scored_locations[:sample_size]]
-        
-        # If no locations scored above 0, return a random sample
-        if not top_locations or scored_locations[0][0] == 0:
-            import random
-            top_locations = random.sample(self.location_names, min(sample_size, len(self.location_names)))
-        
-        return top_locations
-
     def geocode_nlp_result(self, nlp_result: Dict) -> Dict:
         """
         Enhance NLP result with coordinates.

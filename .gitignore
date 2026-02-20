@@ -104,6 +104,7 @@ temp/
 scratch/
 test-results/
 test-output/
+masfro-backend/cache
 
 # ========== Claude Code ==========
 .claude/settings.local.json

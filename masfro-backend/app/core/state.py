@@ -33,6 +33,7 @@ class AppState:
         self.flood_agent: Optional[FloodAgent] = None
         self.scout_agent: Optional[ScoutAgent] = None
         self.evacuation_manager: Optional[EvacuationManagerAgent] = None
+        self.orchestrator_agent = None
 
         # Communication
         self.message_queue: Optional[MessageQueue] = None

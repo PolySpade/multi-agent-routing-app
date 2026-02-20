@@ -8,7 +8,11 @@ to avoid duplication.
 """
 
 import json
+import logging
+import re
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
@@ -28,10 +32,15 @@ def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
         Parsed dict or None if no valid JSON found
     """
     text = text.strip()
+    # Strip <think>...</think> blocks (Qwen3 reasoning mode)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Handle unclosed <think> tag (truncated output) — discard everything from <think> onward
+    if "<think>" in text:
+        text = text[:text.index("<think>")].strip()
     # Strip markdown code fences
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines).strip()
 
     try:
@@ -80,4 +89,5 @@ def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
             except json.JSONDecodeError:
                 pass
 
+    logger.debug(f"parse_llm_json failed to parse: {text[:200]}")
     return None

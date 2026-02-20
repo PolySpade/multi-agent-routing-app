@@ -24,10 +24,11 @@ Date: February 2026
 """
 
 from .base_agent import BaseAgent
-from typing import Dict, Any, Optional, List, Set, Tuple, TYPE_CHECKING
-import asyncio
+from typing import Dict, Any, Optional, List, Tuple, TYPE_CHECKING
+from collections import OrderedDict
 import hashlib
 import logging
+import threading
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
@@ -37,23 +38,13 @@ if TYPE_CHECKING:
     from ..communication.message_queue import MessageQueue
 
 # ACL Protocol imports
-try:
-    from communication.acl_protocol import ACLMessage, Performative, create_inform_message
-except ImportError:
-    from app.communication.acl_protocol import ACLMessage, Performative, create_inform_message
+from ..communication.acl_protocol import ACLMessage, Performative, create_inform_message
 
-try:
-    from services.data_sources import DataCollector
-    from services.river_scraper_service import RiverScraperService
-    from services.weather_service import OpenWeatherMapService
-    from services.dam_water_scraper_service import DamWaterScraperService
-    from services.advisory_scraper_service import AdvisoryScraperService
-except ImportError:
-    from app.services.data_sources import DataCollector
-    from app.services.river_scraper_service import RiverScraperService
-    from app.services.weather_service import OpenWeatherMapService
-    from app.services.dam_water_scraper_service import DamWaterScraperService
-    from app.services.advisory_scraper_service import AdvisoryScraperService
+from ..services.data_sources import DataCollector
+from ..services.river_scraper_service import RiverScraperService
+from ..services.weather_service import OpenWeatherMapService
+from ..services.dam_water_scraper_service import DamWaterScraperService
+from ..services.advisory_scraper_service import AdvisoryScraperService
 
 logger = logging.getLogger(__name__)
 
@@ -128,24 +119,29 @@ class FloodAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"{self.agent_id} failed to initialize LLM Service: {e}")
 
+        # Import AgentConfigLoader once for mock sources and FloodConfig
+        from ..core.agent_config import AgentConfigLoader
+
         # Load mock sources config
         mock_cfg = None
         try:
-            from ..core.agent_config import AgentConfigLoader
             mock_cfg = AgentConfigLoader().get_mock_sources_config()
         except Exception as e:
             logger.debug(f"{self.agent_id} mock sources config not available: {e}")
 
+        # Pre-compute mock guard once
+        use_mock = bool(mock_cfg and mock_cfg.enabled)
+
         # Initialize real API services
         if use_real_apis:
             # Determine URLs: use mock URLs if enabled, else None (default to real)
-            river_url = mock_cfg.get_river_scraper_url() if (mock_cfg and mock_cfg.enabled) else None
-            dam_url = mock_cfg.get_dam_scraper_url() if (mock_cfg and mock_cfg.enabled) else None
-            weather_url = mock_cfg.get_weather_base_url() if (mock_cfg and mock_cfg.enabled) else None
-            pagasa_url = mock_cfg.get_advisory_pagasa_url() if (mock_cfg and mock_cfg.enabled) else None
-            rss_url = mock_cfg.get_advisory_rss_url() if (mock_cfg and mock_cfg.enabled) else None
+            river_url = mock_cfg.get_river_scraper_url() if use_mock else None
+            dam_url = mock_cfg.get_dam_scraper_url() if use_mock else None
+            weather_url = mock_cfg.get_weather_base_url() if use_mock else None
+            pagasa_url = mock_cfg.get_advisory_pagasa_url() if use_mock else None
+            rss_url = mock_cfg.get_advisory_rss_url() if use_mock else None
 
-            if mock_cfg and mock_cfg.enabled:
+            if use_mock:
                 logger.info(f"{self.agent_id} using MOCK data sources at {mock_cfg.base_url}")
 
             # PAGASA River Scraper Service
@@ -201,7 +197,6 @@ class FloodAgent(BaseAgent):
 
         # Load configuration from agents.yaml via FloodConfig
         try:
-            from ..core.agent_config import AgentConfigLoader
             self._config = AgentConfigLoader().get_flood_config()
         except Exception as e:
             logger.warning(f"{self.agent_id} failed to load FloodConfig, using defaults: {e}")
@@ -218,18 +213,33 @@ class FloodAgent(BaseAgent):
         self.dam_levels: Dict[str, Any] = {}
 
         # Advisory deduplication — track hashes of already-processed advisories
-        self._processed_advisory_hashes: Set[str] = set()
+        # Uses OrderedDict as a bounded ordered set; values are unused (None)
+        self._processed_advisory_hashes: OrderedDict = OrderedDict()
 
         # API failure tracking — alert after consecutive failures
         self._consecutive_api_failures: int = 0
         self._api_failure_alert_threshold: int = 3
         self._last_successful_real_fetch: Optional[datetime] = None
 
+        # Collection lock — prevents concurrent collections from scheduler + lifecycle manager
+        self._collection_lock = threading.Lock()
+
         logger.info(
             f"{self.agent_id} initialized with update interval "
             f"{self.data_update_interval}s, real_apis={use_real_apis}, "
             f"simulated={use_simulated}"
         )
+
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        try:
+            from ..core.agent_config import AgentConfigLoader
+            self._config = AgentConfigLoader().get_flood_config()
+        except Exception as e:
+            logger.warning(f"Failed to reload flood config: {e}")
+            return
+        self.data_update_interval = self._config.update_interval_sec
+        logger.info(f"{self.agent_id} configuration reloaded")
 
     def step(self):
         """
@@ -253,32 +263,11 @@ class FloodAgent(BaseAgent):
 
     def _process_mq_requests(self) -> None:
         """Process incoming REQUEST messages from orchestrator via MQ."""
-        if not self.message_queue:
-            return
+        self._drain_mq_requests({
+            "collect_data": self._handle_collect_data_request,
+        })
 
-        while True:
-            msg = self.message_queue.receive_message(
-                agent_id=self.agent_id, timeout=0.0, block=False
-            )
-            if msg is None:
-                break
-
-            if msg.performative == Performative.REQUEST:
-                action = msg.content.get("action")
-
-                if action == "collect_data":
-                    self._handle_collect_data_request(msg)
-                else:
-                    logger.warning(
-                        f"{self.agent_id}: unknown REQUEST action '{action}' "
-                        f"from {msg.sender}"
-                    )
-            else:
-                logger.debug(
-                    f"{self.agent_id}: ignoring {msg.performative} from {msg.sender}"
-                )
-
-    def _handle_collect_data_request(self, msg: ACLMessage) -> None:
+    def _handle_collect_data_request(self, msg: ACLMessage, data: dict) -> None:
         """Handle collect_data REQUEST: force data collection and reply."""
         result = {"status": "unknown", "locations_collected": 0}
 
@@ -368,13 +357,28 @@ class FloodAgent(BaseAgent):
         """
         Collect flood data from ALL sources (real APIs + fallback simulated).
 
+        Uses a non-blocking lock to prevent concurrent collections from
+        scheduler and lifecycle manager running simultaneously.
+
         Priority order:
         1. Real APIs (PAGASA river levels + OpenWeatherMap) if available
         2. Simulated data as fallback if no real data collected
 
         Returns:
-            Combined data that was collected
+            Combined data that was collected, or empty dict if skipped
         """
+        # Non-blocking lock: if another thread is already collecting, skip
+        if not self._collection_lock.acquire(blocking=False):
+            logger.debug(f"{self.agent_id} collection already in progress, skipping")
+            return {}
+
+        try:
+            return self._collect_flood_data_impl()
+        finally:
+            self._collection_lock.release()
+
+    def _collect_flood_data_impl(self) -> Dict[str, Any]:
+        """Internal implementation of flood data collection (called under lock)."""
         logger.info(f"{self.agent_id} collecting flood data from all sources...")
 
         combined_data = {}
@@ -479,74 +483,6 @@ class FloodAgent(BaseAgent):
         self.last_update = datetime.now()
         return combined_data
 
-    async def collect_flood_data_async(self) -> Dict[str, Any]:
-        """
-        Async version of collect_flood_data — runs blocking fetches in parallel threads.
-
-        Uses asyncio.to_thread to avoid blocking the event loop while external
-        services (river scraper, weather API, dam scraper, advisory scraper) respond.
-
-        Returns:
-            Combined data from all sources
-        """
-        logger.info(f"{self.agent_id} collecting flood data ASYNC from all sources...")
-
-        combined_data = {}
-
-        if self.use_real_apis:
-            tasks = []
-
-            if self.river_scraper:
-                tasks.append(("river", asyncio.to_thread(self.fetch_real_river_levels)))
-            if self.weather_service:
-                tasks.append(("weather", asyncio.to_thread(self.fetch_real_weather_data)))
-            if self.dam_scraper:
-                tasks.append(("dam", asyncio.to_thread(self.fetch_real_dam_levels)))
-            if self.advisory_scraper:
-                tasks.append(("advisory", asyncio.to_thread(self.collect_and_parse_advisories)))
-
-            # Run all fetches concurrently
-            results = await asyncio.gather(
-                *(t[1] for t in tasks), return_exceptions=True
-            )
-
-            for (label, _), result in zip(tasks, results):
-                if isinstance(result, Exception):
-                    logger.error(f"Async {label} fetch failed: {result}")
-                    continue
-
-                if label == "river" and result:
-                    combined_data.update(result)
-                    logger.info(f"[OK] Collected REAL river data: {len(result)} stations")
-                elif label == "weather" and result:
-                    location = result.get("location", "Marikina")
-                    combined_data[f"{location}_weather"] = result
-                    logger.info(f"[OK] Collected REAL weather data for {location}")
-                elif label == "dam" and result:
-                    for dam_name, dam_info in result.items():
-                        combined_data[dam_name] = dam_info
-                    logger.info(f"[OK] Collected REAL dam data: {len(result)} dams")
-                elif label == "advisory" and result:
-                    combined_data["advisories"] = result
-                    logger.info(f"[OK] Collected {len(result)} REAL text advisories")
-
-        # Fallback: simulated data
-        if not combined_data and self.data_collector:
-            logger.warning("[WARN] No real data available, falling back to simulated data")
-            simulated = self.data_collector.collect_flood_data(
-                location="Marikina", coordinates=(14.6507, 121.1029)
-            )
-            processed = self._process_collected_data(simulated)
-            combined_data.update(processed)
-
-        if combined_data:
-            logger.info(f"[COLLECTED ASYNC] {len(combined_data)} data points ready")
-        else:
-            logger.warning("[WARN] No data collected from any source!")
-
-        self.last_update = datetime.now()
-        return combined_data
-
     def _process_collected_data(self, collected_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process collected data into format suitable for HazardAgent.
@@ -572,9 +508,7 @@ class FloodAgent(BaseAgent):
             # Extract rainfall
             if "rainfall" in sim_data:
                 rainfall = sim_data["rainfall"]
-                if location not in processed:
-                    processed[location] = {}
-                processed[location].update({
+                processed.setdefault(location, {}).update({
                     "rainfall_1h": rainfall.get("rainfall_mm", 0.0),
                     "rainfall_24h": rainfall.get("rainfall_mm", 0.0) * 24,
                     "timestamp": rainfall.get("timestamp")
@@ -583,9 +517,7 @@ class FloodAgent(BaseAgent):
             # Extract flood depth
             if "flood_depth" in sim_data:
                 depth_info = sim_data["flood_depth"]
-                if location not in processed:
-                    processed[location] = {}
-                processed[location].update({
+                processed.setdefault(location, {}).update({
                     "flood_depth": depth_info.get("flood_depth_cm", 0.0) / 100.0,
                     "risk_level": depth_info.get("risk_level", "low"),
                     "timestamp": depth_info.get("timestamp")
@@ -596,9 +528,7 @@ class FloodAgent(BaseAgent):
             pagasa_data = sources["pagasa"]
             if pagasa_data.get("available"):
                 location = pagasa_data.get("station", "PAGASA")
-                if location not in processed:
-                    processed[location] = {}
-                processed[location].update({
+                processed.setdefault(location, {}).update({
                     "rainfall_mm": pagasa_data.get("rainfall_mm", 0.0),
                     "source": "PAGASA",
                     "timestamp": pagasa_data.get("timestamp")
@@ -608,9 +538,7 @@ class FloodAgent(BaseAgent):
         if "noah" in sources:
             noah_data = sources["noah"]
             location = noah_data.get("location", "NOAH")
-            if location not in processed:
-                processed[location] = {}
-            processed[location].update({
+            processed.setdefault(location, {}).update({
                 "hazard_level": noah_data.get("hazard_level"),
                 "source": "NOAH",
                 "timestamp": noah_data.get("timestamp")
@@ -622,9 +550,7 @@ class FloodAgent(BaseAgent):
             if isinstance(mmda_reports, list):
                 for report in mmda_reports:
                     location = report.get("area", "Unknown")
-                    if location not in processed:
-                        processed[location] = {}
-                    processed[location].update({
+                    processed.setdefault(location, {}).update({
                         "flood_level": report.get("flood_level"),
                         "status": report.get("status"),
                         "source": "MMDA",
@@ -691,16 +617,16 @@ class FloodAgent(BaseAgent):
 
                     if water_level >= eff_critical:
                         status = "critical"
-                        risk_score = 1.0
+                        risk_score = self._config.water_level_risk_critical
                     elif water_level >= eff_alarm:
                         status = "alarm"
-                        risk_score = 0.8
+                        risk_score = self._config.water_level_risk_alarm
                     elif water_level >= eff_alert:
                         status = "alert"
-                        risk_score = 0.5
+                        risk_score = self._config.water_level_risk_alert
                     else:
                         status = "normal"
-                        risk_score = 0.2
+                        risk_score = self._config.water_level_risk_normal
 
                 river_data[station_name] = {
                     "water_level_m": water_level,
@@ -870,19 +796,19 @@ class FloodAgent(BaseAgent):
                 if latest_dev_nhwl is not None:
                     if latest_dev_nhwl >= self._config.dam_critical_m:
                         status = "critical"
-                        risk_score = 1.0
+                        risk_score = self._config.dam_risk_critical
                     elif latest_dev_nhwl >= self._config.dam_alarm_m:
                         status = "alarm"
-                        risk_score = 0.8
+                        risk_score = self._config.dam_risk_alarm
                     elif latest_dev_nhwl >= self._config.dam_alert_m:
                         status = "alert"
-                        risk_score = 0.5
+                        risk_score = self._config.dam_risk_alert
                     elif latest_dev_nhwl >= 0.0:
                         status = "watch"
-                        risk_score = 0.3
+                        risk_score = self._config.dam_risk_watch
                     else:
                         status = "normal"
-                        risk_score = 0.1
+                        risk_score = self._config.dam_risk_normal
 
                 dam_data[dam_name] = {
                     "dam_name": dam_name,
@@ -1266,9 +1192,11 @@ class FloodAgent(BaseAgent):
         if text_hash in self._processed_advisory_hashes:
             logger.debug(f"Skipping duplicate advisory (hash={text_hash[:8]})")
             return True
+        # Evict oldest 1000 entries when exceeding 5000 to avoid unbounded growth
         if len(self._processed_advisory_hashes) > 5000:
-            self._processed_advisory_hashes.clear()
-        self._processed_advisory_hashes.add(text_hash)
+            for _ in range(1000):
+                self._processed_advisory_hashes.popitem(last=False)
+        self._processed_advisory_hashes[text_hash] = None
         return False
 
     def is_llm_enabled(self) -> bool:

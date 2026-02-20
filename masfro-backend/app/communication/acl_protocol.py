@@ -32,8 +32,6 @@ class Performative(str, Enum):
     REFUSE = "REFUSE"  # Refuse to perform action
     AGREE = "AGREE"  # Agree to perform action
     FAILURE = "FAILURE"  # Notification of action failure
-    PROPOSE = "PROPOSE"  # Submit proposal
-    CFP = "CFP"  # Call for proposals
 
 
 @dataclass
@@ -119,6 +117,7 @@ class ACLMessage:
         Returns:
             ACLMessage instance
         """
+        data = dict(data)  # Shallow copy to avoid mutating the caller's dict
         if isinstance(data.get("timestamp"), str):
             data["timestamp"] = datetime.fromisoformat(data["timestamp"])
         if isinstance(data.get("performative"), str):

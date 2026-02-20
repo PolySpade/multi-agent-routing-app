@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# pandas imported lazily to reduce startup memory
+import pandas as pd
 
 from app.database.models import (
     FloodDataCollection, RiverLevel, WeatherData,
@@ -334,7 +334,6 @@ class EvacuationRepository:
         Returns:
             Number of centers inserted (0 if table was already populated).
         """
-        import pandas as pd
         existing = self.db.query(func.count(EvacuationCenter.id)).scalar()
         if existing > 0:
             logger.info(f"Evacuation centers table already has {existing} rows, skipping seed")
@@ -412,13 +411,12 @@ class EvacuationRepository:
             .first()
         )
 
-    def get_centers_as_dataframe(self):
+    def get_centers_as_dataframe(self) -> pd.DataFrame:
         """
         Return all active centers as a pandas DataFrame.
 
         Compatible with RoutingAgent's existing evacuation center logic.
         """
-        import pandas as pd
         centers = self.get_all_centers()
         if not centers:
             return pd.DataFrame(columns=["name", "latitude", "longitude", "capacity", "type"])

@@ -24,11 +24,6 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-class DataSourceError(Exception):
-    """Base exception for data source errors."""
-    pass
-
-
 class PAGASADataSource:
     """
     Collect data from PAGASA sources.

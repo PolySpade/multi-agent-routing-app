@@ -1,4 +1,3 @@
-
 import unittest
 from unittest.mock import MagicMock, patch
 import sys
@@ -71,7 +70,9 @@ class TestEvacuationNLP(unittest.TestCase):
         mock_metrics.return_value = {
             "total_distance": 1500,
             "estimated_time": 10.0,
-            "average_risk": 0.05
+            "average_risk": 0.05,
+            "max_risk": 0.1,
+            "num_segments": 2
         }
         mock_coords.return_value = [[14.6, 121.1], [14.65, 121.10]]
         
@@ -99,12 +100,12 @@ class TestEvacuationNLP(unittest.TestCase):
         # Verify Context Flow
         mock_parse.assert_called_with(message)
         
-        # Verify risk penalty was applied (Safest = 100000.0)
+        # Verify risk penalty was applied (Safest mode, recalibrated)
         # We need to inspect calls to risk_aware_astar
         call_args = mock_astar.call_args
         passed_risk_weight = call_args.kwargs.get('risk_weight')
         print(f"Risk Weight Used: {passed_risk_weight}")
-        self.assertEqual(passed_risk_weight, 100000.0) # Confirm 'Safest' mode applied
+        self.assertEqual(passed_risk_weight, 100.0) # Confirm 'Safest' mode applied (recalibrated)
         
         print("✅ Success: Distress call parsed, safety prioritized, and route explained!")
 

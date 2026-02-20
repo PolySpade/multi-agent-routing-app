@@ -23,14 +23,16 @@ Date: February 2026
 """
 
 import json
-import base64
+import os
 import hashlib
 import time
 import logging
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any
 from pathlib import Path
-from functools import lru_cache
-from datetime import datetime, timedelta
+from datetime import datetime
+
+from app.core.agent_config import AgentConfigLoader
+from app.core.llm_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +69,12 @@ class LLMService:
         {'location': 'J.P. Rizal', 'severity': 0.5, 'is_flood_related': True, ...}
     """
 
-    # Cache configuration
-    HEALTH_CHECK_CACHE_SECONDS = 60  # Cache health check for 1 minute
-    RESPONSE_CACHE_SIZE = 100  # Max cached responses
-    RESPONSE_CACHE_TTL_SECONDS = 300  # Cache responses for 5 minutes
-
     def __init__(
         self,
         text_model: Optional[str] = None,
         vision_model: Optional[str] = None,
         base_url: Optional[str] = None,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
         enabled: bool = True
     ):
         """
@@ -87,15 +84,27 @@ class LLMService:
             text_model: Text model name (default from LLM_TEXT_MODEL env var)
             vision_model: Vision model name (default from LLM_VISION_MODEL env var)
             base_url: Ollama API URL (default from OLLAMA_BASE_URL env var)
-            timeout: Request timeout in seconds (default: 30)
+            timeout: Request timeout in seconds (default: from agents.yaml or 30)
             enabled: Whether LLM is enabled (default: True)
         """
+        # Load cache/health configuration from agents.yaml at init time
+        # (not class-level, to avoid import-time config loading)
+        try:
+            _cfg = AgentConfigLoader()._config.get('llm_service', {})
+        except Exception:
+            _cfg = {}
+        self.HEALTH_CHECK_CACHE_SECONDS = _cfg.get('health_check', {}).get('cache_seconds', 60)
+        self.RESPONSE_CACHE_SIZE = _cfg.get('cache', {}).get('max_entries', 100)
+        self.RESPONSE_CACHE_TTL_SECONDS = _cfg.get('cache', {}).get('ttl_seconds', 300)
+
         # Load configuration from environment or use defaults
         # Use env vars if available, otherwise fall back to reasonable defaults
-        self.text_model = text_model or self._get_env("LLM_TEXT_MODEL", "qwen3:latest")
-        self.vision_model = vision_model or self._get_env("LLM_VISION_MODEL", "qwen3-vl:latest")
-        self.base_url = base_url or self._get_env("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.timeout = int(self._get_env("LLM_TIMEOUT_SECONDS", str(timeout)))
+        _ollama_cfg = _cfg.get('ollama', {})
+        _default_timeout = _ollama_cfg.get('timeout_seconds', 30)
+        self.text_model = text_model or self._get_env("LLM_TEXT_MODEL", _ollama_cfg.get('text_model', "qwen3:latest"))
+        self.vision_model = vision_model or self._get_env("LLM_VISION_MODEL", _ollama_cfg.get('vision_model', "qwen3-vl:latest"))
+        self.base_url = base_url or self._get_env("OLLAMA_BASE_URL", _ollama_cfg.get('base_url', "http://localhost:11434"))
+        self.timeout = int(self._get_env("LLM_TIMEOUT_SECONDS", str(timeout if timeout is not None else _default_timeout)))
         self.enabled = enabled and self._get_env("LLM_ENABLED", "true").lower() == "true"
 
         # Availability tracking
@@ -132,8 +141,12 @@ class LLMService:
 
     def _get_env(self, key: str, default: str) -> str:
         """Get environment variable with default fallback."""
-        import os
         return os.environ.get(key, default)
+
+    @property
+    def _api(self):
+        """Return the Ollama client, preferring the explicit client instance."""
+        return self.client or ollama
 
     def _get_cache_key(self, prefix: str, content: str) -> str:
         """Generate cache key from content hash."""
@@ -184,10 +197,7 @@ class LLMService:
         # Perform health check
         try:
             # Try to list models - quick health check
-            if self.client:
-                response = self.client.list()
-            else:
-                response = (self.client or ollama).list()
+            response = self._api.list()
             self._available = True
             self._last_health_check = time.time()
             logger.debug("LLM service health check: OK")
@@ -231,7 +241,7 @@ class LLMService:
             return health
 
         try:
-            response = (self.client or ollama).list()
+            response = self._api.list()
 
             # Helper function to extract model name from various formats
             def get_model_name(m) -> str:
@@ -338,13 +348,13 @@ Important:
 - Return ONLY valid JSON, no explanation or markdown."""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
             )
 
-            result = self._clean_json(response['message']['content'])
+            result = parse_llm_json(response['message']['content']) or {}
 
             # Add confidence based on response quality
             if result:
@@ -442,13 +452,13 @@ Important:
 - Return ONLY valid JSON."""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
             )
 
-            result = self._clean_json(response['message']['content'])
+            result = parse_llm_json(response['message']['content']) or {}
 
             if result:
                 result['confidence'] = 0.85 if result.get('is_flood_related') else 0.5
@@ -548,7 +558,7 @@ Vehicle passability guidelines:
 Return ONLY valid JSON, no explanation."""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.vision_model,
                 messages=[{
                     'role': 'user',
@@ -558,7 +568,7 @@ Return ONLY valid JSON, no explanation."""
                 options={'timeout': self.timeout * 2}  # Vision takes longer
             )
 
-            result = self._clean_json(response['message']['content'])
+            result = parse_llm_json(response['message']['content']) or {}
 
             if result:
                 # Calculate confidence based on response completeness
@@ -671,13 +681,13 @@ Return JSON:
 Return ONLY valid JSON."""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
             )
 
-            result = self._clean_json(response['message']['content'])
+            result = parse_llm_json(response['message']['content']) or {}
 
             if result:
                 result['source'] = self.text_model
@@ -723,7 +733,7 @@ Return ONLY valid JSON."""
             return ""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.text_model,
                 messages=[{'role': 'user', 'content': prompt}],
                 options={'timeout': self.timeout}
@@ -760,10 +770,13 @@ Return ONLY valid JSON."""
             return ""
 
         try:
-            response = (self.client or ollama).chat(
+            response = self._api.chat(
                 model=self.text_model,
                 messages=messages,
-                options={'timeout': self.timeout}
+                options={
+                    'timeout': self.timeout,
+                    'num_predict': 512,  # Cap output tokens to prevent slow thinking runs
+                }
             )
 
             text = response['message']['content'].strip()
@@ -774,41 +787,6 @@ Return ONLY valid JSON."""
         except Exception as e:
             logger.error(f"LLM text_chat_multi failed: {e}")
             return ""
-
-    def _clean_json(self, content: str) -> Dict[str, Any]:
-        """
-        Helper to extract and parse JSON from LLM response.
-        Uses raw_decode to handle extra text after the JSON object.
-        """
-        if not content:
-            return {}
-
-        # Remove markdown code blocks
-        content = content.replace("```json", "").replace("```", "").strip()
-
-        # Find first '{'
-        start_idx = content.find('{')
-        if start_idx == -1:
-            return {}
-
-        try:
-            # raw_decode parses the first valid JSON object and ignores the rest
-            obj, _ = json.JSONDecoder().raw_decode(content, idx=start_idx)
-            return obj
-        except json.JSONDecodeError as e:
-            logger.debug(f"JSON raw_decode failed: {e}")
-            
-            # Fallback for edge cases (e.g. malformed json) without strict strictness
-            try:
-                end_idx = content.rfind('}') + 1
-                if end_idx > start_idx:
-                    json_str = content[start_idx:end_idx]
-                    return json.loads(json_str)
-            except Exception:
-                pass
-
-            logger.warning(f"JSON parse failed: {e}, content: {content[:100]}...")
-            return {}
 
     def clear_cache(self) -> int:
         """
@@ -823,7 +801,7 @@ Return ONLY valid JSON."""
         return count
 
 
-# Singleton instance
+# Singleton instance (reset on module reload)
 _llm_service: Optional[LLMService] = None
 
 

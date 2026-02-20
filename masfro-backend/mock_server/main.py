@@ -13,7 +13,7 @@ Usage:
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -67,6 +67,12 @@ async def root():
             "admin_scenario": "/admin/scenario/load",
         }
     }
+
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.on_event("startup")

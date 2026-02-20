@@ -30,9 +30,6 @@ async def social_feed():
         text = post.get("text", "")
         timestamp = post.get("timestamp", "")
         image_path = post.get("image_path", "")
-        replies = post.get("replies", "0")
-        retweets = post.get("retweets", "0")
-        likes = post.get("likes", "0")
 
         media_html = ""
         if image_path:
@@ -43,11 +40,6 @@ async def social_feed():
     <time class="timestamp" datetime="{timestamp}">{timestamp}</time>
     <div class="tweet-text">{text}</div>
     {media_html}
-    <div class="tweet-stats">
-        <span class="replies">{replies}</span>
-        <span class="retweets">{retweets}</span>
-        <span class="likes">{likes}</span>
-    </div>
 </article>
 """
 

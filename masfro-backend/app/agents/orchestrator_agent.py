@@ -33,6 +33,7 @@ from app.communication.acl_protocol import (
     create_request_message,
 )
 from app.communication.message_queue import MessageQueue
+from app.core.agent_config import OrchestratorConfig
 from app.core.llm_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class MissionState(str, Enum):
     AWAITING_ROUTING = "AWAITING_ROUTING"
     AWAITING_EVACUATION = "AWAITING_EVACUATION"
     AWAITING_RISK_QUERY = "AWAITING_RISK_QUERY"
+    AWAITING_SUB_MISSION = "AWAITING_SUB_MISSION"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
@@ -66,6 +68,7 @@ class OrchestratorAgent(BaseAgent):
     - coordinated_evacuation: EvacuationManager handles distress call
     - route_calculation: RoutingAgent calculates a route
     - cascade_risk_update: Flood -> Hazard (data refresh pipeline)
+    - multi_step: Sequential sub-missions (max 3 steps)
     """
 
     # Map agent roles to status method names for health reporting
@@ -74,7 +77,6 @@ class OrchestratorAgent(BaseAgent):
         "flood": "get_agent_stats",
         "routing": "get_statistics",
         "evacuation": "get_route_statistics",
-        "hazard": None,
     }
 
     def __init__(
@@ -103,13 +105,12 @@ class OrchestratorAgent(BaseAgent):
         self._config = self._load_config()
 
         # Mission tracking (thread-safe: accessed from MQ processing and API threads)
-        self._missions_lock = threading.Lock()
+        # RLock allows reentrant acquisition so _advance_mission can hold the lock
+        # while calling handlers that also acquire it for individual mutations
+        self._missions_lock = threading.RLock()
         self._missions: Dict[str, Dict[str, Any]] = {}
-        max_history = (
-            self._config.max_completed_history if self._config else 100
-        )
-        self._max_completed_history = max_history
-        self._completed_missions: deque = deque(maxlen=max_history)
+        self._max_completed_history = self._config.max_completed_history
+        self._completed_missions: deque = deque(maxlen=self._max_completed_history)
         self._completed_missions_index: Dict[str, Dict[str, Any]] = {}
 
         # Verify required agents
@@ -118,9 +119,9 @@ class OrchestratorAgent(BaseAgent):
             if role not in sub_agents:
                 logger.warning(f"Orchestrator missing '{role}' agent")
 
-        # Conversation history for multi-turn chat (capped at 20 turns)
+        # Conversation history for multi-turn chat
         self._chat_history: list = []
-        self._max_chat_turns = 20
+        self._max_chat_turns = self._config.max_chat_turns
 
         llm_status = "enabled" if self.llm_service else "disabled"
         logger.info(
@@ -128,8 +129,14 @@ class OrchestratorAgent(BaseAgent):
             f"agents: {list(sub_agents.keys())}, llm={llm_status}"
         )
 
-    def _load_config(self):
-        """Load orchestrator config from YAML."""
+    def reload_config(self) -> None:
+        """Hot-reload configuration from the singleton config loader."""
+        self._config = self._load_config()
+        self._max_chat_turns = self._config.max_chat_turns
+        logger.info(f"{self.agent_id} configuration reloaded")
+
+    def _load_config(self) -> OrchestratorConfig:
+        """Load orchestrator config from YAML (always returns a valid config)."""
         try:
             from app.core.agent_config import AgentConfigLoader
 
@@ -138,7 +145,7 @@ class OrchestratorAgent(BaseAgent):
             logger.warning(
                 f"Failed to load orchestrator config: {e}, using defaults"
             )
-            return None
+            return OrchestratorConfig()
 
     # ---------------------------------------------------------------
     # BaseAgent interface
@@ -267,13 +274,12 @@ class OrchestratorAgent(BaseAgent):
                     continue
                 elapsed = (now - mission["created_at"]).total_seconds()
                 if elapsed > mission["timeout_seconds"]:
-                    timed_out.append(mid)
+                    timed_out.append((mid, mission["state"], mission["type"]))
 
-        for mid in timed_out:
+        for mid, mstate, mtype in timed_out:
             logger.warning(
                 f"Mission {mid} timed out "
-                f"(state={self._missions[mid]['state']}, "
-                f"type={self._missions[mid]['type']})"
+                f"(state={mstate}, type={mtype})"
             )
             self._complete_mission(
                 mid, MissionState.TIMED_OUT, error="Mission timed out"
@@ -298,9 +304,7 @@ class OrchestratorAgent(BaseAgent):
             Dict with mission_id, type, state for tracking
         """
         with self._missions_lock:
-            max_concurrent = (
-                self._config.max_concurrent_missions if self._config else 10
-            )
+            max_concurrent = self._config.max_concurrent_missions
             if len(self._missions) >= max_concurrent:
                 return {
                     "status": "error",
@@ -323,6 +327,14 @@ class OrchestratorAgent(BaseAgent):
                 "error": None,
                 "completed_at": None,
             }
+
+            # Multi-step missions track sub-mission progress
+            if mission_type == "multi_step":
+                mission["steps"] = params.get("steps", [])
+                mission["current_step_index"] = 0
+                mission["step_mission_ids"] = []
+                mission["step_results"] = []
+
             self._missions[mission_id] = mission
 
         logger.info(
@@ -361,7 +373,7 @@ class OrchestratorAgent(BaseAgent):
                 {
                     "mission_id": m["id"],
                     "type": m["type"],
-                    "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
+                    "state": self._state_str(m["state"]),
                     "elapsed_seconds": round((
                         datetime.now() - m["created_at"]
                     ).total_seconds(), 1),
@@ -369,12 +381,17 @@ class OrchestratorAgent(BaseAgent):
                 for m in self._missions.values()
             ]
 
+    @staticmethod
+    def _state_str(state) -> str:
+        """Convert a MissionState (or string) to its string value."""
+        return state.value if isinstance(state, MissionState) else str(state)
+
     def _mission_to_dict(self, m: Dict[str, Any]) -> Dict[str, Any]:
         """Convert mission dict to API-friendly format."""
         return {
             "mission_id": m["id"],
             "type": m["type"],
-            "state": m["state"].value if isinstance(m["state"], MissionState) else str(m["state"]),
+            "state": self._state_str(m["state"]),
             "results": m["results"],
             "error": m["error"],
             "created_at": m["created_at"].isoformat(),
@@ -393,6 +410,7 @@ class OrchestratorAgent(BaseAgent):
         error: Optional[str] = None,
     ) -> None:
         """Move mission to a terminal state and archive it."""
+        parent_to_advance = None
         with self._missions_lock:
             mission = self._missions.get(mission_id)
             if not mission:
@@ -413,48 +431,77 @@ class OrchestratorAgent(BaseAgent):
 
             del self._missions[mission_id]
 
+            # Check if this sub-mission belongs to a multi_step parent
+            for mid, m in self._missions.items():
+                if (
+                    m["type"] == "multi_step"
+                    and mission_id in m.get("step_mission_ids", [])
+                ):
+                    step_idx = len(m["step_results"])
+                    m["step_results"].append({
+                        "mission_id": mission_id,
+                        "type": mission["type"],
+                        "state": self._state_str(state),
+                        "error": error,
+                    })
+                    m["results"][f"step_{step_idx}"] = mission["results"]
+                    parent_to_advance = mid
+                    break
+
         logger.info(
             f"Mission {mission_id} -> {state} "
             f"(type={mission['type']}, error={error})"
         )
 
+        # Advance the parent multi_step mission outside the lock
+        if parent_to_advance:
+            self._advance_mission(parent_to_advance)
+
     def _get_timeout(self, mission_type: str) -> float:
         """Get timeout for a mission type from config."""
-        if self._config:
-            timeouts = {
-                "assess_risk": self._config.assess_risk_timeout,
-                "coordinated_evacuation": self._config.evacuation_timeout,
-                "route_calculation": self._config.route_timeout,
-                "cascade_risk_update": self._config.cascade_timeout,
-            }
-            return timeouts.get(mission_type, self._config.default_timeout)
-        return 60.0
+        timeouts = {
+            "assess_risk": self._config.assess_risk_timeout,
+            "coordinated_evacuation": self._config.evacuation_timeout,
+            "route_calculation": self._config.route_timeout,
+            "cascade_risk_update": self._config.cascade_timeout,
+            "multi_step": self._config.multi_step_timeout,
+        }
+        return timeouts.get(mission_type, self._config.default_timeout)
 
     # ---------------------------------------------------------------
     # State machine advancement
     # ---------------------------------------------------------------
 
     def _advance_mission(self, mission_id: str) -> None:
-        """Route to the appropriate FSM handler based on mission type."""
-        mission = self._missions.get(mission_id)
-        if not mission:
-            return
+        """Route to the appropriate FSM handler based on mission type.
 
+        Holds the RLock for the entire handler execution so the full
+        state-machine transition is atomic. Sub-calls (e.g. _send_request,
+        _complete_mission) re-acquire the same RLock without deadlocking.
+        """
         handlers = {
             "assess_risk": self._advance_assess_risk,
             "coordinated_evacuation": self._advance_evacuation,
             "route_calculation": self._advance_route_calculation,
             "cascade_risk_update": self._advance_cascade_update,
+            "multi_step": self._advance_multi_step,
         }
-        handler = handlers.get(mission["type"])
-        if handler:
-            handler(mission)
-        else:
-            self._complete_mission(
-                mission_id,
-                MissionState.FAILED,
-                error=f"Unknown mission type: {mission['type']}",
-            )
+
+        with self._missions_lock:
+            mission = self._missions.get(mission_id)
+            if not mission:
+                return
+            mission_type = mission["type"]
+
+            handler = handlers.get(mission_type)
+            if handler:
+                handler(mission)
+            else:
+                self._complete_mission(
+                    mission_id,
+                    MissionState.FAILED,
+                    error=f"Unknown mission type: {mission_type}",
+                )
 
     def _advance_assess_risk(self, mission: Dict[str, Any]) -> None:
         """
@@ -466,33 +513,36 @@ class OrchestratorAgent(BaseAgent):
         After hazard processes data, queries current map risk at the location
         so the results include what's actually displayed on the map.
         """
-        mid = mission["id"]
-        state = mission["state"]
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
+            location = mission["params"].get("location")
+            scout_data = mission["results"].get("scout", {})
 
         if state == MissionState.PENDING:
-            location = mission["params"].get("location")
             if location:
                 self._send_request(
                     "scout", "scan_location", {"location": location}, mid
                 )
-                mission["state"] = MissionState.AWAITING_SCOUT
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_SCOUT
             else:
                 self._send_request("flood", "collect_data", {}, mid)
-                mission["state"] = MissionState.AWAITING_FLOOD
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_SCOUT:
             self._send_request("flood", "collect_data", {}, mid)
-            mission["state"] = MissionState.AWAITING_FLOOD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_FLOOD:
             self._send_request("hazard", "process_and_update", {}, mid)
-            mission["state"] = MissionState.AWAITING_HAZARD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_HAZARD
 
         elif state == MissionState.AWAITING_HAZARD:
             # After hazard updates the map, query the current risk at the location
-            location = mission["params"].get("location")
-            # Try to get coordinates from scout results
-            scout_data = mission["results"].get("scout", {})
             coords = scout_data.get("coordinates")
             if coords and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lat, lon = float(coords[0]), float(coords[1])
@@ -509,7 +559,8 @@ class OrchestratorAgent(BaseAgent):
                     {"lat": lat, "lon": lon, "radius_m": 500},
                     mid,
                 )
-                mission["state"] = MissionState.AWAITING_RISK_QUERY
+                with self._missions_lock:
+                    mission["state"] = MissionState.AWAITING_RISK_QUERY
             else:
                 self._complete_mission(mid, MissionState.COMPLETED)
 
@@ -521,12 +572,13 @@ class OrchestratorAgent(BaseAgent):
         coordinated_evacuation FSM:
         PENDING -> AWAITING_EVACUATION -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
-
-        if state == MissionState.PENDING:
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
             user_loc = mission["params"].get("user_location")
             message = mission["params"].get("message")
+
+        if state == MissionState.PENDING:
             if not user_loc or not message:
                 self._complete_mission(
                     mid,
@@ -540,7 +592,8 @@ class OrchestratorAgent(BaseAgent):
                 {"user_location": user_loc, "message": message},
                 mid,
             )
-            mission["state"] = MissionState.AWAITING_EVACUATION
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_EVACUATION
 
         elif state == MissionState.AWAITING_EVACUATION:
             self._complete_mission(mid, MissionState.COMPLETED)
@@ -550,12 +603,14 @@ class OrchestratorAgent(BaseAgent):
         route_calculation FSM:
         PENDING -> AWAITING_ROUTING -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
-
-        if state == MissionState.PENDING:
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
             start = mission["params"].get("start")
             end = mission["params"].get("end")
+            prefs = mission["params"].get("preferences", {})
+
+        if state == MissionState.PENDING:
             if not start or not end:
                 self._complete_mission(
                     mid,
@@ -563,14 +618,14 @@ class OrchestratorAgent(BaseAgent):
                     error="Missing 'start' or 'end' coordinates",
                 )
                 return
-            prefs = mission["params"].get("preferences", {})
             self._send_request(
                 "routing",
                 "calculate_route",
                 {"start": start, "end": end, "preferences": prefs},
                 mid,
             )
-            mission["state"] = MissionState.AWAITING_ROUTING
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_ROUTING
 
         elif state == MissionState.AWAITING_ROUTING:
             self._complete_mission(mid, MissionState.COMPLETED)
@@ -580,19 +635,101 @@ class OrchestratorAgent(BaseAgent):
         cascade_risk_update FSM:
         PENDING -> AWAITING_FLOOD -> AWAITING_HAZARD -> COMPLETED
         """
-        mid = mission["id"]
-        state = mission["state"]
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
 
         if state == MissionState.PENDING:
             self._send_request("flood", "collect_data", {}, mid)
-            mission["state"] = MissionState.AWAITING_FLOOD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_FLOOD
 
         elif state == MissionState.AWAITING_FLOOD:
             self._send_request("hazard", "process_and_update", {}, mid)
-            mission["state"] = MissionState.AWAITING_HAZARD
+            with self._missions_lock:
+                mission["state"] = MissionState.AWAITING_HAZARD
 
         elif state == MissionState.AWAITING_HAZARD:
             self._complete_mission(mid, MissionState.COMPLETED)
+
+    def _advance_multi_step(self, mission: Dict[str, Any]) -> None:
+        """
+        multi_step FSM:
+        PENDING -> launch step 0 -> AWAITING_SUB_MISSION
+        AWAITING_SUB_MISSION (step N done) -> launch step N+1 -> AWAITING_SUB_MISSION
+        AWAITING_SUB_MISSION (last step done) -> COMPLETED
+
+        Each step is a real sub-mission that runs through its own FSM.
+        """
+        with self._missions_lock:
+            mid = mission["id"]
+            state = mission["state"]
+            steps = mission.get("steps", [])
+            step_results = mission.get("step_results", [])
+            current_idx = len(step_results)  # Next step to launch
+
+        if state == MissionState.PENDING:
+            if not steps:
+                self._complete_mission(
+                    mid, MissionState.FAILED, error="No steps defined"
+                )
+                return
+            self._launch_step(mission, 0)
+
+        elif state == MissionState.AWAITING_SUB_MISSION:
+            # Check if the last sub-mission failed
+            if step_results and step_results[-1].get("state") in (
+                "FAILED", "TIMED_OUT"
+            ):
+                error_msg = step_results[-1].get("error", "Sub-mission failed")
+                self._complete_mission(
+                    mid, MissionState.FAILED,
+                    error=f"Step {current_idx - 1} failed: {error_msg}",
+                )
+                return
+
+            if current_idx >= len(steps):
+                # All steps completed
+                self._complete_mission(mid, MissionState.COMPLETED)
+            else:
+                # Launch next step
+                self._launch_step(mission, current_idx)
+
+    def _launch_step(
+        self, parent_mission: Dict[str, Any], step_index: int
+    ) -> None:
+        """Launch a sub-mission for a multi_step parent."""
+        steps = parent_mission.get("steps", [])
+        if step_index >= len(steps):
+            return
+
+        step = steps[step_index]
+        step_type = step.get("mission_type", "")
+        step_params = step.get("params", {})
+
+        # Fix params for this individual step
+        step_params = self._fix_params(step_type, step_params)
+
+        logger.info(
+            f"Multi-step mission {parent_mission['id']}: "
+            f"launching step {step_index} ({step_type})"
+        )
+
+        sub_result = self.start_mission(step_type, step_params)
+        sub_mission_id = sub_result.get("mission_id")
+
+        if sub_mission_id:
+            with self._missions_lock:
+                parent_mission["step_mission_ids"].append(sub_mission_id)
+                parent_mission["current_step_index"] = step_index
+                parent_mission["state"] = MissionState.AWAITING_SUB_MISSION
+        else:
+            # Sub-mission creation failed
+            error = sub_result.get("message", "Failed to create sub-mission")
+            self._complete_mission(
+                parent_mission["id"], MissionState.FAILED,
+                error=f"Step {step_index} failed to start: {error}",
+            )
 
     # ---------------------------------------------------------------
     # MQ helpers
@@ -680,20 +817,35 @@ class OrchestratorAgent(BaseAgent):
     ) -> tuple:
         """
         Convert a location name to (lat, lon) using known barangay list.
+        Uses scored matching to prevent false positives (e.g. "Paragua" matching "Parang").
         Returns (None, None) if not found.
         """
         loc_lower = location.lower().strip()
-        # Try direct match
-        for name, coords in self._BARANGAY_COORDS.items():
-            if name in loc_lower or loc_lower in name:
-                return coords
-        # Remove common prefixes
+
+        # Strip common prefixes first
         for prefix in ("barangay ", "brgy. ", "brgy "):
             if loc_lower.startswith(prefix):
-                stripped = loc_lower[len(prefix):]
-                for name, coords in self._BARANGAY_COORDS.items():
-                    if name in stripped or stripped in name:
-                        return coords
+                loc_lower = loc_lower[len(prefix):]
+                break
+
+        # Try exact match first
+        if loc_lower in self._BARANGAY_COORDS:
+            return self._BARANGAY_COORDS[loc_lower]
+
+        # Scored substring matching — require > 50% overlap
+        best_score = 0.0
+        best_coords = (None, None)
+        for name, coords in self._BARANGAY_COORDS.items():
+            if name in loc_lower or loc_lower in name:
+                # Score by how much of the query the match covers
+                score = len(name) / max(len(loc_lower), 1)
+                if score > best_score:
+                    best_score = score
+                    best_coords = coords
+
+        if best_score > self._config.location_match_threshold:
+            return best_coords
+
         return (None, None)
 
     # ---------------------------------------------------------------
@@ -758,6 +910,25 @@ Available mission types:
 4. "cascade_risk_update" - Refresh flood data and recalculate hazard risk scores across the map.
    No required params.
 
+5. "needs_clarification" - The user's request is missing critical information you need.
+   Required: "question" (string, a short follow-up question to ask the user)
+   Use when:
+   - Route requested but no start point and no map pin context
+   - Ambiguous location (e.g. "Concepcion" could be Uno or Dos)
+   - Evacuation requested but no location and no map pin
+   DO NOT use this if you can infer from conversation history or map pin context.
+
+6. "multi_step" - The request needs multiple sequential operations.
+   Required: "steps" (array of mission objects, each with "mission_type" and "params")
+   Maximum 3 steps. Order matters - earlier steps inform later ones.
+   Examples:
+   - "Is it safe to go from Tumana to Concepcion?" ->
+     [{"mission_type": "assess_risk", "params": {"location": "Tumana"}},
+      {"mission_type": "route_calculation", "params": {"start": [14.6608,121.1004], "end": [14.6416,121.0978]}}]
+   - "Check risk then route me to Nangka" ->
+     [{"mission_type": "assess_risk", "params": {"location": "Nangka"}},
+      {"mission_type": "route_calculation", "params": {"start": ..., "end": [14.6568,121.1107]}}]
+
 Marikina City reference coordinates:
 - City center: [14.6507, 121.1029]
 - Barangay Tumana: [14.6608, 121.1004]
@@ -773,13 +944,19 @@ If the user asks to go somewhere or needs a route, use "route_calculation".
 If the user is in danger or needs evacuation, use "coordinated_evacuation".
 If the user asks to refresh or update data, use "cascade_risk_update".
 If the user references something from a previous message (like "there", "that place", "same route"), use the conversation history to resolve what they mean.
+If the user asks about safety of traveling between places, or asks to check then route, use "multi_step" to combine assess_risk and route_calculation.
+
+ROBUSTNESS: If mission_type would be "none", "unknown", "general", or any non-standard type, use "off_topic" instead.
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {
-  "mission_type": "<one of the 4 types or off_topic>",
+  "mission_type": "<one of the 6 types, or off_topic>",
   "params": { ... },
   "reasoning": "<1-sentence explanation of your choice>"
-}"""
+}
+
+For multi_step, respond with:
+{"mission_type": "multi_step", "steps": [...], "reasoning": "..."}"""
 
     def interpret_request(
         self, user_message: str, user_location: Optional[Dict[str, float]] = None
@@ -826,7 +1003,8 @@ Respond with ONLY valid JSON (no markdown, no explanation):
                     "[USER CONTEXT: I have not set a location pin on the map. "
                     "If I ask for a route and I specify both start and end locations in my message, "
                     "proceed normally. But if I only mention a destination without a start point, "
-                    "respond as off_topic with reasoning telling me to set my location on the map first.]"
+                    "use needs_clarification to ask where I want to start from, "
+                    "or suggest I set my location pin on the map.]"
                 )
             augmented_message = f"{location_context}\n\n{user_message}"
             messages.append({"role": "user", "content": augmented_message})
@@ -863,6 +1041,34 @@ Respond with ONLY valid JSON (no markdown, no explanation):
                     "message": reasoning,
                 }
 
+            # Handle clarification requests
+            if mission_type == "needs_clarification":
+                question = parsed.get("question", "Could you provide more details?")
+                self._append_to_history(user_message, raw_response)
+                return {
+                    "status": "needs_clarification",
+                    "message": question,
+                    "reasoning": parsed.get("reasoning", ""),
+                }
+
+            # Handle multi-step missions
+            if mission_type == "multi_step":
+                steps = parsed.get("steps", [])
+                if not steps or not isinstance(steps, list):
+                    self._append_to_history(user_message, raw_response)
+                    return {
+                        "status": "off_topic",
+                        "message": "I couldn't break that request into steps. Could you rephrase?",
+                    }
+                steps = steps[:3]  # Cap at 3 steps
+                self._append_to_history(user_message, raw_response)
+                return {
+                    "status": "ok",
+                    "mission_type": "multi_step",
+                    "params": {"steps": steps},
+                    "reasoning": parsed.get("reasoning", ""),
+                }
+
             valid_types = {
                 "assess_risk",
                 "coordinated_evacuation",
@@ -870,10 +1076,16 @@ Respond with ONLY valid JSON (no markdown, no explanation):
                 "cascade_risk_update",
             }
             if mission_type not in valid_types:
+                # Normalize unknown types to off_topic instead of erroring
+                logger.warning(
+                    f"LLM returned unknown mission type '{mission_type}', "
+                    f"normalizing to off_topic"
+                )
+                self._append_to_history(user_message, raw_response)
+                reasoning = parsed.get("reasoning", "I'm not sure how to handle that request.")
                 return {
-                    "status": "error",
-                    "message": f"LLM chose invalid mission type: {mission_type}",
-                    "raw_response": raw_response[:500],
+                    "status": "off_topic",
+                    "message": reasoning,
                 }
 
             # Save successful exchange to history
@@ -925,6 +1137,21 @@ Rules:
 Mission data:
 """
 
+    _SUMMARIZE_MULTI_STEP_PROMPT = """You are the AI assistant for a flood routing system in Marikina City.
+The user's request required multiple steps. Summarize ALL step results together
+as a coherent 3-5 sentence response combining risk assessment, routing, and/or
+evacuation findings. Keep it conversational, like a helpful navigation assistant.
+
+Rules:
+- Combine findings from all steps into one unified answer.
+- For risk + route combos: lead with the risk situation, then describe the route.
+- Mention specific numbers: distance, risk levels, warnings.
+- If any step failed, mention what went wrong but still summarize what succeeded.
+- Do NOT describe JSON structure. Just give the user useful information.
+
+Multi-step mission data:
+"""
+
     def summarize_mission(self, mission_id: str) -> Dict[str, Any]:
         """
         Use LLM to generate a human-readable summary of a mission.
@@ -957,7 +1184,13 @@ Mission data:
                     if isinstance(route, dict) and isinstance(route.get("path"), list):
                         path = route["path"]
                         route["path"] = f"[{len(path)} coordinate points]"
-            prompt = self._SUMMARIZE_PROMPT + json.dumps(trimmed, indent=2)
+
+            # Choose prompt based on mission type
+            if mission_data.get("type") == "multi_step":
+                base_prompt = self._SUMMARIZE_MULTI_STEP_PROMPT
+            else:
+                base_prompt = self._SUMMARIZE_PROMPT
+            prompt = base_prompt + json.dumps(trimmed, indent=2)
             raw_response = self.llm_service.text_chat(prompt)
 
             if raw_response:
@@ -1006,6 +1239,14 @@ Mission data:
                 "mission": None,
             }
 
+        if interpretation.get("status") == "needs_clarification":
+            return {
+                "status": "needs_clarification",
+                "interpretation": interpretation,
+                "mission": None,
+                "message": interpretation.get("message", "Could you provide more details?"),
+            }
+
         if interpretation.get("status") != "ok":
             return {
                 "status": "error",
@@ -1014,11 +1255,15 @@ Mission data:
             }
 
         # Fix common LLM param formatting issues
-        params = self._fix_params(
-            interpretation["mission_type"],
-            interpretation["params"],
-            user_location=user_location,
-        )
+        # Skip _fix_params for multi_step — each sub-step gets fixed when launched
+        if interpretation["mission_type"] == "multi_step":
+            params = interpretation["params"]
+        else:
+            params = self._fix_params(
+                interpretation["mission_type"],
+                interpretation["params"],
+                user_location=user_location,
+            )
         interpretation["params"] = params
 
         mission_result = self.start_mission(

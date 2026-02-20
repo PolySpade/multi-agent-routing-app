@@ -17,7 +17,7 @@ Date: November 2025
 import networkx as nx
 from typing import List, Tuple, Dict, Any, Optional
 import logging
-from .risk_aware_astar import risk_aware_astar, calculate_path_metrics
+from .risk_aware_astar import risk_aware_astar, calculate_path_metrics, haversine_distance
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,7 @@ def find_k_shortest_paths(
     graph: nx.MultiDiGraph,
     start: Any,
     end: Any,
-    k: int = 3,
-    risk_weight: float = 0.5,
-    distance_weight: float = 0.5
+    k: int = 3
 ) -> List[Dict[str, Any]]:
     """
     Find k alternative paths between start and end.
@@ -41,8 +39,6 @@ def find_k_shortest_paths(
         start: Start node ID
         end: End node ID
         k: Number of alternative paths to find
-        risk_weight: Weight for risk in path cost
-        distance_weight: Weight for distance in path cost
 
     Returns:
         List of path dictionaries sorted by total cost
@@ -190,7 +186,7 @@ def optimize_evacuation_route(
 def _find_nearest_node(
     graph: nx.MultiDiGraph,
     coords: Tuple[float, float],
-    max_distance: float = 500.0
+    max_distance: Optional[float] = None
 ) -> Optional[Any]:
     """
     Find nearest graph node to given coordinates using OSMnx spatial index.
@@ -200,13 +196,16 @@ def _find_nearest_node(
     Args:
         graph: Road network graph
         coords: Target coordinates (lat, lon)
-        max_distance: Maximum search distance in meters
+        max_distance: Maximum search distance in meters (default: from config)
 
     Returns:
         Nearest node ID or None if none found within max_distance
     """
+    if max_distance is None:
+        from app.core.agent_config import AgentConfigLoader
+        max_distance = AgentConfigLoader().get_routing_config().max_node_distance_m
+
     import osmnx as ox
-    from .risk_aware_astar import haversine_distance
 
     target_lat, target_lon = coords
 
@@ -274,10 +273,12 @@ def _calculate_evacuation_score(
     capacity_score = 1.0 / (center.get("capacity", 100) / 100)  # Prefer high capacity
 
     # Weighted combination (prioritize safety and distance)
+    from app.core.agent_config import AgentConfigLoader
+    _algo_config = AgentConfigLoader().get_algorithms_config()
     score = (
-        distance_score * 0.4 +
-        risk_score * 0.5 +
-        capacity_score * 0.1
+        distance_score * _algo_config.evac_weight_distance +
+        risk_score * _algo_config.evac_weight_risk +
+        capacity_score * _algo_config.evac_weight_capacity
     )
 
     return score
